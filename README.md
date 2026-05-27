@@ -1,6 +1,6 @@
-# NeoBnB 🏡
+# NextBnB 🏡
 
-NeoBnB is a modern full-stack Airbnb clone built with a refreshed UI and improved developer architecture.  
+NextBnb is a modern full-stack Airbnb clone built with a refreshed UI and improved developer architecture.  
 It allows users to browse, create, and manage property listings with authentication, image uploads, booking features, and responsive design.
 
 ## 🚀 Features
