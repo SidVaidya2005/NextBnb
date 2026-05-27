@@ -46,7 +46,7 @@ Layered. Each layer has a single responsibility:
 
 **No `express-async-errors`, no `express-session`.** Async errors flow through the explicit `asyncHandler` wrapper. Passport OAuth runs with `{ session: false }`; CSRF/state rides in the OAuth `state` query param. Don't add either dep back without revisiting the plan.
 
-**Auth flow.** OAuth (Google + GitHub via Passport) hits `/auth/<provider>` → callback issues a JWT via `services/authService.signToken` → redirects to `${FRONTEND_URL}/oauth?token=...`. The frontend stashes the JWT in `localStorage` under `neobnb.token` (see `frontend/src/api/client.ts`) and the axios request interceptor attaches it as `Authorization: Bearer <jwt>`. `middleware/auth.requireAuth` decodes the JWT on protected routes.
+**Auth flow.** OAuth (Google + GitHub via Passport) hits `/auth/<provider>` → callback issues a JWT via `services/authService.signToken` → redirects to `${FRONTEND_URL}/oauth?token=...`. The frontend stashes the JWT in `localStorage` under `nextbnb.token` (see `frontend/src/api/client.ts`) and the axios request interceptor attaches it as `Authorization: Bearer <jwt>`. `middleware/auth.requireAuth` decodes the JWT on protected routes.
 
 ## Frontend architecture
 

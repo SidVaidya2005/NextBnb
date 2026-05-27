@@ -46,7 +46,7 @@ It allows users to browse, create, and manage property listings with authenticat
 ## 📂 Project Structure
 
 ```bash
-NeoBnB/
+NextBnb/
 ├── frontend/                 # Vite + React + TypeScript + Tailwind
 │   └── src/
 │       ├── api/              # Axios + React Query data layer
@@ -82,8 +82,8 @@ This is an npm workspaces monorepo: a single `npm install` at the root installs 
 ### Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/neobnb.git
-cd neobnb
+git clone https://github.com/yourusername/nextbnb.git
+cd nextbnb
 ```
 
 ### Install dependencies (installs both workspaces)

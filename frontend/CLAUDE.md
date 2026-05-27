@@ -28,7 +28,7 @@ Vite + React 18 + TypeScript + Tailwind v3 + Axios + React Query + React Router.
 - Config lives in `vitest.config.ts`, **not** in `vite.config.ts`'s `test` block (the block is silently ignored when running `vitest`).
 - `happy-dom` environment, not `jsdom`. Node 22+ ships an experimental `globalThis.localStorage` that masks the DOM one — `src/test/setup.ts` installs a `MemoryStorage` shim to fix it. Don't remove the shim.
 - Render through `MemoryRouter` + `QueryClientProvider` + `AuthProvider` (see `App.test.tsx` for the harness shape).
-- Header has two links containing "NeoBnB": the wordmark (`aria-label="NeoBnB"`) and the "NeoBnB your home" host CTA. Tests querying the brand must use exact `getByRole('link', { name: 'NeoBnB' })`, not a `/neobnb/i` regex (it matches both).
+- Header has two links containing "NextBnb": the wordmark (`aria-label="NextBnb"`) and the "NextBnb your home" host CTA. Tests querying the brand must use exact `getByRole('link', { name: 'NextBnb' })`, not a `/nextbnb/i` regex (it matches both).
 
 ## Build
 

@@ -1,6 +1,6 @@
-import axios from 'axios';
+import axios from "axios";
 
-export const TOKEN_KEY = 'neobnb.token';
+export const TOKEN_KEY = "nextbnb.token";
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -19,7 +19,7 @@ apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err?.response?.status === 401) {
-      console.warn('401 from API:', err.response.config?.url);
+      console.warn("401 from API:", err.response.config?.url);
     }
     return Promise.reject(err);
   },
