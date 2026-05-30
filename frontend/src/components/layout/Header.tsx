@@ -36,12 +36,6 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-xs">
-          <Link
-            to="/listings/new"
-            className="hidden rounded-full px-md py-sm t-button-sm text-ink hover:bg-surface-soft md:inline-block"
-          >
-            NextBnb your home
-          </Link>
           <button
             type="button"
             aria-label="Choose a language"

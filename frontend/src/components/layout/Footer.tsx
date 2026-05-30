@@ -79,10 +79,10 @@ export function Footer() {
               className="inline-flex items-center gap-2 t-caption hover:underline"
             >
               <Globe size={16} />
-              English (US)
+              English (IN)
             </button>
             <button type="button" className="t-caption hover:underline">
-              $ USD
+              ₹ INR
             </button>
             <div className="flex items-center gap-md">
               <a href="#" aria-label="Facebook" className="hover:opacity-80">

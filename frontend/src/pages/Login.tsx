@@ -1,6 +1,5 @@
 import { Container } from "../components/layout/Container";
 import { GoogleLoginButton } from "../components/auth/GoogleLoginButton";
-import { GitHubLoginButton } from "../components/auth/GitHubLoginButton";
 
 export function Login() {
   return (
@@ -12,7 +11,6 @@ export function Login() {
         </p>
         <div className="flex w-full flex-col gap-md">
           <GoogleLoginButton />
-          <GitHubLoginButton />
         </div>
       </div>
     </Container>

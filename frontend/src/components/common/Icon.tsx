@@ -242,16 +242,3 @@ export function ServicesIcon({ size = 32, ...rest }: IconProps) {
   );
 }
 
-/* --- Legacy export retained to avoid breaking unrelated imports. --- */
-
-export function Search(props: IconProps) {
-  return <MagnifyingGlass {...props} />;
-}
-
-export function Bag(props: IconProps) {
-  return <HeartOutline {...props} />;
-}
-
-export function AppleGlyph(props: IconProps) {
-  return <Hamburger {...props} />;
-}
