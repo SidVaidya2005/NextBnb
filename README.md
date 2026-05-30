@@ -1,7 +1,6 @@
-# NextBnB 🏡
+# NextBnB
 
-NextBnb is a modern full-stack Airbnb clone built with a refreshed UI and improved developer architecture.  
-It allows users to browse, create, and manage property listings with authentication, image uploads, booking features, and responsive design.
+NextBnb is a modern full-stack Airbnb clone built with a refreshed UI. It allows users to browse, create, and manage property listings with authentication, image uploads, booking features, and responsive design.
 
 ## 🚀 Features
 
@@ -12,7 +11,7 @@ It allows users to browse, create, and manage property listings with authenticat
 - 💳 Booking System
 - ❤️ Wishlist / Favorites
 - 📱 Fully Responsive UI
-- 🌙 Airbnb-style design system ([`Design.md`](./Design.md)) — Rausch #ff385c accent, white canvas, Inter typography
+- 🌙 Airbnb-style design system
 - ⚡ Fast Performance
 
 ## 🛠 Tech Stack
