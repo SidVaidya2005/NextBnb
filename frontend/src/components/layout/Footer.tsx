@@ -5,35 +5,17 @@ const columns: { heading: string; links: string[] }[] = [
     heading: "Support",
     links: [
       "Help Center",
-      "Get help with a safety issue",
-      "AirCover",
-      "Anti-discrimination",
-      "Disability support",
       "Cancellation options",
       "Report neighborhood concern",
     ],
   },
   {
     heading: "Hosting",
-    links: [
-      "NextBnb your home",
-      "AirCover for Hosts",
-      "Hosting resources",
-      "Community forum",
-      "Hosting responsibly",
-      "Join a free Hosting class",
-    ],
+    links: ["NextBnb your home", "Hosting resources", "Hosting responsibly"],
   },
   {
-    heading: "NextBnb",
-    links: [
-      "Newsroom",
-      "New features",
-      "Careers",
-      "Investors",
-      "Gift cards",
-      "NextBnb.org emergency stays",
-    ],
+    heading: "Contact Me",
+    links: ["Github", "Email", "Contact No."],
   },
 ];
 
@@ -60,18 +42,7 @@ export function Footer() {
 
         <div className="flex flex-col gap-md border-t border-hairline pt-lg sm:flex-row sm:items-center sm:justify-between">
           <div className="t-caption-sm text-ink-muted">
-            © {new Date().getFullYear()} NextBnb, Inc. ·{" "}
-            <a href="#" className="hover:underline">
-              Terms
-            </a>{" "}
-            ·{" "}
-            <a href="#" className="hover:underline">
-              Sitemap
-            </a>{" "}
-            ·{" "}
-            <a href="#" className="hover:underline">
-              Privacy
-            </a>
+            © {new Date().getFullYear()} NextBnb, Inc.
           </div>
           <div className="flex items-center gap-lg text-ink">
             <button

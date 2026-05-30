@@ -1,16 +1,15 @@
-import { MagnifyingGlass } from '../common/Icon';
+import { MagnifyingGlass } from "../common/Icon";
 
 const segments = [
-  { label: 'Where', placeholder: 'Search destinations' },
-  { label: 'Check in', placeholder: 'Add dates' },
-  { label: 'Check out', placeholder: 'Add dates' },
-  { label: 'Who', placeholder: 'Add guests' },
+  { label: "Where", placeholder: "Search destinations" },
+  { label: "When", placeholder: "Add dates" },
+  { label: "Who", placeholder: "Add guests" },
 ];
 
 /* The signature global search bar. White surface, pill-shaped, 1px hairline
  * dividers between segments, terminated by the circular Rausch search orb.
  * Visual shell only — clicking does not open a search overlay yet. */
-export function SearchBarPill({ className = '' }: { className?: string }) {
+export function SearchBarPill({ className = "" }: { className?: string }) {
   return (
     <div
       className={`inline-flex h-16 items-stretch rounded-full border border-hairline bg-surface-canvas shadow-card-soft ${className}`}
@@ -20,7 +19,7 @@ export function SearchBarPill({ className = '' }: { className?: string }) {
           key={seg.label}
           type="button"
           className={`group relative flex flex-col justify-center px-6 text-left transition-colors hover:bg-surface-soft first:rounded-l-full ${
-            idx === segments.length - 1 ? 'pr-3' : ''
+            idx === segments.length - 1 ? "pr-3" : ""
           }`}
         >
           <span className="t-uppercase-tag text-ink">{seg.label}</span>

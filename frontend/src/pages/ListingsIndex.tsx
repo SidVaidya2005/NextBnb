@@ -1,27 +1,22 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { listListings } from '../api/listings';
-import { Container } from '../components/layout/Container';
-import { ListingGrid } from '../components/listings/ListingGrid';
-import { CityLinkGrid } from '../components/listings/CityLinkGrid';
-import { SearchBarPill } from '../components/search/SearchBarPill';
-import { EmptyState } from '../components/states/EmptyState';
-import { LoadingState } from '../components/states/LoadingState';
-import { ErrorState } from '../components/states/ErrorState';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { listListings } from "../api/listings";
+import { Container } from "../components/layout/Container";
+import { ListingGrid } from "../components/listings/ListingGrid";
+import { CityLinkGrid } from "../components/listings/CityLinkGrid";
+import { SearchBarPill } from "../components/search/SearchBarPill";
+import { EmptyState } from "../components/states/EmptyState";
+import { LoadingState } from "../components/states/LoadingState";
+import { ErrorState } from "../components/states/ErrorState";
 
 const CATEGORIES = [
-  'Cabins',
-  'Beachfront',
-  'Trending',
-  'Iconic cities',
-  'Tropical',
-  'Lakefront',
-  'Tiny homes',
-  'Treehouses',
-  'Countryside',
-  'Mansions',
-  'Castles',
-  'Off-the-grid',
+  "Villas",
+  "Beachfront",
+  "Cabins & Treehouses",
+  "Top Cities",
+  "Lakefront",
+  "Tiny Homes",
+  "Nature",
 ];
 
 function CategoryStrip() {
@@ -29,7 +24,7 @@ function CategoryStrip() {
   return (
     <nav
       aria-label="Browse categories"
-      className="flex gap-xl overflow-x-auto border-b border-hairline py-md"
+      className="flex gap-xl overflow-x-auto border-b border-hairline py-md md:justify-center md:gap-2xl"
     >
       {CATEGORIES.map((cat) => {
         const isActive = cat === active;
@@ -39,7 +34,7 @@ function CategoryStrip() {
             type="button"
             onClick={() => setActive(cat)}
             className={`relative shrink-0 pb-3 t-caption transition-colors ${
-              isActive ? 'text-ink' : 'text-ink-muted hover:text-ink'
+              isActive ? "text-ink" : "text-ink-muted hover:text-ink"
             }`}
           >
             {cat}
@@ -55,7 +50,7 @@ function CategoryStrip() {
 
 export function ListingsIndex() {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['listings'],
+    queryKey: ["listings"],
     queryFn: listListings,
   });
 
@@ -71,7 +66,12 @@ export function ListingsIndex() {
         <h1 className="t-display-xl mb-xl">Inspiration for future getaways</h1>
 
         {isLoading && <LoadingState label="Loading stays…" />}
-        {isError && <ErrorState message="Could not load stays." onRetry={() => refetch()} />}
+        {isError && (
+          <ErrorState
+            message="Could not load stays."
+            onRetry={() => refetch()}
+          />
+        )}
         {data &&
           (data.length === 0 ? (
             <EmptyState title="No stays yet." body="Be the first to add one." />

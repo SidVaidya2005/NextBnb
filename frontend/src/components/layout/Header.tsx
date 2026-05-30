@@ -36,13 +36,6 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-xs">
-          <button
-            type="button"
-            aria-label="Choose a language"
-            className="hidden rounded-full p-md text-ink hover:bg-surface-soft md:inline-flex"
-          >
-            <Globe size={16} />
-          </button>
           {isAuthenticated ? (
             <div className="flex items-center gap-sm rounded-full border border-hairline px-md py-1.5 hover:shadow-card-soft">
               <Hamburger size={16} className="text-ink" />
