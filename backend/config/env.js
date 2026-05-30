@@ -1,9 +1,15 @@
 require('dotenv').config();
 
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+if (!process.env.JWT_SECRET && NODE_ENV !== 'test') {
+  throw new Error('JWT_SECRET is required — set it in backend/.env');
+}
+
 const env = {
   PORT: parseInt(process.env.PORT, 10) || 8080,
   MONGO_URI: process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/wanderlust',
-  JWT_SECRET: process.env.JWT_SECRET || 'dev-only-change-me',
+  JWT_SECRET: process.env.JWT_SECRET || 'test-only-secret',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
@@ -16,7 +22,7 @@ const env = {
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || '',
-  NODE_ENV: process.env.NODE_ENV || 'development',
+  NODE_ENV,
 };
 
 module.exports = env;

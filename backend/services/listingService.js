@@ -20,10 +20,12 @@ async function create(data) {
 }
 
 async function update(id, data) {
-  const listing = await Listing.findByIdAndUpdate(id, data, { new: true, runValidators: true });
+  const listing = await Listing.findById(id);
   if (!listing) {
     throw new ApiError(404, 'Listing not found');
   }
+  Object.assign(listing, data);
+  await listing.save();
   return listing;
 }
 
