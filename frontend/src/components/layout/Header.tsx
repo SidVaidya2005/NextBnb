@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { Globe, Hamburger, UserCircle } from "../common/Icon";
+import { Hamburger, UserCircle } from "../common/Icon";
 import { ProductTabs } from "./ProductTabs";
 
 /* White 80px global nav. Wordmark left, centered ProductTabs, right cluster
