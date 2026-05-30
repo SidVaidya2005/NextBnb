@@ -60,6 +60,12 @@ describe('listingService', () => {
         status: 404,
       });
     });
+
+    it('coerces empty image to the default URL', async () => {
+      const created = await Listing.create({ title: 'Has image', price: 10, image: 'http://x/y.jpg' });
+      const updated = await listingService.update(created.id, { image: '' });
+      expect(updated.image).toBe(Listing.DEFAULT_IMAGE);
+    });
   });
 
   describe('remove', () => {
