@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom/vitest';
+import "@testing-library/jest-dom/vitest";
 
 // Node 22+ exposes an experimental globalThis.localStorage backed by a missing file,
 // which masks the DOM implementation. Provide a minimal Storage shim so component code
@@ -26,13 +26,13 @@ class MemoryStorage implements Storage {
 }
 
 const memoryStorage = new MemoryStorage();
-Object.defineProperty(globalThis, 'localStorage', {
+Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   writable: true,
   value: memoryStorage,
 });
-if (typeof window !== 'undefined') {
-  Object.defineProperty(window, 'localStorage', {
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "localStorage", {
     configurable: true,
     writable: true,
     value: memoryStorage,
