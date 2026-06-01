@@ -1,11 +1,17 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { AuthProvider } from '../../context/AuthContext';
-import { ProtectedRoute } from './ProtectedRoute';
-import { TOKEN_KEY } from '../../api/client';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "../../context/AuthContext";
+import { ProtectedRoute } from "./ProtectedRoute";
+import { TOKEN_KEY } from "../../api/client";
 
-function Harness({ initialPath = '/protected' }: { initialPath?: string }) {
+vi.mock("../../api/auth", () => ({
+  fetchMe: vi
+    .fn()
+    .mockResolvedValue({ _id: "u1", provider: "google", name: "Ada" }),
+}));
+
+function Harness({ initialPath = "/protected" }: { initialPath?: string }) {
   return (
     <MemoryRouter initialEntries={[initialPath]}>
       <AuthProvider>
@@ -20,15 +26,21 @@ function Harness({ initialPath = '/protected' }: { initialPath?: string }) {
   );
 }
 
-describe('<ProtectedRoute />', () => {
+describe("<ProtectedRoute />", () => {
   beforeEach(() => {
     localStorage.removeItem(TOKEN_KEY);
   });
 
-  it('redirects to /login when no token is set', () => {
+  it("redirects to /login when no token is set", () => {
     render(<Harness />);
-    expect(screen.getByText('login page')).toBeInTheDocument();
+    expect(screen.getByText("login page")).toBeInTheDocument();
   });
 
-  it.todo('renders children when authenticated');
+  it("renders children when authenticated", async () => {
+    localStorage.setItem(TOKEN_KEY, "valid-token");
+    render(<Harness />);
+    await waitFor(() => {
+      expect(screen.getByText("secret content")).toBeInTheDocument();
+    });
+  });
 });
