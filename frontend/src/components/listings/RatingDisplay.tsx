@@ -1,4 +1,4 @@
-import { LaurelLeft, LaurelRight } from '../common/Icon';
+import { LaurelLeft, LaurelRight } from "../common/Icon";
 
 interface Props {
   rating: number;

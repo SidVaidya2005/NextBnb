@@ -1,6 +1,6 @@
-import { Spinner } from '../common/Spinner';
+import { Spinner } from "../common/Spinner";
 
-export function LoadingState({ label = 'Loading…' }: { label?: string }) {
+export function LoadingState({ label = "Loading…" }: { label?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-md py-xxl text-ink-muted">
       <Spinner />

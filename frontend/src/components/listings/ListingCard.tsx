@@ -1,9 +1,9 @@
-import { Link } from 'react-router-dom';
-import type { Listing } from '../../types/Listing';
-import { deriveListingMeta } from '../../lib/listingMeta';
-import { Star } from '../common/Icon';
-import { GuestFavoriteBadge } from './GuestFavoriteBadge';
-import { HeartButton } from './HeartButton';
+import { Link } from "react-router-dom";
+import type { Listing } from "../../types/Listing";
+import { deriveListingMeta } from "../../lib/listingMeta";
+import { Star } from "../common/Icon";
+import { GuestFavoriteBadge } from "./GuestFavoriteBadge";
+import { HeartButton } from "./HeartButton";
 
 interface Props {
   listing: Listing;
@@ -15,7 +15,8 @@ interface Props {
 export function ListingCard({ listing }: Props) {
   const meta = deriveListingMeta(listing);
   const location =
-    [listing.location, listing.country].filter(Boolean).join(', ') || 'A place to stay';
+    [listing.location, listing.country].filter(Boolean).join(", ") ||
+    "A place to stay";
 
   return (
     <Link to={`/listings/${listing._id}`} className="group block">
@@ -45,7 +46,10 @@ export function ListingCard({ listing }: Props) {
         <p className="t-body-sm text-ink-muted truncate">{listing.title}</p>
         <p className="t-body-sm text-ink-muted">{meta.dates}</p>
         <p className="t-body-sm text-ink">
-          <span className="font-semibold">₹{listing.price.toLocaleString('en-IN')}</span> night
+          <span className="font-semibold">
+            ₹{listing.price.toLocaleString("en-IN")}
+          </span>{" "}
+          night
         </p>
       </article>
     </Link>
