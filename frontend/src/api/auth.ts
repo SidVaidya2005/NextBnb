@@ -6,10 +6,6 @@ export async function fetchMe(): Promise<User> {
   return data;
 }
 
-export async function logout(): Promise<void> {
-  await apiClient.post("/auth/logout");
-}
-
 export function googleLoginUrl(): string {
   return `${import.meta.env.VITE_API_BASE_URL}/auth/google`;
 }

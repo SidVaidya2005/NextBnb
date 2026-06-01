@@ -32,7 +32,7 @@ describe("<App />", () => {
 
   it("shows a login link when signed out", () => {
     renderApp();
-    expect(screen.getByRole("button", { name: /log in/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /sign in/i })).toBeInTheDocument();
   });
 
   it("renders the 404 page for unknown routes", () => {

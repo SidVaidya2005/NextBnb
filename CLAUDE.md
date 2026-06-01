@@ -60,9 +60,8 @@ Layered. Each layer has a single responsibility:
 
 A lot of feature surface exists as **skeleton files only** (no business logic):
 
-- Backend: `controllers/{booking,wishlist,review,upload}Controller.js`, the matching `services/`, the matching `routes/`, and `middleware/upload.js`, `services/cloudinaryService.js`. The 501-returning controllers are placeholders, not real endpoints.
-- Frontend: pages for `/profile`, `/bookings`, `/wishlist` render real layouts but call no API. The `api/{auth,bookings,wishlist,reviews}.ts` functions are typed and ready, but the backend they call returns 501.
-- Frontend `/oauth` callback page is **not built yet**: the backend OAuth callback redirects to `${FRONTEND_URL}/oauth?token=...`, but `AppRoutes.tsx` has no matching route. Implementing OAuth end-to-end means adding that route + reading the `token` query param + calling `useAuth().login(token)`.
+- Backend: `controllers/{booking,wishlist,review,upload}Controller.js`, the matching `services/`, the matching `routes/`, and `services/cloudinaryService.js`. The 501-returning controllers are placeholders, not real endpoints. (Note: there is no `middleware/upload.js` yet — multer wiring still needs to be added when uploads land.)
+- Frontend: pages for `/profile`, `/bookings`, `/wishlist` render real layouts but call no API. The `api/{bookings,wishlist,reviews}.ts` functions are typed and ready, but the backend they call returns 501.
 
 When implementing one of these features, fill in the existing files rather than introducing new directories. The scaffold reserves the namespaces deliberately.
 
