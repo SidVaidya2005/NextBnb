@@ -1,10 +1,10 @@
-const { defineConfig } = require('vitest/config');
+const { defineConfig } = require("vitest/config");
 
 module.exports = defineConfig({
   test: {
-    environment: 'node',
+    environment: "node",
     globals: true,
-    setupFiles: ['./test-setup.js'],
+    setupFiles: ["./test-setup.js"],
     testTimeout: 30000,
     hookTimeout: 60000,
   },

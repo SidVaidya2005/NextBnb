@@ -1,5 +1,5 @@
-import type { Listing } from '../../types/Listing';
-import { ListingCard } from './ListingCard';
+import type { Listing } from "../../types/Listing";
+import { ListingCard } from "./ListingCard";
 
 /* Airbnb's marketplace grid: 4 columns at desktop, 16px gutters. */
 export function ListingGrid({ listings }: { listings: Listing[] }) {

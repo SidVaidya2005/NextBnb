@@ -1,6 +1,6 @@
 export interface User {
   _id: string;
-  provider: 'google' | 'github';
+  provider: "google" | "github";
   providerId: string;
   email?: string;
   name?: string;

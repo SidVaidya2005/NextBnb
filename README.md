@@ -87,13 +87,13 @@ VITE_API_BASE_URL=http://localhost:8080
 
 ### Listings (implemented)
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/listings` | — | Return all listings |
-| `POST` | `/api/listings` | Bearer JWT | Create a listing |
-| `GET` | `/api/listings/:id` | — | Return one listing |
-| `PUT` | `/api/listings/:id` | Bearer JWT | Update listing fields |
-| `DELETE` | `/api/listings/:id` | Bearer JWT | Delete a listing |
+| Method   | Path                | Auth       | Description           |
+| -------- | ------------------- | ---------- | --------------------- |
+| `GET`    | `/api/listings`     | —          | Return all listings   |
+| `POST`   | `/api/listings`     | Bearer JWT | Create a listing      |
+| `GET`    | `/api/listings/:id` | —          | Return one listing    |
+| `PUT`    | `/api/listings/:id` | Bearer JWT | Update listing fields |
+| `DELETE` | `/api/listings/:id` | Bearer JWT | Delete a listing      |
 
 Request body shape: `{ title, description, image, price, location, country }` (flat JSON).
 
@@ -103,9 +103,9 @@ Request body shape: `{ title, description, image, price, location, country }` (f
 
 `/api/bookings`, `/api/wishlist`, `/api/reviews`, `/api/uploads`, `/api/users`
 
-### OAuth (partially wired)
+### OAuth (Google)
 
-`/auth/google` and `/auth/github` run through Passport and issue a JWT on success, redirecting to `${FRONTEND_URL}/oauth?token=<jwt>`. The frontend has no `/oauth` route yet, so the flow does not complete end-to-end.
+Authentication is OAuth-only — there is no email/password login. `GET /auth/google` runs through Passport with a CSRF `state` cookie and issues a JWT on success, redirecting to `${FRONTEND_URL}/oauth?token=<jwt>`. The frontend `/oauth` route hands the token to `useAuth().login()`, completing the flow end-to-end. `GET /auth/me` returns the current user; `POST /auth/logout` is a stateless 204. A GitHub strategy (`/auth/github`) is wired in the backend but not exposed in the UI.
 
 ## Tests, lint, and formatting
 

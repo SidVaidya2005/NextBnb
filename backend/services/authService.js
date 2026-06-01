@@ -1,11 +1,15 @@
-const jwt = require('jsonwebtoken');
-const env = require('../config/env');
-const User = require('../models/User');
+const jwt = require("jsonwebtoken");
+const env = require("../config/env");
+const User = require("../models/User");
 
 function signToken(user) {
-  return jwt.sign({ sub: user.id, email: user.email, name: user.name }, env.JWT_SECRET, {
-    expiresIn: '7d',
-  });
+  return jwt.sign(
+    { sub: user.id, email: user.email, name: user.name },
+    env.JWT_SECRET,
+    {
+      expiresIn: "7d",
+    },
+  );
 }
 
 function verifyToken(token) {
@@ -13,7 +17,6 @@ function verifyToken(token) {
 }
 
 async function upsertOAuthUser(profile, provider) {
-  // TODO: extract email + name + avatar from profile and upsert
   const filter = { provider, providerId: profile.id };
   const update = {
     provider,

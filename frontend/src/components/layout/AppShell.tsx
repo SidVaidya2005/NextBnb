@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react';
-import { Header } from './Header';
-import { Footer } from './Footer';
+import type { ReactNode } from "react";
+import { Header } from "./Header";
+import { Footer } from "./Footer";
 
 /* Airbnb shell: white tri-nav, full-bleed main, white footer.
  * No SubNav row — categories live on the home page itself. */

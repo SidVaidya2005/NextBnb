@@ -1,39 +1,42 @@
-const js = require('@eslint/js');
-const globals = require('globals');
-const prettier = require('eslint-config-prettier');
+const js = require("@eslint/js");
+const globals = require("globals");
+const prettier = require("eslint-config-prettier");
 
 module.exports = [
   {
-    ignores: ['node_modules/**', 'coverage/**'],
+    ignores: ["node_modules/**", "coverage/**"],
   },
   js.configs.recommended,
   {
     languageOptions: {
       ecmaVersion: 2023,
-      sourceType: 'commonjs',
+      sourceType: "commonjs",
       globals: {
         ...globals.node,
       },
     },
     rules: {
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      "no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
   {
-    files: ['**/*.test.js', '**/__tests__/**/*.js', 'test-setup.js'],
+    files: ["**/*.test.js", "**/__tests__/**/*.js", "test-setup.js"],
     languageOptions: {
       globals: {
         ...globals.node,
-        describe: 'readonly',
-        it: 'readonly',
-        test: 'readonly',
-        expect: 'readonly',
-        beforeAll: 'readonly',
-        afterAll: 'readonly',
-        beforeEach: 'readonly',
-        afterEach: 'readonly',
-        vi: 'readonly',
-        suite: 'readonly',
+        describe: "readonly",
+        it: "readonly",
+        test: "readonly",
+        expect: "readonly",
+        beforeAll: "readonly",
+        afterAll: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+        vi: "readonly",
+        suite: "readonly",
       },
     },
   },

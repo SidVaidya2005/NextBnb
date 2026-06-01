@@ -1,5 +1,5 @@
-import { Container } from '../components/layout/Container';
-import { ListingForm } from '../components/listings/ListingForm';
+import { Container } from "../components/layout/Container";
+import { ListingForm } from "../components/listings/ListingForm";
 
 export function ListingNew() {
   return (

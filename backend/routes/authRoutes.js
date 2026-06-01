@@ -1,28 +1,52 @@
-const express = require('express');
-const passport = require('../config/passport');
-const authController = require('../controllers/authController');
-const { requireAuth } = require('../middleware/auth');
+const express = require("express");
+const passport = require("../config/passport");
+const env = require("../config/env");
+const authController = require("../controllers/authController");
+const {
+  requireAuth,
+  issueOAuthState,
+  verifyOAuthState,
+} = require("../middleware/auth");
 
 const router = express.Router();
 
-router.get(
-  '/google',
-  passport.authenticate('google', { scope: ['profile', 'email'], session: false }),
+const oauthFailureRedirect = `${env.FRONTEND_URL}/login?error=oauth`;
+
+router.get("/google", issueOAuthState, (req, res, next) =>
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    session: false,
+    state: req.oauthState,
+  })(req, res, next),
 );
 router.get(
-  '/google/callback',
-  passport.authenticate('google', { session: false, failureRedirect: '/login' }),
+  "/google/callback",
+  verifyOAuthState,
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: oauthFailureRedirect,
+  }),
   authController.oauthCallback,
 );
 
-router.get('/github', passport.authenticate('github', { scope: ['user:email'], session: false }));
+router.get("/github", issueOAuthState, (req, res, next) =>
+  passport.authenticate("github", {
+    scope: ["user:email"],
+    session: false,
+    state: req.oauthState,
+  })(req, res, next),
+);
 router.get(
-  '/github/callback',
-  passport.authenticate('github', { session: false, failureRedirect: '/login' }),
+  "/github/callback",
+  verifyOAuthState,
+  passport.authenticate("github", {
+    session: false,
+    failureRedirect: oauthFailureRedirect,
+  }),
   authController.oauthCallback,
 );
 
-router.get('/me', requireAuth, authController.me);
-router.post('/logout', authController.logout);
+router.get("/me", requireAuth, authController.me);
+router.post("/logout", authController.logout);
 
 module.exports = router;

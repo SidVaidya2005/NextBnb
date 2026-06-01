@@ -1,12 +1,12 @@
-import type { Listing } from '../types/Listing';
+import type { Listing } from "../types/Listing";
 
 const DATE_RANGES = [
-  'Nov 23 – 28',
-  'Dec 1 – 6',
-  'Dec 8 – 13',
-  'Jan 5 – 10',
-  'Feb 14 – 19',
-  'Mar 2 – 7',
+  "Nov 23 – 28",
+  "Dec 1 – 6",
+  "Dec 8 – 13",
+  "Jan 5 – 10",
+  "Feb 14 – 19",
+  "Mar 2 – 7",
 ];
 
 function hashId(id: string): number {

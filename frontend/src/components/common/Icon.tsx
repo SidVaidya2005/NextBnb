@@ -1,24 +1,24 @@
-import type { SVGProps } from 'react';
+import type { SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };
 
 function svg(size: number, viewBox: string, rest: SVGProps<SVGSVGElement>) {
   return {
-    xmlns: 'http://www.w3.org/2000/svg',
+    xmlns: "http://www.w3.org/2000/svg",
     viewBox,
     width: size,
     height: size,
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
     ...rest,
   };
 }
 
 export function ChevronRight({ size = 12, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 16 16', rest)} strokeWidth={1.5}>
+    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
       <path d="M6 3l5 5-5 5" />
     </svg>
   );
@@ -26,7 +26,7 @@ export function ChevronRight({ size = 12, ...rest }: IconProps) {
 
 export function ChevronDown({ size = 12, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 16 16', rest)} strokeWidth={1.5}>
+    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
       <path d="M3 6l5 5 5-5" />
     </svg>
   );
@@ -34,7 +34,7 @@ export function ChevronDown({ size = 12, ...rest }: IconProps) {
 
 export function MagnifyingGlass({ size = 16, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 32 32', rest)} strokeWidth={3}>
+    <svg {...svg(size, "0 0 32 32", rest)} strokeWidth={3}>
       <circle cx={14} cy={14} r={10} />
       <path d="M21 21l7 7" />
     </svg>
@@ -43,7 +43,7 @@ export function MagnifyingGlass({ size = 16, ...rest }: IconProps) {
 
 export function Plus({ size = 12, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 16 16', rest)} strokeWidth={1.5}>
+    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
       <path d="M8 3v10M3 8h10" />
     </svg>
   );
@@ -51,7 +51,7 @@ export function Plus({ size = 12, ...rest }: IconProps) {
 
 export function Minus({ size = 12, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 16 16', rest)} strokeWidth={1.5}>
+    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
       <path d="M3 8h10" />
     </svg>
   );
@@ -59,7 +59,7 @@ export function Minus({ size = 12, ...rest }: IconProps) {
 
 export function Xmark({ size = 12, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 16 16', rest)} strokeWidth={1.5}>
+    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
       <path d="M4 4l8 8M12 4l-8 8" />
     </svg>
   );
@@ -67,7 +67,7 @@ export function Xmark({ size = 12, ...rest }: IconProps) {
 
 export function Checkmark({ size = 12, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 16 16', rest)} strokeWidth={1.4}>
+    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.4}>
       <path d="M3 8l4 4 6-8" />
     </svg>
   );
@@ -75,7 +75,7 @@ export function Checkmark({ size = 12, ...rest }: IconProps) {
 
 export function Globe({ size = 16, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 32 32', rest)} strokeWidth={2}>
+    <svg {...svg(size, "0 0 32 32", rest)} strokeWidth={2}>
       <circle cx={16} cy={16} r={13} />
       <path d="M3 16h26M16 3c4 4 6 8 6 13s-2 9-6 13c-4-4-6-8-6-13s2-9 6-13z" />
     </svg>
@@ -84,7 +84,7 @@ export function Globe({ size = 16, ...rest }: IconProps) {
 
 export function Hamburger({ size = 16, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 32 32', rest)} strokeWidth={2}>
+    <svg {...svg(size, "0 0 32 32", rest)} strokeWidth={2}>
       <path d="M4 10h24M4 16h24M4 22h24" />
     </svg>
   );
@@ -107,7 +107,7 @@ export function UserCircle({ size = 24, ...rest }: IconProps) {
 
 export function HeartOutline({ size = 20, ...rest }: IconProps) {
   return (
-    <svg {...svg(size, '0 0 32 32', rest)} strokeWidth={2}>
+    <svg {...svg(size, "0 0 32 32", rest)} strokeWidth={2}>
       <path d="M16 28s-11-6.5-11-15a6 6 0 0 1 11-3 6 6 0 0 1 11 3c0 8.5-11 15-11 15z" />
     </svg>
   );
@@ -193,7 +193,10 @@ export function HomesIcon({ size = 32, ...rest }: IconProps) {
       strokeLinejoin="round"
       {...rest}
     >
-      <path d="M5 14l11-9 11 9v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V14z" fill="#f7f7f7" />
+      <path
+        d="M5 14l11-9 11 9v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V14z"
+        fill="#f7f7f7"
+      />
       <path d="M13 29v-7h6v7" />
       <path d="M2 16l14-12 14 12" strokeWidth={1.8} />
     </svg>
@@ -235,10 +238,12 @@ export function ServicesIcon({ size = 32, ...rest }: IconProps) {
       strokeLinejoin="round"
       {...rest}
     >
-      <path d="M6 11h20l-2 16a2 2 0 0 1-2 1.7H10a2 2 0 0 1-2-1.7L6 11z" fill="#fff0f3" />
+      <path
+        d="M6 11h20l-2 16a2 2 0 0 1-2 1.7H10a2 2 0 0 1-2-1.7L6 11z"
+        fill="#fff0f3"
+      />
       <path d="M11 11V8a5 5 0 0 1 10 0v3" />
       <path d="M11 17l3 3 6-7" />
     </svg>
   );
 }
-

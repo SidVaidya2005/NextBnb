@@ -1,16 +1,16 @@
 const CITIES = [
-  { city: 'Wilmington', category: 'Cottage rentals' },
-  { city: 'Athens', category: 'Beachfront stays' },
-  { city: 'Lisbon', category: 'City apartments' },
-  { city: 'Reykjavík', category: 'Cabin getaways' },
-  { city: 'Kyoto', category: 'Ryokan stays' },
-  { city: 'Cape Town', category: 'Villa rentals' },
-  { city: 'Tulum', category: 'Beachfront stays' },
-  { city: 'Marrakech', category: 'Riad rentals' },
-  { city: 'Banff', category: 'Cabin getaways' },
-  { city: 'Bali', category: 'Treehouse stays' },
-  { city: 'Edinburgh', category: 'Loft rentals' },
-  { city: 'Buenos Aires', category: 'Apartment stays' },
+  { city: "Wilmington", category: "Cottage rentals" },
+  { city: "Athens", category: "Beachfront stays" },
+  { city: "Lisbon", category: "City apartments" },
+  { city: "Reykjavík", category: "Cabin getaways" },
+  { city: "Kyoto", category: "Ryokan stays" },
+  { city: "Cape Town", category: "Villa rentals" },
+  { city: "Tulum", category: "Beachfront stays" },
+  { city: "Marrakech", category: "Riad rentals" },
+  { city: "Banff", category: "Cabin getaways" },
+  { city: "Bali", category: "Treehouse stays" },
+  { city: "Edinburgh", category: "Loft rentals" },
+  { city: "Buenos Aires", category: "Apartment stays" },
 ];
 
 /* The homepage editorial footer-grid: 6 columns at desktop, each cell holds

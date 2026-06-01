@@ -1,5 +1,5 @@
-const Listing = require('../models/Listing');
-const ApiError = require('../utils/ApiError');
+const Listing = require("../models/Listing");
+const ApiError = require("../utils/ApiError");
 
 async function findAll() {
   return Listing.find({});
@@ -8,7 +8,7 @@ async function findAll() {
 async function findById(id) {
   const listing = await Listing.findById(id);
   if (!listing) {
-    throw new ApiError(404, 'Listing not found');
+    throw new ApiError(404, "Listing not found");
   }
   return listing;
 }
@@ -22,7 +22,7 @@ async function create(data) {
 async function update(id, data) {
   const listing = await Listing.findById(id);
   if (!listing) {
-    throw new ApiError(404, 'Listing not found');
+    throw new ApiError(404, "Listing not found");
   }
   Object.assign(listing, data);
   await listing.save();
@@ -32,7 +32,7 @@ async function update(id, data) {
 async function remove(id) {
   const listing = await Listing.findByIdAndDelete(id);
   if (!listing) {
-    throw new ApiError(404, 'Listing not found');
+    throw new ApiError(404, "Listing not found");
   }
   return listing;
 }

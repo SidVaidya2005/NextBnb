@@ -1,7 +1,7 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type Variant = 'primary' | 'secondary';
-type Size = 'sm' | 'md';
+type Variant = "primary" | "secondary";
+type Size = "sm" | "md";
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
@@ -10,21 +10,21 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const sizeStyles: Record<Size, string> = {
-  sm: 'h-9 px-4 t-button-sm',
-  md: 'h-12 px-6 t-button-md',
+  sm: "h-9 px-4 t-button-sm",
+  md: "h-12 px-6 t-button-md",
 };
 
 const variantStyles: Record<Variant, string> = {
   primary:
-    'bg-rausch text-ink-on-primary border border-rausch hover:bg-rausch-active hover:border-rausch-active active:bg-rausch-active disabled:bg-rausch-disabled disabled:border-rausch-disabled disabled:cursor-not-allowed',
+    "bg-rausch text-ink-on-primary border border-rausch hover:bg-rausch-active hover:border-rausch-active active:bg-rausch-active disabled:bg-rausch-disabled disabled:border-rausch-disabled disabled:cursor-not-allowed",
   secondary:
-    'bg-surface-canvas text-ink border border-ink hover:bg-surface-soft disabled:text-ink-muted-soft disabled:border-hairline disabled:cursor-not-allowed',
+    "bg-surface-canvas text-ink border border-ink hover:bg-surface-soft disabled:text-ink-muted-soft disabled:border-hairline disabled:cursor-not-allowed",
 };
 
 export function Button({
-  variant = 'primary',
-  size = 'md',
-  className = '',
+  variant = "primary",
+  size = "md",
+  className = "",
   children,
   ...rest
 }: Props) {

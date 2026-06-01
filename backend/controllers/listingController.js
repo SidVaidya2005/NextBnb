@@ -1,5 +1,5 @@
-const asyncHandler = require('../utils/asyncHandler');
-const listingService = require('../services/listingService');
+const asyncHandler = require("../utils/asyncHandler");
+const listingService = require("../services/listingService");
 
 const index = asyncHandler(async (_req, res) => {
   const listings = await listingService.findAll();

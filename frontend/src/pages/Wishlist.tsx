@@ -1,5 +1,5 @@
-import { Container } from '../components/layout/Container';
-import { EmptyState } from '../components/states/EmptyState';
+import { Container } from "../components/layout/Container";
+import { EmptyState } from "../components/states/EmptyState";
 
 export function Wishlist() {
   return (
