@@ -17,6 +17,7 @@ const listingSchema = new mongoose.Schema({
   price: Number,
   location: String,
   country: String,
+  owner: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
 const Listing = mongoose.model("Listing", listingSchema);

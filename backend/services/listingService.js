@@ -1,6 +1,14 @@
 const Listing = require("../models/Listing");
 const ApiError = require("../utils/ApiError");
 
+// Owner-only guard. Listings created before ownership existed (e.g. seed data)
+// have no `owner` and stay read-only demo data rather than being editable by all.
+function assertOwner(listing, userId) {
+  if (listing.owner && String(listing.owner) !== String(userId)) {
+    throw new ApiError(403, "You can only modify your own listings");
+  }
+}
+
 async function findAll() {
   return Listing.find({});
 }
@@ -19,21 +27,25 @@ async function create(data) {
   return listing;
 }
 
-async function update(id, data) {
+async function update(id, data, userId) {
   const listing = await Listing.findById(id);
   if (!listing) {
     throw new ApiError(404, "Listing not found");
   }
-  Object.assign(listing, data);
+  assertOwner(listing, userId);
+  // Re-pin owner last so a write body can't reassign the listing to someone else.
+  Object.assign(listing, data, { owner: listing.owner });
   await listing.save();
   return listing;
 }
 
-async function remove(id) {
-  const listing = await Listing.findByIdAndDelete(id);
+async function remove(id, userId) {
+  const listing = await Listing.findById(id);
   if (!listing) {
     throw new ApiError(404, "Listing not found");
   }
+  assertOwner(listing, userId);
+  await listing.deleteOne();
   return listing;
 }
 

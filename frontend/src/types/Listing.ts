@@ -6,6 +6,7 @@ export interface Listing {
   price: number;
   location?: string;
   country?: string;
+  owner?: string;
   rating?: number;
   reviewCount?: number;
   isGuestFavorite?: boolean;
@@ -14,5 +15,5 @@ export interface Listing {
 
 export type NewListing = Omit<
   Listing,
-  "_id" | "rating" | "reviewCount" | "isGuestFavorite" | "dates"
+  "_id" | "owner" | "rating" | "reviewCount" | "isGuestFavorite" | "dates"
 >;

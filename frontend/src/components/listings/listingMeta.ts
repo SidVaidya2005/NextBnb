@@ -1,4 +1,4 @@
-import type { Listing } from "../types/Listing";
+import type { Listing } from "../../types/Listing";
 
 const DATE_RANGES = [
   "Nov 23 – 28",

@@ -12,17 +12,24 @@ const show = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  const listing = await listingService.create(req.body);
+  const listing = await listingService.create({
+    ...req.body,
+    owner: req.user.sub,
+  });
   res.status(201).json(listing);
 });
 
 const update = asyncHandler(async (req, res) => {
-  const listing = await listingService.update(req.params.id, req.body);
+  const listing = await listingService.update(
+    req.params.id,
+    req.body,
+    req.user.sub,
+  );
   res.json(listing);
 });
 
 const remove = asyncHandler(async (req, res) => {
-  await listingService.remove(req.params.id);
+  await listingService.remove(req.params.id, req.user.sub);
   res.status(204).end();
 });
 

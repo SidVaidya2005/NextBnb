@@ -1,6 +1,19 @@
 const request = require("supertest");
 const app = require("../../app");
 const Listing = require("../../models/Listing");
+const User = require("../../models/User");
+const { signToken } = require("../../services/authService");
+
+async function makeUser(overrides = {}) {
+  const user = await User.create({
+    provider: "google",
+    providerId: `g-${Math.random().toString(36).slice(2)}`,
+    email: "host@example.com",
+    name: "Host",
+    ...overrides,
+  });
+  return { user, token: signToken(user) };
+}
 
 describe("/api/listings", () => {
   it("GET / returns an empty array when no listings exist", async () => {
@@ -9,14 +22,25 @@ describe("/api/listings", () => {
     expect(res.body).toEqual([]);
   });
 
-  it("POST / creates a listing with the flat body shape", async () => {
+  it("POST / requires authentication", async () => {
     const res = await request(app)
       .post("/api/listings")
+      .send({ title: "Nope", price: 10 })
+      .set("Content-Type", "application/json");
+    expect(res.status).toBe(401);
+  });
+
+  it("POST / creates a listing owned by the authed user", async () => {
+    const { user, token } = await makeUser();
+    const res = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${token}`)
       .send({ title: "Test", price: 100 })
       .set("Content-Type", "application/json");
     expect(res.status).toBe(201);
     expect(res.body.title).toBe("Test");
     expect(res.body._id).toBeTruthy();
+    expect(res.body.owner).toBe(user.id);
   });
 
   it("GET /:id returns 200 for an existing listing", async () => {
@@ -34,19 +58,48 @@ describe("/api/listings", () => {
     expect(res.body).toHaveProperty("error");
   });
 
-  it("PUT /:id updates a listing", async () => {
-    const created = await Listing.create({ title: "Before", price: 10 });
+  it("PUT /:id updates a listing owned by the caller", async () => {
+    const { user, token } = await makeUser();
+    const created = await Listing.create({
+      title: "Before",
+      price: 10,
+      owner: user.id,
+    });
     const res = await request(app)
       .put(`/api/listings/${created.id}`)
+      .set("Authorization", `Bearer ${token}`)
       .send({ title: "After", price: 20 })
       .set("Content-Type", "application/json");
     expect(res.status).toBe(200);
     expect(res.body.title).toBe("After");
   });
 
+  it("PUT /:id returns 403 when editing another user's listing", async () => {
+    const owner = await makeUser({ providerId: "g-owner" });
+    const intruder = await makeUser({ providerId: "g-intruder" });
+    const created = await Listing.create({
+      title: "Mine",
+      price: 10,
+      owner: owner.user.id,
+    });
+    const res = await request(app)
+      .put(`/api/listings/${created.id}`)
+      .set("Authorization", `Bearer ${intruder.token}`)
+      .send({ title: "Hacked" })
+      .set("Content-Type", "application/json");
+    expect(res.status).toBe(403);
+  });
+
   it("DELETE /:id returns 204 and removes the listing", async () => {
-    const created = await Listing.create({ title: "Bye", price: 1 });
-    const res = await request(app).delete(`/api/listings/${created.id}`);
+    const { user, token } = await makeUser();
+    const created = await Listing.create({
+      title: "Bye",
+      price: 1,
+      owner: user.id,
+    });
+    const res = await request(app)
+      .delete(`/api/listings/${created.id}`)
+      .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(204);
     const remaining = await Listing.find({});
     expect(remaining).toHaveLength(0);

@@ -1,11 +1,27 @@
 import type { FormHTMLAttributes } from "react";
-import type { Listing } from "../../types/Listing";
+import type { Listing, NewListing } from "../../types/Listing";
 import { Input } from "../common/Input";
 import { Button } from "../common/Button";
 
 interface Props extends FormHTMLAttributes<HTMLFormElement> {
   initial?: Partial<Listing>;
   submitLabel?: string;
+}
+
+/* Reads the uncontrolled form fields into a NewListing payload. `owner` is set
+ * server-side from the JWT, so it is intentionally not collected here. */
+// eslint-disable-next-line react-refresh/only-export-components
+export function readListingForm(form: HTMLFormElement): NewListing {
+  const fd = new FormData(form);
+  const str = (k: string) => String(fd.get(k) ?? "").trim();
+  return {
+    title: str("title"),
+    description: str("description"),
+    image: str("image"),
+    price: Number(fd.get("price") ?? 0),
+    location: str("location"),
+    country: str("country"),
+  };
 }
 
 export function ListingForm({

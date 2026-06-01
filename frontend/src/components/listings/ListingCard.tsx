@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import type { Listing } from "../../types/Listing";
-import { deriveListingMeta } from "../../lib/listingMeta";
+import { deriveListingMeta } from "./listingMeta";
 import { Star } from "../common/Icon";
 import { GuestFavoriteBadge } from "./GuestFavoriteBadge";
 import { HeartButton } from "./HeartButton";

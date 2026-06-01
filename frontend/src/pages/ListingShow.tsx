@@ -1,23 +1,35 @@
-import { useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { getListing } from "../api/listings";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getListing, deleteListing } from "../api/listings";
+import { useAuth } from "../context/AuthContext";
 import { Container } from "../components/layout/Container";
 import { LoadingState } from "../components/states/LoadingState";
 import { ErrorState } from "../components/states/ErrorState";
 import { Button } from "../components/common/Button";
 import { HeartButton } from "../components/listings/HeartButton";
 import { RatingDisplay } from "../components/listings/RatingDisplay";
-import { deriveListingMeta } from "../lib/listingMeta";
+import { deriveListingMeta } from "../components/listings/listingMeta";
 
 /* Photo banner up top, two-column body with sticky reservation rail on the
  * right, RatingDisplay below the gallery. Bottom-sticky reserve bar on
  * narrow widths. */
 export function ListingShow() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["listings", id],
     queryFn: () => getListing(id!),
     enabled: Boolean(id),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteListing(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["listings"] });
+      navigate("/");
+    },
   });
 
   if (isLoading) {
@@ -44,6 +56,7 @@ export function ListingShow() {
 
   const meta = deriveListingMeta(data);
   const location = [data.location, data.country].filter(Boolean).join(", ");
+  const isOwner = Boolean(user && data.owner && user._id === data.owner);
 
   return (
     <>
@@ -62,6 +75,27 @@ export function ListingShow() {
               </span>
             </div>
             <div className="flex items-center gap-md text-ink">
+              {isOwner && (
+                <>
+                  <Link
+                    to={`/listings/${data._id}/edit`}
+                    className="t-body-sm underline"
+                  >
+                    Edit
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm("Delete this listing?"))
+                        deleteMutation.mutate();
+                    }}
+                    disabled={deleteMutation.isPending}
+                    className="t-body-sm text-rausch underline disabled:opacity-50"
+                  >
+                    {deleteMutation.isPending ? "Deleting…" : "Delete"}
+                  </button>
+                </>
+              )}
               <button type="button" className="t-body-sm underline">
                 Share
               </button>

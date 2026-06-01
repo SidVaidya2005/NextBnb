@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Listing = require("../models/Listing");
 const listingService = require("./listingService");
 const ApiError = require("../utils/ApiError");
@@ -99,6 +100,80 @@ describe("listingService", () => {
       ).rejects.toMatchObject({
         status: 404,
       });
+    });
+  });
+
+  describe("ownership", () => {
+    const ownerId = new mongoose.Types.ObjectId();
+    const otherId = new mongoose.Types.ObjectId();
+
+    it("create persists the owner", async () => {
+      const result = await listingService.create({
+        title: "Owned",
+        price: 50,
+        owner: ownerId,
+      });
+      expect(String(result.owner)).toBe(String(ownerId));
+    });
+
+    it("update succeeds for the owner", async () => {
+      const created = await Listing.create({
+        title: "Old",
+        price: 10,
+        owner: ownerId,
+      });
+      const updated = await listingService.update(
+        created.id,
+        { title: "New" },
+        ownerId,
+      );
+      expect(updated.title).toBe("New");
+    });
+
+    it("update throws ApiError(403) for a non-owner", async () => {
+      const created = await Listing.create({
+        title: "Old",
+        price: 10,
+        owner: ownerId,
+      });
+      await expect(
+        listingService.update(created.id, { title: "Hacked" }, otherId),
+      ).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("update cannot reassign the owner", async () => {
+      const created = await Listing.create({
+        title: "Old",
+        price: 10,
+        owner: ownerId,
+      });
+      const updated = await listingService.update(
+        created.id,
+        { owner: otherId, title: "Renamed" },
+        ownerId,
+      );
+      expect(String(updated.owner)).toBe(String(ownerId));
+    });
+
+    it("remove throws ApiError(403) for a non-owner", async () => {
+      const created = await Listing.create({
+        title: "Old",
+        price: 10,
+        owner: ownerId,
+      });
+      await expect(
+        listingService.remove(created.id, otherId),
+      ).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("ownerless listings stay editable (seed data)", async () => {
+      const created = await Listing.create({ title: "Seed", price: 10 });
+      const updated = await listingService.update(
+        created.id,
+        { title: "Edited" },
+        ownerId,
+      );
+      expect(updated.title).toBe("Edited");
     });
   });
 });

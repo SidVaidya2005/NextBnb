@@ -1,17 +1,32 @@
-import { useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { getListing } from "../api/listings";
+import { useParams, useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getListing, updateListing } from "../api/listings";
+import type { NewListing } from "../types/Listing";
 import { Container } from "../components/layout/Container";
-import { ListingForm } from "../components/listings/ListingForm";
+import {
+  ListingForm,
+  readListingForm,
+} from "../components/listings/ListingForm";
 import { LoadingState } from "../components/states/LoadingState";
 import { ErrorState } from "../components/states/ErrorState";
 
 export function ListingEdit() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["listings", id],
     queryFn: () => getListing(id!),
     enabled: Boolean(id),
+  });
+
+  const mutation = useMutation({
+    mutationFn: (payload: NewListing) => updateListing(id!, payload),
+    onSuccess: (listing) => {
+      queryClient.invalidateQueries({ queryKey: ["listings"] });
+      navigate(`/listings/${listing._id}`);
+    },
   });
 
   return (
@@ -26,12 +41,18 @@ export function ListingEdit() {
             onRetry={() => refetch()}
           />
         )}
+        {mutation.isError && (
+          <div className="mb-lg">
+            <ErrorState message="Could not save your changes. Please try again." />
+          </div>
+        )}
         {data && (
           <ListingForm
             initial={data}
-            submitLabel="Save changes"
+            submitLabel={mutation.isPending ? "Saving…" : "Save changes"}
             onSubmit={(e) => {
               e.preventDefault();
+              mutation.mutate(readListingForm(e.currentTarget));
             }}
           />
         )}
