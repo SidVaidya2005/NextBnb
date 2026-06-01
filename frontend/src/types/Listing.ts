@@ -14,5 +14,5 @@ export interface Listing {
 
 export type NewListing = Omit<
   Listing,
-  '_id' | 'rating' | 'reviewCount' | 'isGuestFavorite' | 'dates'
+  "_id" | "rating" | "reviewCount" | "isGuestFavorite" | "dates"
 >;
