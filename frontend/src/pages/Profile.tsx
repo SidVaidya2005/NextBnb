@@ -1,7 +1,6 @@
 import { useAuth } from "../context/AuthContext";
 import { Container } from "../components/layout/Container";
 import { Card } from "../components/common/Card";
-import { Button } from "../components/common/Button";
 
 export function Profile() {
   const { user } = useAuth();
@@ -29,9 +28,6 @@ export function Profile() {
               </p>
             )}
           </div>
-          <Button variant="secondary" size="sm" disabled>
-            Edit profile
-          </Button>
         </Card>
       </div>
     </Container>

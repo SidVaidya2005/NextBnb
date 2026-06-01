@@ -16,59 +16,11 @@ function svg(size: number, viewBox: string, rest: SVGProps<SVGSVGElement>) {
   };
 }
 
-export function ChevronRight({ size = 12, ...rest }: IconProps) {
-  return (
-    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
-      <path d="M6 3l5 5-5 5" />
-    </svg>
-  );
-}
-
-export function ChevronDown({ size = 12, ...rest }: IconProps) {
-  return (
-    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
-      <path d="M3 6l5 5 5-5" />
-    </svg>
-  );
-}
-
 export function MagnifyingGlass({ size = 16, ...rest }: IconProps) {
   return (
     <svg {...svg(size, "0 0 32 32", rest)} strokeWidth={3}>
       <circle cx={14} cy={14} r={10} />
       <path d="M21 21l7 7" />
-    </svg>
-  );
-}
-
-export function Plus({ size = 12, ...rest }: IconProps) {
-  return (
-    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
-      <path d="M8 3v10M3 8h10" />
-    </svg>
-  );
-}
-
-export function Minus({ size = 12, ...rest }: IconProps) {
-  return (
-    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
-      <path d="M3 8h10" />
-    </svg>
-  );
-}
-
-export function Xmark({ size = 12, ...rest }: IconProps) {
-  return (
-    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.5}>
-      <path d="M4 4l8 8M12 4l-8 8" />
-    </svg>
-  );
-}
-
-export function Checkmark({ size = 12, ...rest }: IconProps) {
-  return (
-    <svg {...svg(size, "0 0 16 16", rest)} strokeWidth={1.4}>
-      <path d="M3 8l4 4 6-8" />
     </svg>
   );
 }

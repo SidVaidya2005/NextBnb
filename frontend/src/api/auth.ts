@@ -13,7 +13,3 @@ export async function logout(): Promise<void> {
 export function googleLoginUrl(): string {
   return `${import.meta.env.VITE_API_BASE_URL}/auth/google`;
 }
-
-export function githubLoginUrl(): string {
-  return `${import.meta.env.VITE_API_BASE_URL}/auth/github`;
-}

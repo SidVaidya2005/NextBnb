@@ -66,7 +66,7 @@ a {
   text-decoration: none;
 }
 
-/* --- Typography hierarchy (Design.md §Typography) --- */
+/* --- Typography hierarchy --- */
 
 .t-rating-display {
   font-family: var(--font-sans);

@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 // TODO: flesh out auth fields, roles, profile, etc.
 const userSchema = new mongoose.Schema(
   {
-    provider: { type: String, enum: ["google", "github"], required: true },
+    provider: { type: String, enum: ["google"], required: true },
     providerId: { type: String, required: true },
     email: { type: String },
     name: { type: String },

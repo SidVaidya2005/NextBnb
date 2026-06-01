@@ -13,9 +13,9 @@ Express REST API. JSON only — no EJS, no redirects (except the OAuth callback)
 
 - Request bodies are **flat**: `{ title, price }`, not `{ listing: { ... } }`. The old EJS form convention is gone.
 - Read env via `config/env.js`, not `process.env` directly.
-- `JWT_SECRET` must be set in `backend/.env` — `signToken` / `verifyToken` silently produce unverifiable tokens otherwise. OAuth provider IDs (`GOOGLE_*`, `GITHUB_*`) are only needed if you're exercising the login flow.
+- `JWT_SECRET` must be set in `backend/.env` — `signToken` / `verifyToken` silently produce unverifiable tokens otherwise. OAuth provider IDs (`GOOGLE_*`) are only needed if you're exercising the login flow.
 - No `express-async-errors`, no `express-session`. Passport runs with `{ session: false }`.
-- 501-returning controllers (bookings, wishlist, reviews, uploads, users) are scaffold placeholders — fill them in, don't add new directories.
+- 501-returning controllers (bookings, wishlist, reviews, uploads) are scaffold placeholders — fill them in, don't add new directories.
 
 ## Tests
 

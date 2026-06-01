@@ -29,23 +29,6 @@ router.get(
   authController.oauthCallback,
 );
 
-router.get("/github", issueOAuthState, (req, res, next) =>
-  passport.authenticate("github", {
-    scope: ["user:email"],
-    session: false,
-    state: req.oauthState,
-  })(req, res, next),
-);
-router.get(
-  "/github/callback",
-  verifyOAuthState,
-  passport.authenticate("github", {
-    session: false,
-    failureRedirect: oauthFailureRedirect,
-  }),
-  authController.oauthCallback,
-);
-
 router.get("/me", requireAuth, authController.me);
 router.post("/logout", authController.logout);
 

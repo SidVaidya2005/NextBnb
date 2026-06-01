@@ -63,15 +63,12 @@ NextBnb/
 
 ```env
 PORT=8080
-MONGO_URI=mongodb://127.0.0.1:27017/wanderlust
+MONGO_URI=mongodb://127.0.0.1:27017/nextbnb
 JWT_SECRET=                            # required
 FRONTEND_URL=http://localhost:5173
 GOOGLE_CLIENT_ID=                      # optional — OAuth only
 GOOGLE_CLIENT_SECRET=
 GOOGLE_CALLBACK_URL=http://localhost:8080/auth/google/callback
-GITHUB_CLIENT_ID=                      # optional — OAuth only
-GITHUB_CLIENT_SECRET=
-GITHUB_CALLBACK_URL=http://localhost:8080/auth/github/callback
 CLOUDINARY_CLOUD_NAME=                 # optional — image uploads only
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
@@ -101,11 +98,11 @@ Request body shape: `{ title, description, image, price, location, country }` (f
 
 ### Scaffolded (return 501)
 
-`/api/bookings`, `/api/wishlist`, `/api/reviews`, `/api/uploads`, `/api/users`
+`/api/bookings`, `/api/wishlist`, `/api/reviews`, `/api/uploads`
 
 ### OAuth (Google)
 
-Authentication is OAuth-only — there is no email/password login. `GET /auth/google` runs through Passport with a CSRF `state` cookie and issues a JWT on success, redirecting to `${FRONTEND_URL}/oauth?token=<jwt>`. The frontend `/oauth` route hands the token to `useAuth().login()`, completing the flow end-to-end. `GET /auth/me` returns the current user; `POST /auth/logout` is a stateless 204. A GitHub strategy (`/auth/github`) is wired in the backend but not exposed in the UI.
+Authentication is OAuth-only — there is no email/password login. `GET /auth/google` runs through Passport with a CSRF `state` cookie and issues a JWT on success, redirecting to `${FRONTEND_URL}/oauth?token=<jwt>`. The frontend `/oauth` route hands the token to `useAuth().login()`, completing the flow end-to-end. `GET /auth/me` returns the current user; `POST /auth/logout` is a stateless 204.
 
 ## Tests, lint, and formatting
 
