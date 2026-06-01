@@ -1,10 +1,10 @@
-import type { InputHTMLAttributes } from 'react';
+import type { InputHTMLAttributes } from "react";
 
 interface Props extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
 }
 
-export function Input({ label, id, className = '', ...rest }: Props) {
+export function Input({ label, id, className = "", ...rest }: Props) {
   return (
     <div className="flex flex-col gap-xs">
       {label && (

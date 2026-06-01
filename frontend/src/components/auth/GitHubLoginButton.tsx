@@ -1,5 +1,5 @@
-import { githubLoginUrl } from '../../api/auth';
-import { Button } from '../common/Button';
+import { githubLoginUrl } from "../../api/auth";
+import { Button } from "../common/Button";
 
 export function GitHubLoginButton() {
   return (

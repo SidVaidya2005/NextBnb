@@ -1,5 +1,5 @@
-import { googleLoginUrl } from '../../api/auth';
-import { Button } from '../common/Button';
+import { googleLoginUrl } from "../../api/auth";
+import { Button } from "../common/Button";
 
 export function GoogleLoginButton() {
   return (
