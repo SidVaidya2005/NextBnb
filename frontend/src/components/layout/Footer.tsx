@@ -1,21 +1,35 @@
 import { Globe } from "../common/Icon";
 
-const columns: { heading: string; links: string[] }[] = [
+type FooterLink = { label: string; href: string; external?: boolean };
+
+const columns: { heading: string; links: FooterLink[] }[] = [
   {
     heading: "Support",
     links: [
-      "Help Center",
-      "Cancellation options",
-      "Report neighborhood concern",
+      { label: "Help Center", href: "#" },
+      { label: "Cancellation options", href: "#" },
+      { label: "Report neighborhood concern", href: "#" },
     ],
   },
   {
     heading: "Hosting",
-    links: ["NextBnb your home", "Hosting resources", "Hosting responsibly"],
+    links: [
+      { label: "NextBnb your home", href: "/listings/new" },
+      { label: "Hosting resources", href: "#" },
+      { label: "Hosting responsibly", href: "#" },
+    ],
   },
   {
     heading: "Contact Me",
-    links: ["Github", "Email", "Contact No."],
+    links: [
+      {
+        label: "Github",
+        href: "https://github.com/SidVaidya2005",
+        external: true,
+      },
+      { label: "Email", href: "mailto:siddarthvaidya2005@gmail.com" },
+      { label: "Contact No.", href: "#" },
+    ],
   },
 ];
 
@@ -29,9 +43,15 @@ export function Footer() {
               <div className="t-title-sm mb-md">{col.heading}</div>
               <ul className="flex flex-col gap-md">
                 {col.links.map((link) => (
-                  <li key={link}>
-                    <a href="#" className="t-body-sm text-ink hover:underline">
-                      {link}
+                  <li key={link.label}>
+                    <a
+                      href={link.href}
+                      className="t-body-sm text-ink hover:underline"
+                      {...(link.external
+                        ? { target: "_blank", rel: "noreferrer" }
+                        : {})}
+                    >
+                      {link.label}
                     </a>
                   </li>
                 ))}
