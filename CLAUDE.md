@@ -14,6 +14,7 @@ A single `npm install` at the root installs both. CI lives at `.github/workflows
 ## Running things
 
 There are no shell-level shortcuts beyond the workspace scripts. Always go through npm.
+Run them from the **repo root** — `cd`-ing into `frontend/` or `backend/` makes root scripts like `test:backend` fail with "Missing script".
 
 ```bash
 npm install              # installs both workspaces from the root lockfile
@@ -51,19 +52,19 @@ Layered. Each layer has a single responsibility:
 ## Frontend architecture
 
 - **`frontend/src/api/`** — One file per resource (`listings`, `auth`, `bookings`, `wishlist`, `reviews`). All call through the single `apiClient` axios instance in `api/client.ts`. The TOKEN_KEY constant is exported from there too; nothing else writes to localStorage for auth.
-- **`frontend/src/components/`** — Grouped by concern: `layout/` (AppShell, Header, Footer, Container, ProductTabs; legacy `Sidebar.tsx` is not mounted), `listings/` (Card, Grid, Form, HeartButton, GuestFavoriteBadge, RatingDisplay, CityLinkGrid), `search/` (SearchBarPill), `auth/` (login buttons, `ProtectedRoute`), `states/` (Empty, Loading, Error), `common/` (Button, Input, Card, Spinner, Icon). The design system (Rausch #ff385c accent, white canvas, Inter via Google Fonts) is encoded in `frontend/tailwind.config.ts` + `frontend/src/index.css`. Tailwind tokens (`rausch`/`ink`/`surface`/`hairline`, `xxs`–`section` spacing scale, single `shadow-card` tier) live in `frontend/tailwind.config.ts`; typography utility classes (`.t-display-xl`, `.t-title-md`, `.t-body-sm`, `.t-uppercase-tag`, …) live in `frontend/src/index.css` — prefer those over arbitrary `text-[Npx]`. `AppShell` has no SubNav row; categories live on the home page itself.
+- **`frontend/src/components/`** — Grouped by concern: `layout/` (AppShell, Header, Footer, Container, ProductTabs; legacy `Sidebar.tsx` is not mounted), `listings/` (Card, Grid, Form, HeartButton, GuestFavoriteBadge, RatingDisplay, CityLinkGrid), `search/` (SearchBarPill — composes DateRangeCalendar, DestinationPicker, GuestSelector), `auth/` (login buttons, `ProtectedRoute`), `states/` (Empty, Loading, Error), `common/` (Button, Input, Card, Spinner, Icon). The design system (Rausch #ff385c accent, white canvas, Inter via Google Fonts) is encoded in `frontend/tailwind.config.ts` + `frontend/src/index.css`. Tailwind tokens (`rausch`/`ink`/`surface`/`hairline`, `xxs`–`section` spacing scale, single `shadow-card` tier) live in `frontend/tailwind.config.ts`; typography utility classes (`.t-display-xl`, `.t-title-md`, `.t-body-sm`, `.t-uppercase-tag`, …) live in `frontend/src/index.css` — prefer those over arbitrary `text-[Npx]`. `AppShell` has no SubNav row; categories live on the home page itself.
 - **`frontend/src/pages/`** — Route-level components. Each page composes layout + atoms + state components.
+- **`frontend/src/hooks/`** — shared React Query hooks. `useWishlist` (the wishlist cache + `isSaved`/`toggle`, consumed by `HeartButton`) lives here; add new cross-component data hooks here rather than in components.
 - **`frontend/src/routes/AppRoutes.tsx`** — Public vs. protected split. Protected routes (`/listings/new`, `/listings/:id/edit`, `/profile`, `/bookings`, `/wishlist`) wrap in `<ProtectedRoute>`, which renders `null` while the token is mid-verification and `<Navigate to="/login">` if no token.
 - **`frontend/src/context/AuthContext.tsx`** — Single source of truth for `{ user, token, isAuthenticated, login, logout }`. The `<App>` is wrapped in `<AuthProvider>` in `main.tsx`. Use `useAuth()` everywhere — don't read the token directly from localStorage in components.
 
 ## Scaffold-only areas
 
-A lot of feature surface exists as **skeleton files only** (no business logic):
+The remaining scaffold is **uploads only**: `uploadController.js` / `uploadService.js` / `uploadRoutes.js` + `services/cloudinaryService.js` return 501, and there's no `middleware/upload.js` yet (multer wiring lands with the upload feature). Bookings, wishlist, and reviews are now fully implemented end-to-end (service + controller + routes + tests + frontend).
 
-- Backend: `controllers/{booking,wishlist,review,upload}Controller.js`, the matching `services/`, the matching `routes/`, and `services/cloudinaryService.js`. The 501-returning controllers are placeholders, not real endpoints. (Note: there is no `middleware/upload.js` yet — multer wiring still needs to be added when uploads land.)
-- Frontend: pages for `/profile`, `/bookings`, `/wishlist` render real layouts but call no API. The `api/{bookings,wishlist,reviews}.ts` functions are typed and ready, but the backend they call returns 501.
+- Frontend: `/profile` still renders a layout but calls no API. `/bookings` and `/wishlist` are wired; `api/{bookings,wishlist,reviews}.ts` hit live endpoints. `Listing.rating`/`reviewCount` are server-populated, so `deriveListingMeta` is decorative-only now.
 
-When implementing one of these features, fill in the existing files rather than introducing new directories. The scaffold reserves the namespaces deliberately.
+When implementing the remaining scaffold, fill in the existing files rather than introducing new directories. The scaffold reserves the namespaces deliberately.
 
 ## Tests
 

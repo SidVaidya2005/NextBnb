@@ -1,13 +1,22 @@
 # NextBnb
 
-Full-stack Airbnb-style listings app built as an npm workspaces monorepo. The backend is an Express REST API backed by MongoDB; the frontend is React 18 + TypeScript + Tailwind v3.
+Full-stack Airbnb-style listings app built as an npm workspaces monorepo. The backend is a JSON-only Express REST API backed by MongoDB; the frontend is React 18 + TypeScript + Tailwind v3. Authentication is Google OAuth, which issues a stateless JWT.
 
-Listings CRUD is fully implemented. Bookings, wishlist, reviews, and image upload have route/controller/service skeletons in place but return 501 until wired up.
+Listings, bookings, wishlist, reviews, and Google login are implemented end to end. Image upload is the only remaining scaffold — its routes return `501 Not Implemented`.
+
+## Features
+
+- Listings CRUD with owner-scoped edit/delete and a text search across title, location, and country (`?where=`)
+- Google OAuth login via Passport, with a CSRF `state` check and a 7-day JWT
+- Bookings with check-in/check-out validation and overlap detection (returns `409` on a date clash)
+- Wishlist for saving and removing listings, with an optimistic React Query cache
+- Reviews that recompute a listing's average rating and review count on every write
+- Image upload (scaffolded, returns `501`)
 
 ## Prerequisites
 
 - Node.js 18+
-- MongoDB running locally at `mongodb://127.0.0.1:27017` (only needed for `npm run dev` and `npm run seed` — tests use an in-memory MongoDB)
+- MongoDB running locally at `mongodb://127.0.0.1:27017` — only needed for `npm run dev` and `npm run seed`. Tests use an in-memory MongoDB and need no local instance.
 
 ## Installation
 
@@ -17,10 +26,14 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
-Two env variables are required before anything works:
+`npm install` at the root installs both workspaces from the shared lockfile.
 
-- `JWT_SECRET` in `backend/.env` — token signing and verification fail without it
-- `VITE_API_BASE_URL` in `frontend/.env` — the API client has no fallback; every API call breaks if this is unset
+Two variables must be set before anything works:
+
+- `JWT_SECRET` in `backend/.env` — token signing and verification fail without it (the backend refuses to boot outside test mode if it's missing)
+- `VITE_API_BASE_URL` in `frontend/.env` — the Axios client reads it with no fallback, so every API call breaks if it's unset
+
+Google OAuth and Cloudinary credentials are optional and only needed if you exercise those flows.
 
 ## Development
 
@@ -28,7 +41,34 @@ Two env variables are required before anything works:
 npm run dev           # frontend (:5173) + backend (:8080) concurrently
 npm run dev:backend
 npm run dev:frontend
-npm run seed          # drops the listings collection and re-seeds from init/data.js
+npm run seed          # drops the listings collection and re-seeds from backend/init/data.js
+```
+
+`npm run seed` is destructive: it wipes the listings collection before re-inserting.
+
+## Configuration
+
+Both `.env` files are gitignored. Backend variables are read through `backend/config/env.js`, which supplies the defaults shown below.
+
+`backend/.env`:
+
+```env
+PORT=8080
+MONGO_URI=mongodb://127.0.0.1:27017/nextbnb
+JWT_SECRET=                            # required
+FRONTEND_URL=http://localhost:5173
+GOOGLE_CLIENT_ID=                      # optional — Google login only
+GOOGLE_CLIENT_SECRET=
+GOOGLE_CALLBACK_URL=http://localhost:8080/auth/google/callback
+CLOUDINARY_CLOUD_NAME=                 # optional — image uploads only
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+```
+
+`frontend/.env`:
+
+```env
+VITE_API_BASE_URL=http://localhost:8080
 ```
 
 ## Project structure
@@ -37,78 +77,97 @@ npm run seed          # drops the listings collection and re-seeds from init/dat
 NextBnb/
 ├── backend/                  # Express REST API (JSON only)
 │   ├── config/               # db connection, env, Passport setup
-│   ├── controllers/          # read req, call service, send JSON
-│   ├── middleware/           # auth (requireAuth), error handler, upload
+│   ├── controllers/          # read req, call a service, send JSON
+│   ├── middleware/           # auth (requireAuth, OAuth state), error handler
 │   ├── models/               # Mongoose schemas (PascalCase filenames)
 │   ├── routes/               # /api/* and /auth/* routers
-│   ├── services/             # all Mongoose calls live here; throw ApiError on null
+│   ├── services/             # all Mongoose calls; throw ApiError on null lookups
 │   ├── utils/                # ApiError, asyncHandler, logger
 │   ├── init/                 # seed data (data.js) and seed script (index.js)
 │   ├── app.js                # Express app setup
 │   └── server.js             # entrypoint
 └── frontend/                 # Vite + React 18 + TypeScript + Tailwind v3
     └── src/
-        ├── api/              # typed Axios + React Query layer, one file per resource
+        ├── api/              # typed Axios layer, one file per resource
         ├── components/       # layout/, listings/, search/, auth/, states/, common/
         ├── context/          # AuthContext — JWT in localStorage, useAuth() hook
-        ├── lib/              # listingMeta helper for deterministic display data
+        ├── hooks/            # shared React Query hooks (e.g. useWishlist)
         ├── pages/            # route-level components
         ├── routes/           # AppRoutes.tsx (public + protected splits)
         └── types/            # shared TypeScript interfaces
 ```
 
-## Configuration
-
-**`backend/.env`**
-
-```env
-PORT=8080
-MONGO_URI=mongodb://127.0.0.1:27017/nextbnb
-JWT_SECRET=                            # required
-FRONTEND_URL=http://localhost:5173
-GOOGLE_CLIENT_ID=                      # optional — OAuth only
-GOOGLE_CLIENT_SECRET=
-GOOGLE_CALLBACK_URL=http://localhost:8080/auth/google/callback
-CLOUDINARY_CLOUD_NAME=                 # optional — image uploads only
-CLOUDINARY_API_KEY=
-CLOUDINARY_API_SECRET=
-```
-
-**`frontend/.env`**
-
-```env
-VITE_API_BASE_URL=http://localhost:8080
-```
+The backend is layered: routes map URLs to controllers, controllers call services, and services are the only layer that touches Mongoose. A service throws `ApiError(404, ...)` on a missing record rather than returning an empty `200`, and `middleware/error.js` translates those into JSON responses with the right status.
 
 ## API
 
-### Listings (implemented)
+Request and response bodies are flat JSON. Protected routes expect an `Authorization: Bearer <jwt>` header.
 
-| Method   | Path                | Auth       | Description           |
-| -------- | ------------------- | ---------- | --------------------- |
-| `GET`    | `/api/listings`     | —          | Return all listings   |
-| `POST`   | `/api/listings`     | Bearer JWT | Create a listing      |
-| `GET`    | `/api/listings/:id` | —          | Return one listing    |
-| `PUT`    | `/api/listings/:id` | Bearer JWT | Update listing fields |
-| `DELETE` | `/api/listings/:id` | Bearer JWT | Delete a listing      |
+### Auth (`/auth`)
 
-Request body shape: `{ title, description, image, price, location, country }` (flat JSON).
+| Method | Path                    | Auth | Description                                                                |
+| ------ | ----------------------- | ---- | -------------------------------------------------------------------------- |
+| `GET`  | `/auth/google`          | —    | Start Google OAuth (sets a CSRF `state` cookie)                            |
+| `GET`  | `/auth/google/callback` | —    | Verify `state`, issue a JWT, redirect to `${FRONTEND_URL}/oauth?token=...` |
+| `GET`  | `/auth/me`              | JWT  | Return the current user                                                    |
+| `POST` | `/auth/logout`          | —    | Stateless `204`                                                            |
+
+### Listings (`/api/listings`)
+
+| Method   | Path                | Auth | Description                                                 |
+| -------- | ------------------- | ---- | ----------------------------------------------------------- |
+| `GET`    | `/api/listings`     | —    | List all listings; `?where=` filters title/location/country |
+| `POST`   | `/api/listings`     | JWT  | Create a listing (caller becomes the owner)                 |
+| `GET`    | `/api/listings/:id` | —    | Return one listing                                          |
+| `PUT`    | `/api/listings/:id` | JWT  | Update a listing (owner only)                               |
+| `DELETE` | `/api/listings/:id` | JWT  | Delete a listing (owner only)                               |
+
+Body: `{ title, description, image, price, location, country }`.
+
+### Bookings (`/api/bookings`)
+
+| Method   | Path                | Auth | Description                                         |
+| -------- | ------------------- | ---- | --------------------------------------------------- |
+| `GET`    | `/api/bookings`     | JWT  | List the caller's bookings (listing populated)      |
+| `POST`   | `/api/bookings`     | JWT  | Create a booking; rejects past or overlapping dates |
+| `GET`    | `/api/bookings/:id` | JWT  | Return one booking (owner only)                     |
+| `PUT`    | `/api/bookings/:id` | JWT  | Update booking status (owner only)                  |
+| `DELETE` | `/api/bookings/:id` | JWT  | Cancel a booking — sets status to `cancelled`       |
+
+Body: `{ listingId, checkIn, checkOut, guests: { adults, children, infants, pets } }`.
+
+### Wishlist (`/api/wishlist`)
+
+| Method   | Path                       | Auth | Description                        |
+| -------- | -------------------------- | ---- | ---------------------------------- |
+| `GET`    | `/api/wishlist`            | JWT  | Return the caller's saved listings |
+| `POST`   | `/api/wishlist/:listingId` | JWT  | Save a listing (idempotent)        |
+| `DELETE` | `/api/wishlist/:listingId` | JWT  | Remove a listing                   |
+
+### Reviews (`/api/reviews`)
+
+| Method   | Path               | Auth | Description                                          |
+| -------- | ------------------ | ---- | ---------------------------------------------------- |
+| `GET`    | `/api/reviews`     | —    | List reviews for a listing (`?listingId=`)           |
+| `POST`   | `/api/reviews`     | JWT  | Create a review; recomputes the listing's rating     |
+| `GET`    | `/api/reviews/:id` | —    | Return one review                                    |
+| `DELETE` | `/api/reviews/:id` | JWT  | Delete a review (author only); recomputes the rating |
+
+Body: `{ listing, rating, comment }`.
+
+### Uploads (`/api/uploads`)
+
+Scaffolded — `POST /api/uploads` and `DELETE /api/uploads/:publicId` return `501`.
+
+### Health
 
 `GET /health` returns `{ "status": "ok" }`.
-
-### Scaffolded (return 501)
-
-`/api/bookings`, `/api/wishlist`, `/api/reviews`, `/api/uploads`
-
-### OAuth (Google)
-
-Authentication is OAuth-only — there is no email/password login. `GET /auth/google` runs through Passport with a CSRF `state` cookie and issues a JWT on success, redirecting to `${FRONTEND_URL}/oauth?token=<jwt>`. The frontend `/oauth` route hands the token to `useAuth().login()`, completing the flow end-to-end. `GET /auth/me` returns the current user; `POST /auth/logout` is a stateless 204.
 
 ## Tests, lint, and formatting
 
 ```bash
-npm test                  # runs backend then frontend test suites
-npm run test:backend      # Vitest + supertest, in-memory MongoDB (no local Mongo needed)
+npm test                  # backend then frontend suites
+npm run test:backend      # Vitest + supertest, in-memory MongoDB (no local Mongo)
 npm run test:frontend     # Vitest + Testing Library + happy-dom
 npm run lint              # ESLint across both workspaces
 npm run format            # Prettier --write
@@ -116,6 +175,10 @@ npm run format:check
 npm run build             # tsc -b && vite build
 ```
 
+The first backend test run downloads a MongoDB binary for `mongodb-memory-server`; later runs reuse the cache.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
+</content>
+</invoke>
