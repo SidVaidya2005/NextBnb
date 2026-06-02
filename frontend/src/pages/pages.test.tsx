@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Login } from "./Login";
 import { ListingNew } from "./ListingNew";
 import { ListingEdit } from "./ListingEdit";
+import { Bookings } from "./Bookings";
+import { Wishlist } from "./Wishlist";
 
 vi.mock("../api/listings", () => ({
   createListing: vi.fn(),
@@ -14,7 +16,21 @@ vi.mock("../api/listings", () => ({
   deleteListing: vi.fn(),
 }));
 
+vi.mock("../api/bookings", () => ({
+  listMyBookings: vi.fn(),
+  createBooking: vi.fn(),
+  cancelBooking: vi.fn(),
+}));
+
+vi.mock("../api/wishlist", () => ({
+  getWishlist: vi.fn(),
+  addToWishlist: vi.fn(),
+  removeFromWishlist: vi.fn(),
+}));
+
 import * as listingsApi from "../api/listings";
+import * as bookingsApi from "../api/bookings";
+import * as wishlistApi from "../api/wishlist";
 
 function makeClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -96,8 +112,61 @@ describe("frontend page skeletons", () => {
   });
 
   it.todo("<Profile> renders the signed-in user");
-  it.todo("<Bookings> renders the empty state when there are no bookings");
-  it.todo(
-    "<Wishlist> renders the empty state when there are no saved listings",
-  );
+
+  it("<Bookings> renders the empty state when there are no bookings", async () => {
+    vi.mocked(bookingsApi.listMyBookings).mockResolvedValue([]);
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={makeClient()}>
+          <Bookings />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("No trips booked yet")).toBeInTheDocument();
+  });
+
+  it("<Bookings> renders trip cards when bookings exist", async () => {
+    vi.mocked(bookingsApi.listMyBookings).mockResolvedValue([
+      {
+        _id: "b1",
+        user: "u1",
+        listing: { _id: "l1", title: "Beach House", image: "x", price: 100 },
+        checkIn: "2030-01-01T00:00:00.000Z",
+        checkOut: "2030-01-04T00:00:00.000Z",
+        totalPrice: 300,
+        guests: { adults: 2, children: 0, infants: 0, pets: 0 },
+        status: "pending",
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={makeClient()}>
+          <Bookings />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Beach House")).toBeInTheDocument();
+    expect(screen.getByText(/300 total/)).toBeInTheDocument();
+    expect(screen.getByText("2 guests")).toBeInTheDocument();
+  });
+
+  it("<Wishlist> renders the empty state when there are no saved listings", async () => {
+    vi.mocked(wishlistApi.getWishlist).mockResolvedValue([]);
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={makeClient()}>
+          <Wishlist />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByText("Create your first wishlist"),
+    ).toBeInTheDocument();
+  });
 });
