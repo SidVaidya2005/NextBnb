@@ -17,6 +17,8 @@ export function ListingCard({ listing }: Props) {
   const location =
     [listing.location, listing.country].filter(Boolean).join(", ") ||
     "A place to stay";
+  const reviewCount = listing.reviewCount ?? 0;
+  const rating = listing.rating ?? 0;
 
   return (
     <Link to={`/listings/${listing._id}`} className="group block">
@@ -32,15 +34,21 @@ export function ListingCard({ listing }: Props) {
             <GuestFavoriteBadge className="absolute left-md top-md" />
           )}
           <div className="absolute right-md top-md">
-            <HeartButton />
+            <HeartButton listing={listing} />
           </div>
         </div>
 
         <div className="flex items-start justify-between gap-md pt-1">
           <h3 className="t-title-md truncate">{location}</h3>
           <span className="inline-flex shrink-0 items-center gap-1 t-body-sm text-ink">
-            <Star size={12} className="text-ink" />
-            {meta.rating}
+            {reviewCount > 0 ? (
+              <>
+                <Star size={12} className="text-ink" />
+                {rating}
+              </>
+            ) : (
+              "New"
+            )}
           </span>
         </div>
         <p className="t-body-sm text-ink-muted truncate">{listing.title}</p>

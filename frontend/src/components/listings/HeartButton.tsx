@@ -1,26 +1,31 @@
-import { useState, type MouseEvent } from "react";
+import { type MouseEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { HeartFilled, HeartOutline } from "../common/Icon";
+import { useWishlist } from "../../hooks/useWishlist";
+import type { Listing } from "../../types/Listing";
 
 interface Props {
-  initialSaved?: boolean;
+  listing: Listing;
   size?: number;
   className?: string;
 }
 
-/* Circular heart save toggle. Default outline-white over photos; clicks flip
- * to Rausch-filled. Local state only — wiring to the wishlist API waits for
- * that service to come online. */
-export function HeartButton({
-  initialSaved = false,
-  size = 22,
-  className = "",
-}: Props) {
-  const [saved, setSaved] = useState(initialSaved);
+/* Circular heart save toggle. Default outline-white over photos; saved flips
+ * to Rausch-filled. Backed by the shared wishlist cache via useWishlist —
+ * signed-out clicks redirect to /login. */
+export function HeartButton({ listing, size = 22, className = "" }: Props) {
+  const navigate = useNavigate();
+  const { isAuthenticated, isSaved, toggle } = useWishlist();
+  const saved = isSaved(listing._id);
 
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
-    setSaved((s) => !s);
+    if (!isAuthenticated) {
+      navigate("/login");
+      return;
+    }
+    toggle(listing);
   }
 
   return (
