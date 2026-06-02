@@ -18,6 +18,10 @@ const listingSchema = new mongoose.Schema({
   location: String,
   country: String,
   owner: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  // Denormalized review aggregates, recomputed by reviewService on write so the
+  // grid can render ratings without an N+1 lookup.
+  rating: { type: Number, default: 0 },
+  reviewCount: { type: Number, default: 0 },
 });
 
 const Listing = mongoose.model("Listing", listingSchema);

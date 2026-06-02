@@ -1,7 +1,5 @@
 import { apiClient } from "./client";
-import type { Review } from "../types/Review";
-
-// TODO: wire to real endpoints once the review feature is implemented.
+import type { Review, CreateReviewInput } from "../types/Review";
 
 export async function listReviewsForListing(
   listingId: string,
@@ -12,7 +10,9 @@ export async function listReviewsForListing(
   return data;
 }
 
-export async function createReview(payload: Partial<Review>): Promise<Review> {
+export async function createReview(
+  payload: CreateReviewInput,
+): Promise<Review> {
   const { data } = await apiClient.post<Review>("/api/reviews", payload);
   return data;
 }
