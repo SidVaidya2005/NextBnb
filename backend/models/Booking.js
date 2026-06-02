@@ -8,6 +8,12 @@ const bookingSchema = new mongoose.Schema(
     checkIn: Date,
     checkOut: Date,
     totalPrice: Number,
+    guests: {
+      adults: { type: Number, default: 1 },
+      children: { type: Number, default: 0 },
+      infants: { type: Number, default: 0 },
+      pets: { type: Number, default: 0 },
+    },
     status: {
       type: String,
       enum: ["pending", "confirmed", "cancelled"],
