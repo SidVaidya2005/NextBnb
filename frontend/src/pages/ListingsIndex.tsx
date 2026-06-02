@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { listListings } from "../api/listings";
 import { Container } from "../components/layout/Container";
@@ -49,9 +50,12 @@ function CategoryStrip() {
 }
 
 export function ListingsIndex() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const where = searchParams.get("where") ?? "";
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["listings"],
-    queryFn: listListings,
+    queryKey: ["listings", { where }],
+    queryFn: () => listListings(where ? { where } : undefined),
   });
 
   return (
@@ -63,7 +67,22 @@ export function ListingsIndex() {
       <CategoryStrip />
 
       <section className="py-xl">
-        <h1 className="t-display-xl mb-xl">Inspiration for future getaways</h1>
+        {where ? (
+          <div className="mb-xl flex items-center gap-md">
+            <h1 className="t-display-xl">Stays in “{where}”</h1>
+            <button
+              type="button"
+              onClick={() => setSearchParams({})}
+              className="t-body-sm text-rausch underline"
+            >
+              Clear
+            </button>
+          </div>
+        ) : (
+          <h1 className="t-display-xl mb-xl">
+            Inspiration for future getaways
+          </h1>
+        )}
 
         {isLoading && <LoadingState label="Loading stays…" />}
         {isError && (
@@ -74,7 +93,14 @@ export function ListingsIndex() {
         )}
         {data &&
           (data.length === 0 ? (
-            <EmptyState title="No stays yet." body="Be the first to add one." />
+            <EmptyState
+              title={where ? `No stays match “${where}”.` : "No stays yet."}
+              body={
+                where
+                  ? "Try a different destination or clear the filter."
+                  : "Be the first to add one."
+              }
+            />
           ) : (
             <ListingGrid listings={data} />
           ))}

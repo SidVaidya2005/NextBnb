@@ -9,8 +9,17 @@ function assertOwner(listing, userId) {
   }
 }
 
-async function findAll() {
-  return Listing.find({});
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function findAll(filter = {}) {
+  const query = {};
+  if (filter.location) {
+    const rx = new RegExp(escapeRegExp(String(filter.location)), "i");
+    query.$or = [{ location: rx }, { title: rx }, { country: rx }];
+  }
+  return Listing.find(query);
 }
 
 async function findById(id) {

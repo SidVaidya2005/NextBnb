@@ -1,8 +1,8 @@
 const asyncHandler = require("../utils/asyncHandler");
 const listingService = require("../services/listingService");
 
-const index = asyncHandler(async (_req, res) => {
-  const listings = await listingService.findAll();
+const index = asyncHandler(async (req, res) => {
+  const listings = await listingService.findAll({ location: req.query.where });
   res.json(listings);
 });
 

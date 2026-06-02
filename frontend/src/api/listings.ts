@@ -1,8 +1,10 @@
 import { apiClient } from "./client";
 import type { Listing, NewListing } from "../types/Listing";
 
-export async function listListings(): Promise<Listing[]> {
-  const { data } = await apiClient.get<Listing[]>("/api/listings");
+export async function listListings(params?: {
+  where?: string;
+}): Promise<Listing[]> {
+  const { data } = await apiClient.get<Listing[]>("/api/listings", { params });
   return data;
 }
 

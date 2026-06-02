@@ -18,6 +18,34 @@ describe("listingService", () => {
       const result = await listingService.findAll();
       expect(result).toHaveLength(2);
     });
+
+    it("filters by location (case-insensitive substring)", async () => {
+      await Listing.insertMany([
+        { title: "Beach hut", price: 100, location: "Goa", country: "India" },
+        { title: "City flat", price: 200, location: "Mumbai" },
+      ]);
+      const result = await listingService.findAll({ location: "goa" });
+      expect(result).toHaveLength(1);
+      expect(result[0].location).toBe("Goa");
+    });
+
+    it("matches on title or country too", async () => {
+      await Listing.insertMany([
+        { title: "Goa villa", price: 100, location: "Anjuna" },
+        {
+          title: "Hill cabin",
+          price: 200,
+          location: "Manali",
+          country: "India",
+        },
+      ]);
+      expect(await listingService.findAll({ location: "villa" })).toHaveLength(
+        1,
+      );
+      expect(await listingService.findAll({ location: "india" })).toHaveLength(
+        1,
+      );
+    });
   });
 
   describe("findById", () => {
