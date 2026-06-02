@@ -37,12 +37,6 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-xs">
-          <Link
-            to="/listings/new"
-            className="hidden rounded-full px-md py-sm t-body-sm font-medium text-ink hover:bg-surface-soft md:inline-block"
-          >
-            NextBnb your home
-          </Link>
           {isAuthenticated ? (
             <div className="flex items-center gap-sm rounded-full border border-hairline px-md py-1.5 hover:shadow-card-soft">
               <Hamburger size={16} className="text-ink" />
