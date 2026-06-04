@@ -1,14 +1,15 @@
-const mongoose = require("mongoose");
 const Review = require("../models/Review");
 const Listing = require("../models/Listing");
 // Ensure the User model is registered for `populate("author")`.
 require("../models/User");
 const ApiError = require("../utils/ApiError");
+const toObjectId = require("../utils/toObjectId");
 
 // Recompute and denormalize the listing's average rating + review count.
 async function recomputeListingRating(listingId) {
+  const id = toObjectId(listingId, "listing id");
   const stats = await Review.aggregate([
-    { $match: { listing: new mongoose.Types.ObjectId(String(listingId)) } },
+    { $match: { listing: id } },
     {
       $group: {
         _id: "$listing",
@@ -18,14 +19,14 @@ async function recomputeListingRating(listingId) {
     },
   ]);
   const { avg = 0, count = 0 } = stats[0] || {};
-  await Listing.findByIdAndUpdate(listingId, {
+  await Listing.findByIdAndUpdate(id, {
     rating: Math.round(avg * 10) / 10,
     reviewCount: count,
   });
 }
 
 async function findForListing(listingId) {
-  return Review.find({ listing: listingId })
+  return Review.find({ listing: toObjectId(listingId, "listing id") })
     .sort({ createdAt: -1 })
     .populate("author", "name avatar");
 }
