@@ -1,4 +1,12 @@
-import "@testing-library/jest-dom/vitest";
+// Register jest-dom matchers on Vitest's `expect`. We extend explicitly rather
+// than importing "@testing-library/jest-dom/vitest" because, under npm
+// workspaces, jest-dom hoists to the root node_modules while vitest stays nested
+// per-workspace — so jest-dom's own `import "vitest"` can't resolve it. Importing
+// vitest from here (inside the frontend workspace) resolves correctly.
+import * as matchers from "@testing-library/jest-dom/matchers";
+import { expect } from "vitest";
+
+expect.extend(matchers);
 
 // Node 22+ exposes an experimental globalThis.localStorage backed by a missing file,
 // which masks the DOM implementation. Provide a minimal Storage shim so component code
