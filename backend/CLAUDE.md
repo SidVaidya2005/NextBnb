@@ -15,7 +15,7 @@ Express REST API. JSON only — no EJS, no redirects (except the OAuth callback)
 - Read env via `config/env.js`, not `process.env` directly.
 - `JWT_SECRET` must be set in `backend/.env` — `signToken` / `verifyToken` silently produce unverifiable tokens otherwise. OAuth provider IDs (`GOOGLE_*`) are only needed if you're exercising the login flow.
 - No `express-async-errors`, no `express-session`. Passport runs with `{ session: false }`.
-- Only uploads remain 501 scaffold (`uploadController`/`uploadService`/`cloudinaryService` + a not-yet-created `middleware/upload.js`). Bookings, wishlist, reviews are implemented — fill remaining scaffold in place, don't add new directories.
+- Listings, bookings, wishlist, reviews, and image upload are implemented. Image upload is `middleware/upload.js` (multer) → `uploadController` → `cloudinaryService` (no `uploadService.js`); it throws `ApiError(501)` via `isConfigured()` when `CLOUDINARY_*` is unset. Fill any remaining gaps in place, don't add new directories.
 - `Listing.rating`/`Listing.reviewCount` are denormalized aggregates recomputed by `reviewService` on review create/delete — don't hand-edit them.
 
 ## Tests

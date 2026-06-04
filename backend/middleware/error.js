@@ -18,6 +18,15 @@ function errorHandler(err, req, res, _next) {
     return res.status(400).json({ error: err.message });
   }
 
+  // multer file-size / field errors are client mistakes, not 500s.
+  if (err && err.name === "MulterError") {
+    const message =
+      err.code === "LIMIT_FILE_SIZE"
+        ? "Image exceeds the 5 MB limit"
+        : err.message;
+    return res.status(400).json({ error: message });
+  }
+
   logger.error(err);
   return res.status(500).json({ error: "Internal Server Error" });
 }

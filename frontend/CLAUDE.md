@@ -7,7 +7,7 @@ Vite + React 18 + TypeScript + Tailwind v3 + Axios + React Query + React Router.
 - All HTTP goes through `src/api/client.ts` (axios instance with a JWT interceptor that reads `localStorage[TOKEN_KEY]`).
 - `VITE_API_BASE_URL` **must** be set in `frontend/.env` — `client.ts` reads it with no fallback. Without it, every API call hits a relative URL and silently breaks in dev.
 - `useAuth()` from `src/context/AuthContext.tsx` is the single source of truth for `{ user, token, isAuthenticated, login, logout }`. **Never** touch `localStorage` for auth directly in components — go through `useAuth`.
-- API modules are grouped per resource (`api/listings.ts`, `api/auth.ts`, etc.). Add new endpoints to the matching file, don't create new ones.
+- API modules are grouped per resource (`api/listings.ts`, `api/auth.ts`, `api/uploads.ts`, etc.). Add new endpoints to the matching file, don't create new ones. `api/uploads.ts` posts a `File` as `multipart/form-data` (field `image`) and returns `{ url, publicId }`; `ListingForm`'s file picker calls it and writes the URL into the controlled image field.
 - OAuth landing route is built: the backend redirects to `${FRONTEND_URL}/oauth?token=...` after Google login, and `pages/OAuthCallback.tsx` (routed at `/oauth` in `AppRoutes.tsx`) reads the `token`/`error` query param, calls `useAuth().login(token)`, and bounces home.
 
 ## Routes

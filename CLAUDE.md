@@ -58,13 +58,13 @@ Layered. Each layer has a single responsibility:
 - **`frontend/src/routes/AppRoutes.tsx`** — Public vs. protected split. Protected routes (`/listings/new`, `/listings/:id/edit`, `/profile`, `/bookings`, `/wishlist`) wrap in `<ProtectedRoute>`, which renders `null` while the token is mid-verification and `<Navigate to="/login">` if no token.
 - **`frontend/src/context/AuthContext.tsx`** — Single source of truth for `{ user, token, isAuthenticated, login, logout }`. The `<App>` is wrapped in `<AuthProvider>` in `main.tsx`. Use `useAuth()` everywhere — don't read the token directly from localStorage in components.
 
-## Scaffold-only areas
+## Implemented areas (formerly scaffold)
 
-The remaining scaffold is **uploads only**: `uploadController.js` / `uploadService.js` / `uploadRoutes.js` + `services/cloudinaryService.js` return 501, and there's no `middleware/upload.js` yet (multer wiring lands with the upload feature). Bookings, wishlist, and reviews are now fully implemented end-to-end (service + controller + routes + tests + frontend).
+Listings, bookings, wishlist, reviews, and **image upload** are all implemented end-to-end (service + controller + routes + tests + frontend). Image upload uses `middleware/upload.js` (multer memoryStorage, 5 MB, image MIME allowlist) → `controllers/uploadController.js` → `services/cloudinaryService.js` (streams the buffer to Cloudinary). `cloudinaryService.isConfigured()` gates on the `CLOUDINARY_*` env vars; with none set the upload/delete endpoints throw `ApiError(501)`. The delete route is `/:publicId(*)` so a Cloudinary publicId's folder slash survives routing. There is no `uploadService.js` — the Cloudinary calls live in `cloudinaryService.js`.
 
-- Frontend: `/profile` still renders a layout but calls no API. `/bookings` and `/wishlist` are wired; `api/{bookings,wishlist,reviews}.ts` hit live endpoints. `Listing.rating`/`reviewCount` are server-populated, so `deriveListingMeta` is decorative-only now.
+- Frontend: `/profile` still renders a layout but calls no API. `/bookings` and `/wishlist` are wired; `api/{bookings,wishlist,reviews}.ts` hit live endpoints. `api/uploads.ts` posts the file and `ListingForm` has a file picker that uploads then fills the image field. `Listing.rating`/`reviewCount` are server-populated, so `deriveListingMeta` is decorative-only now.
 
-When implementing the remaining scaffold, fill in the existing files rather than introducing new directories. The scaffold reserves the namespaces deliberately.
+When filling remaining gaps, work in the existing files rather than introducing new directories.
 
 ## Tests
 

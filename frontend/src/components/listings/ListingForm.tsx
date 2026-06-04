@@ -1,5 +1,7 @@
-import type { FormHTMLAttributes } from "react";
+import { useState } from "react";
+import type { ChangeEvent, FormHTMLAttributes } from "react";
 import type { Listing, NewListing } from "../../types/Listing";
+import { uploadImage } from "../../api/uploads";
 import { Input } from "../common/Input";
 import { Button } from "../common/Button";
 
@@ -30,6 +32,28 @@ export function ListingForm({
   onSubmit,
   ...rest
 }: Props) {
+  // The image field is controlled so the file picker and manual URL entry write
+  // to the same value; FormData still reads it on submit (see readListingForm).
+  const [image, setImage] = useState(initial.image ?? "");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function handleFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const { url } = await uploadImage(file);
+      setImage(url);
+    } catch {
+      setUploadError("Upload failed. Try another image or paste a URL below.");
+    } finally {
+      setUploading(false);
+      e.target.value = ""; // allow re-selecting the same file
+    }
+  }
+
   return (
     <form className="flex flex-col gap-lg" onSubmit={onSubmit} {...rest}>
       <Input
@@ -51,12 +75,38 @@ export function ListingForm({
           className="bg-surface-canvas border border-hairline rounded-sm px-md py-md t-body-md text-ink placeholder:text-ink-muted-soft focus:outline-none focus:border-ink focus:border-2 focus:px-[11px] focus:py-[11px]"
         />
       </div>
+
+      <div className="flex flex-col gap-xs">
+        <label htmlFor="imageFile" className="t-caption text-ink-muted">
+          Photo
+        </label>
+        {image && (
+          <img
+            src={image}
+            alt="Listing preview"
+            className="mb-xs h-40 w-full rounded-sm object-cover"
+          />
+        )}
+        <input
+          id="imageFile"
+          type="file"
+          accept="image/*"
+          onChange={handleFile}
+          disabled={uploading}
+          className="t-body-sm text-ink-muted file:mr-md file:rounded-full file:border-0 file:bg-surface-soft file:px-md file:py-1.5 file:t-caption file:text-ink hover:file:bg-hairline"
+        />
+        {uploading && <p className="t-caption text-ink-muted">Uploading…</p>}
+        {uploadError && <p className="t-caption text-rausch">{uploadError}</p>}
+      </div>
       <Input
         id="image"
         name="image"
         label="Image URL"
-        defaultValue={initial.image ?? ""}
+        placeholder="Upload above, or paste an image URL"
+        value={image}
+        onChange={(e) => setImage(e.target.value)}
       />
+
       <div className="grid grid-cols-1 gap-lg sm:grid-cols-2">
         <Input
           id="price"
@@ -80,7 +130,9 @@ export function ListingForm({
         defaultValue={initial.country ?? ""}
       />
       <div className="flex justify-end">
-        <Button type="submit">{submitLabel}</Button>
+        <Button type="submit" disabled={uploading}>
+          {submitLabel}
+        </Button>
       </div>
     </form>
   );
