@@ -46,6 +46,39 @@ describe("listingService", () => {
         1,
       );
     });
+
+    it("filters by category membership (multi-tag)", async () => {
+      await Listing.insertMany([
+        {
+          title: "Goa villa",
+          price: 100,
+          categories: ["Villas", "Beachfront"],
+        },
+        { title: "City loft", price: 200, categories: ["Top Cities"] },
+        { title: "Untagged", price: 300 },
+      ]);
+      const villas = await listingService.findAll({ category: "Villas" });
+      expect(villas).toHaveLength(1);
+      expect(villas[0].title).toBe("Goa villa");
+      // A listing surfaces under every tag it carries.
+      expect(
+        await listingService.findAll({ category: "Beachfront" }),
+      ).toHaveLength(1);
+    });
+
+    it("combines location and category filters (AND)", async () => {
+      await Listing.insertMany([
+        { title: "A", price: 100, location: "Goa", categories: ["Villas"] },
+        { title: "B", price: 200, location: "Goa", categories: ["Top Cities"] },
+        { title: "C", price: 300, location: "Mumbai", categories: ["Villas"] },
+      ]);
+      const result = await listingService.findAll({
+        location: "goa",
+        category: "Villas",
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0].title).toBe("A");
+    });
   });
 
   describe("findById", () => {

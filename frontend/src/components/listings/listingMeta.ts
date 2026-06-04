@@ -1,13 +1,5 @@
+import type { SyntheticEvent } from "react";
 import type { Listing } from "../../types/Listing";
-
-const DATE_RANGES = [
-  "Nov 23 – 28",
-  "Dec 1 – 6",
-  "Dec 8 – 13",
-  "Jan 5 – 10",
-  "Feb 14 – 19",
-  "Mar 2 – 7",
-];
 
 function hashId(id: string): number {
   let h = 0;
@@ -21,7 +13,6 @@ export interface ListingMeta {
   rating: number;
   reviewCount: number;
   isGuestFavorite: boolean;
-  dates: string;
 }
 
 /* Deterministic visual-shell data — keyed off _id so the same listing
@@ -32,11 +23,28 @@ export function deriveListingMeta(listing: Listing): ListingMeta {
   const rating = listing.rating ?? 4.5 + (h % 50) / 100;
   const reviewCount = listing.reviewCount ?? 12 + (h % 480);
   const isGuestFavorite = listing.isGuestFavorite ?? h % 3 === 0;
-  const dates = listing.dates ?? DATE_RANGES[h % DATE_RANGES.length];
   return {
     rating: Math.round(rating * 100) / 100,
     reviewCount,
     isGuestFavorite,
-    dates,
+  };
+}
+
+// Deterministic, always-loading image used when a listing's primary URL fails to
+// load (e.g. an unverified Unsplash link 404s). Keyed off the listing so it's
+// stable across renders and unique per listing.
+export function imageFallbackUrl(listing: Listing): string {
+  const seed = encodeURIComponent(listing._id || listing.title);
+  return `https://picsum.photos/seed/${seed}/800/800`;
+}
+
+// onError handler that swaps a broken image to its Picsum fallback exactly once
+// (the data-flag guards against an error loop if the fallback itself fails).
+export function handleListingImageError(listing: Listing) {
+  return (e: SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    if (img.dataset.fallback) return;
+    img.dataset.fallback = "1";
+    img.src = imageFallbackUrl(listing);
   };
 }

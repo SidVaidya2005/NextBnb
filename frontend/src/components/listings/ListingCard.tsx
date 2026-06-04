@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import type { Listing } from "../../types/Listing";
-import { deriveListingMeta } from "./listingMeta";
+import { deriveListingMeta, handleListingImageError } from "./listingMeta";
 import { Star } from "../common/Icon";
 import { GuestFavoriteBadge } from "./GuestFavoriteBadge";
 import { HeartButton } from "./HeartButton";
@@ -28,6 +28,7 @@ export function ListingCard({ listing }: Props) {
             src={listing.image}
             alt={listing.title}
             loading="lazy"
+            onError={handleListingImageError(listing)}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
           />
           {meta.isGuestFavorite && (
@@ -52,7 +53,6 @@ export function ListingCard({ listing }: Props) {
           </span>
         </div>
         <p className="t-body-sm text-ink-muted truncate">{listing.title}</p>
-        <p className="t-body-sm text-ink-muted">{meta.dates}</p>
         <p className="t-body-sm text-ink">
           <span className="font-semibold">
             ₹{listing.price.toLocaleString("en-IN")}

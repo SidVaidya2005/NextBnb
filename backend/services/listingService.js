@@ -19,6 +19,10 @@ async function findAll(filter = {}) {
     const rx = new RegExp(escapeRegExp(String(filter.location)), "i");
     query.$or = [{ location: rx }, { title: rx }, { country: rx }];
   }
+  // Array equality matches any listing whose `categories` contains the value.
+  if (filter.category) {
+    query.categories = filter.category;
+  }
   return Listing.find(query);
 }
 

@@ -1,352 +1,391 @@
-const sampleListings = [
+// Seed listings, generated per city. Each listing's `location` is kept equal to a
+// city offered by the search bar's DestinationPicker
+// (frontend/src/components/search/DestinationPicker.tsx) so every "Where" suggestion
+// returns results — listingService.findAll regex-matches ?where= against
+// location/title/country. Keep the city names in sync if either side changes.
+//
+// We generate PER_CITY listings for each of the 12 cities (PER_CITY * 12 total),
+// rotating neighbourhoods, property types, and vibe-matched photos so the grid
+// stays varied without maintaining a huge hand-written array.
+
+const PER_CITY = 9;
+
+// Photo URLs grouped by vibe so each listing's image suits its setting. The nine
+// originals (already verified to load) seed the pools; the rest are themed
+// Unsplash photos. Any URL that fails to load is replaced, per listing, by a
+// unique picsum image on the frontend (handleListingImageError), so the grid
+// never shows a broken tile even for an unverified link.
+const img = (id) =>
+  `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=800&q=60`;
+
+const IMAGES = {
+  beach: [
+    "1552733407-5d5c46c3bb3b",
+    "1571003123894-1f0594d2b5d9",
+    "1507525428034-b723cf961d3e",
+    "1473116763249-2faaef81ccda",
+    "1505228395891-9a51e7e86bf6",
+    "1540541338287-41700207dee6",
+    "1519046904884-53103b34b206",
+  ].map(img),
+  backwater: [
+    "1566073771259-6a8506099945",
+    "1582719478250-c89cae4dc85b",
+    "1597211833712-5e41faa202ea",
+    "1571003123894-1f0594d2b5d9",
+    "1505693416388-ac5ce068fe85",
+    "1540202404-a2f29016b523",
+  ].map(img),
+  metro: [
+    "1622396481328-9b1b78cdd9fd",
+    "1501785888041-af3ef285b470",
+    "1502672260266-1c1ef2d93688",
+    "1560448204-e02f11c3d0e2",
+    "1502005229762-cf1b2da7c5d6",
+    "1512917774080-9991f1c4c750",
+    "1545324418-cc1a3fa10c00",
+    "1554995207-c18c203602cb",
+    "1484154218962-a197022b5858",
+    "1522708323590-d24dbb6b0267",
+    "1493809842364-78817add7ffb",
+  ].map(img),
+  heritage: [
+    "1566073771259-6a8506099945",
+    "1564013799919-ab600027ffc6",
+    "1580587771525-78b9dba3b914",
+    "1613490493576-7fde63acd811",
+    "1568605114967-8130f3a36994",
+    "1600585154340-be6161a56a0c",
+    "1600596542815-ffad4c1539a9",
+    "1571896349842-33c89424de2d",
+    "1505691938895-1758d7feb511",
+  ].map(img),
+  lake: [
+    "1464822759023-fed622ff2c3b",
+    "1439066615861-d1af74d74000",
+    "1470770841072-f978cf4d019e",
+    "1455587734955-081b22074882",
+    "1505765050516-f72dcac9c60e",
+  ].map(img),
+  mountain: [
+    "1571896349842-33c89424de2d",
+    "1520250497591-112f2f40a3f4",
+    "1502784444187-359ac186c5bb",
+    "1449158743715-0a90ebb6d2d8",
+    "1502920917128-1aa500764cbd",
+    "1506905925346-21bda4d32df4",
+  ].map(img),
+  river: [
+    "1464822759023-fed622ff2c3b",
+    "1520250497591-112f2f40a3f4",
+    "1535827841776-24afc1e255ac",
+    "1506905925346-21bda4d32df4",
+    "1432405972618-c60b0225b8f9",
+  ].map(img),
+};
+
+const TYPES = [
+  "Villa",
+  "Apartment",
+  "Cottage",
+  "Studio",
+  "Bungalow",
+  "Loft",
+  "Homestay",
+  "Penthouse",
+  "Guesthouse",
+];
+
+const ADJECTIVES = [
+  "Sunny",
+  "Cosy",
+  "Modern",
+  "Charming",
+  "Serene",
+  "Spacious",
+  "Boutique",
+  "Rustic",
+  "Elegant",
+];
+
+// Two description templates per vibe so listings within a city read differently.
+// Placeholders: {type} (lowercased property type) and {area} (neighbourhood).
+const DESCRIPTIONS = {
+  beach: [
+    "Steps from the sand, this {type} in {area} pairs easy beach access with sunset views and a breezy, laid-back feel.",
+    "A bright {type} near {area} — slow mornings, seafood shacks, and long barefoot walks along the shore.",
+  ],
+  metro: [
+    "A comfortable {type} in {area}, close to the city's cafes, offices, and metro — an easy base for work or weekend exploring.",
+    "Right in the thick of {area}, this {type} puts restaurants, markets, and nightlife on your doorstep.",
+  ],
+  heritage: [
+    "A characterful {type} in {area} with old-world detail, near the bazaars, monuments, and street food of the old city.",
+    "Soak up the history of {area} from this {type} — carved balconies, quiet courtyards, and landmarks a short stroll away.",
+  ],
+  lake: [
+    "A serene {type} near {area} with views over the water, made for unwinding to lakeside sunsets and palace silhouettes.",
+    "Wake to shimmering water at this {type} in {area}, a calm retreat a short walk from the ghats and old city.",
+  ],
+  mountain: [
+    "A snug {type} in {area} ringed by pine and peaks — a cosy base for Himalayan treks, cafes, and crisp mountain air.",
+    "Tucked into the hills at {area}, this {type} offers wood fires, valley views, and easy access to the trails.",
+  ],
+  river: [
+    "A peaceful {type} near {area} overlooking the Ganga, with yoga decks, riverside walks, and the calm of the foothills.",
+    "Find your calm at this {type} in {area} — morning yoga, river rafting nearby, and the sound of the Ganga at dusk.",
+  ],
+  backwater: [
+    "A waterfront {type} in {area} on the Kerala backwaters, with swaying palms, canal views, and a slow, restful pace.",
+    "A breezy {type} in {area} blending colonial charm and backwater calm, near cafes, art spaces, and the sea.",
+  ],
+};
+
+// Each city: the exact picker name, a vibe (drives the description + price band),
+// and nine neighbourhoods so generated titles stay distinct within the city.
+const CITIES = [
   {
-    title: "Cozy Beachfront Cottage",
-    description:
-      "Escape to this charming beachfront cottage for a relaxing getaway. Enjoy stunning ocean views and easy access to the beach.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1552733407-5d5c46c3bb3b?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTB8fHRyYXZlbHxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1500,
-    location: "Malibu",
-    country: "United States",
+    name: "Goa",
+    vibe: "beach",
+    base: 3500,
+    areas: [
+      "Baga",
+      "Calangute",
+      "Anjuna",
+      "Candolim",
+      "Palolem",
+      "Vagator",
+      "Morjim",
+      "Assagao",
+      "Panaji",
+    ],
   },
   {
-    title: "Modern Loft in Downtown",
-    description:
-      "Stay in the heart of the city in this stylish loft apartment. Perfect for urban explorers!",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTh8fHRyYXZlbHxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1200,
-    location: "New York City",
-    country: "United States",
+    name: "Mumbai",
+    vibe: "metro",
+    base: 3200,
+    areas: [
+      "Bandra",
+      "Colaba",
+      "Juhu",
+      "Andheri",
+      "Worli",
+      "Powai",
+      "Marine Drive",
+      "Lower Parel",
+      "Versova",
+    ],
   },
   {
-    title: "Mountain Retreat",
-    description:
-      "Unplug and unwind in this peaceful mountain cabin. Surrounded by nature, it's a perfect place to recharge.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1571896349842-33c89424de2d?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8N3x8aG90ZWxzfGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1000,
-    location: "Aspen",
-    country: "United States",
+    name: "New Delhi",
+    vibe: "heritage",
+    base: 3000,
+    areas: [
+      "Hauz Khas",
+      "Chandni Chowk",
+      "Connaught Place",
+      "Saket",
+      "Vasant Vihar",
+      "Karol Bagh",
+      "Defence Colony",
+      "Lajpat Nagar",
+      "Dwarka",
+    ],
   },
   {
-    title: "Historic Villa in Tuscany",
-    description:
-      "Experience the charm of Tuscany in this beautifully restored villa. Explore the rolling hills and vineyards.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1566073771259-6a8506099945?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8aG90ZWxzfGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 2500,
-    location: "Florence",
-    country: "Italy",
+    name: "Noida",
+    vibe: "metro",
+    base: 2400,
+    areas: [
+      "Sector 18",
+      "Sector 62",
+      "Sector 137",
+      "Sector 50",
+      "Sector 76",
+      "Sector 15",
+      "Sector 93",
+      "Sector 44",
+      "Sector 128",
+    ],
   },
   {
-    title: "Secluded Treehouse Getaway",
-    description:
-      "Live among the treetops in this unique treehouse retreat. A true nature lover's paradise.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTV8fGhvdGVsc3xlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 800,
-    location: "Portland",
-    country: "United States",
+    name: "Bengaluru",
+    vibe: "metro",
+    base: 3000,
+    areas: [
+      "Indiranagar",
+      "Koramangala",
+      "Whitefield",
+      "Jayanagar",
+      "HSR Layout",
+      "MG Road",
+      "Malleshwaram",
+      "Electronic City",
+      "Hebbal",
+    ],
   },
   {
-    title: "Beachfront Paradise",
-    description:
-      "Step out of your door onto the sandy beach. This beachfront condo offers the ultimate relaxation.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MjB8fGhvdGVsc3xlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 2000,
-    location: "Cancun",
-    country: "Mexico",
+    name: "Jaipur",
+    vibe: "heritage",
+    base: 3000,
+    areas: [
+      "Amber",
+      "Civil Lines",
+      "C-Scheme",
+      "Bani Park",
+      "Malviya Nagar",
+      "Hawa Mahal Road",
+      "Jhotwara",
+      "Vaishali Nagar",
+      "Tonk Road",
+    ],
   },
   {
-    title: "Rustic Cabin by the Lake",
-    description:
-      "Spend your days fishing and kayaking on the serene lake. This cozy cabin is perfect for outdoor enthusiasts.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTB8fG1vdW50YWlufGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 900,
-    location: "Lake Tahoe",
-    country: "United States",
+    name: "Udaipur",
+    vibe: "lake",
+    base: 3600,
+    areas: [
+      "Lake Pichola",
+      "Fateh Sagar",
+      "Hanuman Ghat",
+      "City Palace Road",
+      "Ambrai",
+      "Sajjangarh",
+      "Gulab Bagh",
+      "Sukhadia Circle",
+      "Badi",
+    ],
   },
   {
-    title: "Luxury Penthouse with City Views",
-    description:
-      "Indulge in luxury living with panoramic city views from this stunning penthouse apartment.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1622396481328-9b1b78cdd9fd?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8c2t5JTIwdmFjYXRpb258ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 3500,
-    location: "Los Angeles",
-    country: "United States",
+    name: "Manali",
+    vibe: "mountain",
+    base: 2200,
+    areas: [
+      "Old Manali",
+      "Vashisht",
+      "Hadimba",
+      "Solang",
+      "Naggar",
+      "Prini",
+      "Burwa",
+      "Aleo",
+      "Manu Market",
+    ],
   },
   {
-    title: "Ski-In/Ski-Out Chalet",
-    description:
-      "Hit the slopes right from your doorstep in this ski-in/ski-out chalet in the Swiss Alps.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1502784444187-359ac186c5bb?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTJ8fHNreSUyMHZhY2F0aW9ufGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 3000,
-    location: "Verbier",
-    country: "Switzerland",
+    name: "Rishikesh",
+    vibe: "river",
+    base: 2000,
+    areas: [
+      "Lakshman Jhula",
+      "Ram Jhula",
+      "Tapovan",
+      "Swarg Ashram",
+      "Muni Ki Reti",
+      "Shivpuri",
+      "Brahmapuri",
+      "Triveni Ghat",
+      "Neelkanth Road",
+    ],
   },
   {
-    title: "Safari Lodge in the Serengeti",
-    description:
-      "Experience the thrill of the wild in a comfortable safari lodge. Witness the Great Migration up close.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1493246507139-91e8fad9978e?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mjl8fG1vdW50YWlufGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 4000,
-    location: "Serengeti National Park",
-    country: "Tanzania",
+    name: "Kochi",
+    vibe: "backwater",
+    base: 2800,
+    areas: [
+      "Fort Kochi",
+      "Mattancherry",
+      "Marine Drive",
+      "Vyttila",
+      "Willingdon Island",
+      "Cherai",
+      "Kumbalangi",
+      "Panampilly Nagar",
+      "Edappally",
+    ],
   },
   {
-    title: "Historic Canal House",
-    description:
-      "Stay in a piece of history in this beautifully preserved canal house in Amsterdam's iconic district.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1504280390367-361c6d9f38f4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8Y2FtcGluZ3xlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1800,
-    location: "Amsterdam",
-    country: "Netherlands",
+    name: "Hyderabad",
+    vibe: "metro",
+    base: 2600,
+    areas: [
+      "Banjara Hills",
+      "Jubilee Hills",
+      "HITEC City",
+      "Gachibowli",
+      "Charminar",
+      "Secunderabad",
+      "Madhapur",
+      "Kondapur",
+      "Begumpet",
+    ],
   },
   {
-    title: "Private Island Retreat",
-    description:
-      "Have an entire island to yourself for a truly exclusive and unforgettable vacation experience.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1618140052121-39fc6db33972?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8bG9kZ2V8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 10000,
-    location: "Fiji",
-    country: "Fiji",
-  },
-  {
-    title: "Charming Cottage in the Cotswolds",
-    description:
-      "Escape to the picturesque Cotswolds in this quaint and charming cottage with a thatched roof.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1602088113235-229c19758e9f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8N3x8YmVhY2glMjB2YWNhdGlvbnxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1200,
-    location: "Cotswolds",
-    country: "United Kingdom",
-  },
-  {
-    title: "Historic Brownstone in Boston",
-    description:
-      "Step back in time in this elegant historic brownstone located in the heart of Boston.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1533619239233-6280475a633a?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTR8fHNreSUyMHZhY2F0aW9ufGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 2200,
-    location: "Boston",
-    country: "United States",
-  },
-  {
-    title: "Beachfront Bungalow in Bali",
-    description:
-      "Relax on the sandy shores of Bali in this beautiful beachfront bungalow with a private pool.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1602391833977-358a52198938?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MzJ8fGNhbXBpbmd8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1800,
-    location: "Bali",
-    country: "Indonesia",
-  },
-  {
-    title: "Mountain View Cabin in Banff",
-    description:
-      "Enjoy breathtaking mountain views from this cozy cabin in the Canadian Rockies.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1521401830884-6c03c1c87ebb?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTJ8fGxvZGdlfGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1500,
-    location: "Banff",
-    country: "Canada",
-  },
-  {
-    title: "Art Deco Apartment in Miami",
-    description:
-      "Step into the glamour of the 1920s in this stylish Art Deco apartment in South Beach.",
-    image: {
-      filename: "listingimage",
-      url: "https://plus.unsplash.com/premium_photo-1670963964797-942df1804579?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTZ8fGxvZGdlfGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1600,
-    location: "Miami",
-    country: "United States",
-  },
-  {
-    title: "Tropical Villa in Phuket",
-    description:
-      "Escape to a tropical paradise in this luxurious villa with a private infinity pool in Phuket.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1470165301023-58dab8118cc9?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTl8fGxvZGdlfGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 3000,
-    location: "Phuket",
-    country: "Thailand",
-  },
-  {
-    title: "Historic Castle in Scotland",
-    description:
-      "Live like royalty in this historic castle in the Scottish Highlands. Explore the rugged beauty of the area.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1585543805890-6051f7829f98?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTl8fGJlYWNoJTIwdmFjYXRpb258ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 4000,
-    location: "Scottish Highlands",
-    country: "United Kingdom",
-  },
-  {
-    title: "Desert Oasis in Dubai",
-    description:
-      "Experience luxury in the middle of the desert in this opulent oasis in Dubai with a private pool.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1518684079-3c830dcef090?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8ZHViYWl8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 5000,
-    location: "Dubai",
-    country: "United Arab Emirates",
-  },
-  {
-    title: "Rustic Log Cabin in Montana",
-    description:
-      "Unplug and unwind in this cozy log cabin surrounded by the natural beauty of Montana.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1586375300773-8384e3e4916f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTN8fGxvZGdlfGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1100,
-    location: "Montana",
-    country: "United States",
-  },
-  {
-    title: "Beachfront Villa in Greece",
-    description:
-      "Enjoy the crystal-clear waters of the Mediterranean in this beautiful beachfront villa on a Greek island.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1602343168117-bb8ffe3e2e9f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NXx8dmlsbGF8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 2500,
-    location: "Mykonos",
-    country: "Greece",
-  },
-  {
-    title: "Eco-Friendly Treehouse Retreat",
-    description:
-      "Stay in an eco-friendly treehouse nestled in the forest. It's the perfect escape for nature lovers.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1488462237308-ecaa28b729d7?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8OXx8c2t5JTIwdmFjYXRpb258ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 750,
-    location: "Costa Rica",
-    country: "Costa Rica",
-  },
-  {
-    title: "Historic Cottage in Charleston",
-    description:
-      "Experience the charm of historic Charleston in this beautifully restored cottage with a private garden.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1587381420270-3e1a5b9e6904?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTB8fGxvZGdlfGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1600,
-    location: "Charleston",
-    country: "United States",
-  },
-  {
-    title: "Modern Apartment in Tokyo",
-    description:
-      "Explore the vibrant city of Tokyo from this modern and centrally located apartment.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1480796927426-f609979314bd?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTV8fHRva3lvfGVufDB8fDB8fHww&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 2000,
-    location: "Tokyo",
-    country: "Japan",
-  },
-  {
-    title: "Lakefront Cabin in New Hampshire",
-    description:
-      "Spend your days by the lake in this cozy cabin in the scenic White Mountains of New Hampshire.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1578645510447-e20b4311e3ce?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NDF8fGNhbXBpbmd8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1200,
-    location: "New Hampshire",
-    country: "United States",
-  },
-  {
-    title: "Luxury Villa in the Maldives",
-    description:
-      "Indulge in luxury in this overwater villa in the Maldives with stunning views of the Indian Ocean.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1439066615861-d1af74d74000?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8bGFrZXxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 6000,
-    location: "Maldives",
-    country: "Maldives",
-  },
-  {
-    title: "Ski Chalet in Aspen",
-    description:
-      "Hit the slopes in style with this luxurious ski chalet in the world-famous Aspen ski resort.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTh8fGxha2V8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 4000,
-    location: "Aspen",
-    country: "United States",
-  },
-  {
-    title: "Secluded Beach House in Costa Rica",
-    description:
-      "Escape to a secluded beach house on the Pacific coast of Costa Rica. Surf, relax, and unwind.",
-    image: {
-      filename: "listingimage",
-      url: "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8YmVhY2glMjBob3VzZXxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-    },
-    price: 1800,
-    location: "Costa Rica",
-    country: "Costa Rica",
+    name: "Kolkata",
+    vibe: "heritage",
+    base: 2400,
+    areas: [
+      "Park Street",
+      "Salt Lake",
+      "New Town",
+      "Ballygunge",
+      "Alipore",
+      "Howrah",
+      "College Street",
+      "Esplanade",
+      "Tollygunge",
+    ],
   },
 ];
+
+// Map a listing's vibe + property type onto the home page's browse categories
+// (kept in sync with the CategoryStrip in pages/ListingsIndex.tsx). Multi-tag: a
+// listing can land in several at once — a Goa villa is both "Villas" and
+// "Beachfront" — so all seven categories stay populated. Every vibe yields at
+// least one tag, so no listing is left uncategorised.
+function categoriesFor(vibe, type) {
+  const cats = new Set();
+  if (type === "Villa" || type === "Bungalow") cats.add("Villas");
+  if (type === "Studio" || type === "Loft") cats.add("Tiny Homes");
+  if (type === "Cottage") cats.add("Cabins & Treehouses");
+  if (vibe === "beach" || vibe === "backwater") cats.add("Beachfront");
+  if (vibe === "metro" || vibe === "heritage") cats.add("Top Cities");
+  if (vibe === "mountain") {
+    cats.add("Cabins & Treehouses");
+    cats.add("Nature");
+  }
+  if (vibe === "lake" || vibe === "river") {
+    cats.add("Lakefront");
+    cats.add("Nature");
+  }
+  return [...cats];
+}
+
+const sampleListings = CITIES.flatMap((city, cityIndex) =>
+  Array.from({ length: PER_CITY }, (_, i) => {
+    const type = TYPES[i % TYPES.length];
+    const adjective = ADJECTIVES[i % ADJECTIVES.length];
+    const area = city.areas[i % city.areas.length];
+    const templates = DESCRIPTIONS[city.vibe];
+    const description = templates[i % templates.length]
+      .replaceAll("{type}", type.toLowerCase())
+      .replaceAll("{area}", area);
+
+    // Pick a vibe-appropriate photo, advanced by a global index so listings that
+    // share a vibe across cities don't all land on the same image.
+    const pool = IMAGES[city.vibe];
+    const url = pool[(cityIndex * PER_CITY + i) % pool.length];
+
+    return {
+      title: `${adjective} ${type} in ${area}`,
+      description,
+      image: { filename: "listingimage", url },
+      price: city.base + i * 150,
+      location: city.name,
+      country: "India",
+      categories: categoriesFor(city.vibe, type),
+    };
+  }),
+);
 
 module.exports = { data: sampleListings };

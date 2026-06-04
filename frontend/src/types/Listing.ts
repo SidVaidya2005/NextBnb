@@ -10,10 +10,9 @@ export interface Listing {
   rating?: number;
   reviewCount?: number;
   isGuestFavorite?: boolean;
-  dates?: string;
 }
 
 export type NewListing = Omit<
   Listing,
-  "_id" | "owner" | "rating" | "reviewCount" | "isGuestFavorite" | "dates"
+  "_id" | "owner" | "rating" | "reviewCount" | "isGuestFavorite"
 >;

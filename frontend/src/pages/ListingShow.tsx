@@ -15,6 +15,7 @@ import { ErrorState } from "../components/states/ErrorState";
 import { Button } from "../components/common/Button";
 import { HeartButton } from "../components/listings/HeartButton";
 import { RatingDisplay } from "../components/listings/RatingDisplay";
+import { handleListingImageError } from "../components/listings/listingMeta";
 import {
   DateRangeCalendar,
   type DateRange,
@@ -247,6 +248,7 @@ export function ListingShow() {
           <img
             src={data.image}
             alt={data.title}
+            onError={handleListingImageError(data)}
             className="h-[480px] w-full object-cover"
           />
         </div>
