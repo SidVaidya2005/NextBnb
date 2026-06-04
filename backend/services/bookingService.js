@@ -1,6 +1,7 @@
 const Booking = require("../models/Booking");
 const Listing = require("../models/Listing");
 const ApiError = require("../utils/ApiError");
+const toObjectId = require("../utils/toObjectId");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -33,7 +34,8 @@ async function findById(id, userId) {
 }
 
 async function create(userId, { listingId, checkIn, checkOut, guests }) {
-  const listing = await Listing.findById(listingId);
+  const listingObjectId = toObjectId(listingId, "listing id");
+  const listing = await Listing.findById(listingObjectId);
   if (!listing) {
     throw new ApiError(404, "Listing not found");
   }
@@ -53,7 +55,7 @@ async function create(userId, { listingId, checkIn, checkOut, guests }) {
   // Reject any overlap with a live (non-cancelled) booking on this listing.
   // Two ranges overlap when each starts before the other ends.
   const conflict = await Booking.findOne({
-    listing: listingId,
+    listing: listingObjectId,
     status: { $ne: "cancelled" },
     checkIn: { $lt: end },
     checkOut: { $gt: start },
@@ -65,7 +67,7 @@ async function create(userId, { listingId, checkIn, checkOut, guests }) {
   const nights = Math.round((end - start) / MS_PER_DAY);
   const booking = new Booking({
     user: userId,
-    listing: listingId,
+    listing: listingObjectId,
     checkIn: start,
     checkOut: end,
     totalPrice: nights * listing.price,
