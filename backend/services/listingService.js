@@ -34,6 +34,15 @@ async function findById(id) {
   return listing;
 }
 
+// Authorization helper for image deletes: finds the caller's listing that uses
+// the given Cloudinary image. The stored value is the secure_url ending in
+// ".../<publicId>.<ext>", so the regex is anchored to that suffix — a shorter
+// publicId must not substring-match a longer image id and authorize deleting it.
+async function findByImagePublicId(publicId, userId) {
+  const rx = new RegExp(`/${escapeRegExp(publicId)}\\.[^/]+$`);
+  return Listing.findOne({ owner: userId, image: rx });
+}
+
 async function create(data) {
   const listing = new Listing(data);
   await listing.save();
@@ -62,4 +71,11 @@ async function remove(id, userId) {
   return listing;
 }
 
-module.exports = { findAll, findById, create, update, remove };
+module.exports = {
+  findAll,
+  findById,
+  findByImagePublicId,
+  create,
+  update,
+  remove,
+};

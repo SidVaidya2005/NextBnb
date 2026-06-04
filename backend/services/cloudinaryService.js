@@ -63,4 +63,4 @@ async function deleteImage(publicId) {
   return { deleted: true, publicId };
 }
 
-module.exports = { uploadImage, deleteImage, isConfigured };
+module.exports = { uploadImage, deleteImage, isConfigured, FOLDER };

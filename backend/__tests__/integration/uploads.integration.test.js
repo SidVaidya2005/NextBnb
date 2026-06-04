@@ -30,6 +30,22 @@ describe("/api/uploads", () => {
     expect(res.status).toBe(401);
   });
 
+  it("DELETE rejects a publicId outside the listings folder with 400", async () => {
+    const { token } = await makeUser();
+    const res = await request(app)
+      .delete("/api/uploads/other-folder/secret")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(400);
+  });
+
+  it("DELETE returns 403 when no listing of the caller uses the image", async () => {
+    const { token } = await makeUser();
+    const res = await request(app)
+      .delete("/api/uploads/nextbnb/listings/not-mine")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(403);
+  });
+
   it("POST / returns 400 when no file is attached", async () => {
     const { token } = await makeUser();
     const res = await request(app)

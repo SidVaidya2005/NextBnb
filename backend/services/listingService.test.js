@@ -99,6 +99,52 @@ describe("listingService", () => {
     });
   });
 
+  describe("findByImagePublicId", () => {
+    const PUBLIC_ID = "nextbnb/listings/abc123";
+    const IMAGE_URL = `https://res.cloudinary.com/demo/image/upload/v1/${PUBLIC_ID}.jpg`;
+
+    it("returns the caller's listing that uses the image", async () => {
+      const owner = new mongoose.Types.ObjectId();
+      await Listing.create({
+        title: "Mine",
+        price: 10,
+        image: IMAGE_URL,
+        owner,
+      });
+      const found = await listingService.findByImagePublicId(PUBLIC_ID, owner);
+      expect(found).not.toBeNull();
+      expect(found.title).toBe("Mine");
+    });
+
+    it("returns null when another user owns the listing", async () => {
+      const owner = new mongoose.Types.ObjectId();
+      const other = new mongoose.Types.ObjectId();
+      await Listing.create({
+        title: "Theirs",
+        price: 10,
+        image: IMAGE_URL,
+        owner,
+      });
+      expect(
+        await listingService.findByImagePublicId(PUBLIC_ID, other),
+      ).toBeNull();
+    });
+
+    it("does not match a shorter publicId against a longer image id", async () => {
+      const owner = new mongoose.Types.ObjectId();
+      await Listing.create({
+        title: "Mine",
+        price: 10,
+        image: IMAGE_URL,
+        owner,
+      });
+      // "nextbnb/listings/abc" must not authorize deleting ".../abc123.jpg".
+      expect(
+        await listingService.findByImagePublicId("nextbnb/listings/abc", owner),
+      ).toBeNull();
+    });
+  });
+
   describe("create", () => {
     it("saves a listing and returns it", async () => {
       const result = await listingService.create({ title: "New", price: 50 });
