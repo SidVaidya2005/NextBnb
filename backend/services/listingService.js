@@ -20,8 +20,10 @@ async function findAll(filter = {}) {
     query.$or = [{ location: rx }, { title: rx }, { country: rx }];
   }
   // Array equality matches any listing whose `categories` contains the value.
+  // Coerce to a string so a crafted query (?category[$ne]=) can't smuggle a
+  // Mongo operator object into the filter (NoSQL injection).
   if (filter.category) {
-    query.categories = filter.category;
+    query.categories = String(filter.category);
   }
   return Listing.find(query);
 }

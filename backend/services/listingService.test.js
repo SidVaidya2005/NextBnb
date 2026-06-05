@@ -79,6 +79,18 @@ describe("listingService", () => {
       expect(result).toHaveLength(1);
       expect(result[0].title).toBe("A");
     });
+
+    it("neutralizes a Mongo operator smuggled into category (NoSQL injection)", async () => {
+      await Listing.insertMany([
+        { title: "Tagged", price: 100, categories: ["Villas"] },
+        { title: "Untagged", price: 200 },
+      ]);
+      // ?category[$ne]= arrives as an object; coercion must stop it matching all.
+      const result = await listingService.findAll({
+        category: { $ne: null },
+      });
+      expect(result).toEqual([]);
+    });
   });
 
   describe("findById", () => {

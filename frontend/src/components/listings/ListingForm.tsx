@@ -10,6 +10,20 @@ interface Props extends FormHTMLAttributes<HTMLFormElement> {
   submitLabel?: string;
 }
 
+/* Only echo a preview for absolute http(s) image URLs. Anything else (a
+ * `javascript:`/`data:` scheme, a relative fragment) resolves to "" and renders
+ * no <img>, so user-typed text can't be reflected into the DOM as a live URL. */
+function safeImageSrc(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.href
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 /* Reads the uncontrolled form fields into a NewListing payload. `owner` is set
  * server-side from the JWT, so it is intentionally not collected here. */
 // eslint-disable-next-line react-refresh/only-export-components
@@ -80,9 +94,9 @@ export function ListingForm({
         <label htmlFor="imageFile" className="t-caption text-ink-muted">
           Photo
         </label>
-        {image && (
+        {safeImageSrc(image) && (
           <img
-            src={image}
+            src={safeImageSrc(image)}
             alt="Listing preview"
             className="mb-xs h-40 w-full rounded-sm object-cover"
           />
