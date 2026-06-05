@@ -36,6 +36,13 @@ async function findById(id) {
   return listing;
 }
 
+// The caller's own listings, newest first. ObjectIds embed a creation
+// timestamp, so sorting by _id descending gives newest-first without a
+// `timestamps` field on the schema.
+async function findByOwner(userId) {
+  return Listing.find({ owner: userId }).sort({ _id: -1 });
+}
+
 // Authorization helper for image deletes: finds the caller's listing that uses
 // the given Cloudinary image. The stored value is the secure_url ending in
 // ".../<publicId>.<ext>", so the regex is anchored to that suffix — a shorter
@@ -76,6 +83,7 @@ async function remove(id, userId) {
 module.exports = {
   findAll,
   findById,
+  findByOwner,
   findByImagePublicId,
   create,
   update,

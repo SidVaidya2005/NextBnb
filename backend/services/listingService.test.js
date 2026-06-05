@@ -111,6 +111,32 @@ describe("listingService", () => {
     });
   });
 
+  describe("findByOwner", () => {
+    it("returns only the given owner's listings, newest first", async () => {
+      const owner = new mongoose.Types.ObjectId();
+      const other = new mongoose.Types.ObjectId();
+      const first = await Listing.create({ title: "First", price: 10, owner });
+      const second = await Listing.create({
+        title: "Second",
+        price: 20,
+        owner,
+      });
+      await Listing.create({ title: "Theirs", price: 30, owner: other });
+
+      const result = await listingService.findByOwner(owner);
+      expect(result).toHaveLength(2);
+      // Newest first: `second` was created after `first`.
+      expect(result.map((l) => l.title)).toEqual(["Second", "First"]);
+      expect(String(result[0]._id)).toBe(String(second._id));
+      expect(String(result[1]._id)).toBe(String(first._id));
+    });
+
+    it("returns an empty array when the owner has no listings", async () => {
+      const owner = new mongoose.Types.ObjectId();
+      expect(await listingService.findByOwner(owner)).toEqual([]);
+    });
+  });
+
   describe("findByImagePublicId", () => {
     const PUBLIC_ID = "nextbnb/listings/abc123";
     const IMAGE_URL = `https://res.cloudinary.com/demo/image/upload/v1/${PUBLIC_ID}.jpg`;

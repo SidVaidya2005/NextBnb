@@ -43,6 +43,28 @@ describe("/api/listings", () => {
     expect(res.body.owner).toBe(user.id);
   });
 
+  it("GET /mine requires authentication", async () => {
+    const res = await request(app).get("/api/listings/mine");
+    expect(res.status).toBe(401);
+  });
+
+  it("GET /mine returns only the caller's listings", async () => {
+    const { user, token } = await makeUser();
+    const other = await makeUser({ providerId: "g-other" });
+    await Listing.create({ title: "Mine 1", price: 10, owner: user.id });
+    await Listing.create({ title: "Mine 2", price: 20, owner: user.id });
+    await Listing.create({ title: "Theirs", price: 30, owner: other.user.id });
+    await Listing.create({ title: "Ownerless", price: 40 });
+
+    const res = await request(app)
+      .get("/api/listings/mine")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    const titles = res.body.map((l) => l.title).sort();
+    expect(titles).toEqual(["Mine 1", "Mine 2"]);
+  });
+
   it("GET /:id returns 200 for an existing listing", async () => {
     const created = await Listing.create({ title: "Show me", price: 50 });
     const res = await request(app).get(`/api/listings/${created.id}`);

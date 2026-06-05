@@ -7,12 +7,16 @@ import { ListingNew } from "./ListingNew";
 import { ListingEdit } from "./ListingEdit";
 import { Bookings } from "./Bookings";
 import { Wishlist } from "./Wishlist";
+import { Profile } from "./Profile";
+import { AuthProvider } from "../context/AuthContext";
+import { TOKEN_KEY } from "../api/client";
 
 vi.mock("../api/listings", () => ({
   createListing: vi.fn(),
   updateListing: vi.fn(),
   getListing: vi.fn(),
   listListings: vi.fn(),
+  listMyListings: vi.fn(),
   deleteListing: vi.fn(),
 }));
 
@@ -28,9 +32,15 @@ vi.mock("../api/wishlist", () => ({
   removeFromWishlist: vi.fn(),
 }));
 
+vi.mock("../api/auth", () => ({
+  fetchMe: vi.fn(),
+  googleLoginUrl: vi.fn(() => "http://localhost:8080/auth/google"),
+}));
+
 import * as listingsApi from "../api/listings";
 import * as bookingsApi from "../api/bookings";
 import * as wishlistApi from "../api/wishlist";
+import * as authApi from "../api/auth";
 
 function makeClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -111,7 +121,69 @@ describe("frontend page skeletons", () => {
     expect(link.getAttribute("href")).toContain("/auth/google");
   });
 
-  it.todo("<Profile> renders the signed-in user");
+  it("<Profile> renders the signed-in user and an empty listings state", async () => {
+    localStorage.setItem(TOKEN_KEY, "test-token");
+    vi.mocked(authApi.fetchMe).mockResolvedValue({
+      _id: "u1",
+      provider: "google",
+      providerId: "g-1",
+      name: "Ada Host",
+      email: "ada@example.com",
+    });
+    vi.mocked(listingsApi.listMyListings).mockResolvedValue([]);
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={makeClient()}>
+          <AuthProvider>
+            <Profile />
+          </AuthProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Ada Host")).toBeInTheDocument();
+    expect(screen.getByText("ada@example.com")).toBeInTheDocument();
+    expect(
+      await screen.findByText("You haven't listed a home yet"),
+    ).toBeInTheDocument();
+    localStorage.removeItem(TOKEN_KEY);
+  });
+
+  it("<Profile> lists the user's own listings with edit links", async () => {
+    localStorage.setItem(TOKEN_KEY, "test-token");
+    vi.mocked(authApi.fetchMe).mockResolvedValue({
+      _id: "u1",
+      provider: "google",
+      providerId: "g-1",
+      name: "Ada Host",
+      email: "ada@example.com",
+    });
+    vi.mocked(listingsApi.listMyListings).mockResolvedValue([
+      {
+        _id: "l1",
+        title: "Lake Cabin",
+        price: 120,
+        image: "x",
+        location: "Manali",
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={makeClient()}>
+          <AuthProvider>
+            <Profile />
+          </AuthProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Lake Cabin")).toBeInTheDocument();
+    const editLink = screen.getByRole("link", { name: "Edit" });
+    expect(editLink.getAttribute("href")).toBe("/listings/l1/edit");
+    localStorage.removeItem(TOKEN_KEY);
+  });
 
   it("<Bookings> renders the empty state when there are no bookings", async () => {
     vi.mocked(bookingsApi.listMyBookings).mockResolvedValue([]);
