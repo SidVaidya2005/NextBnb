@@ -8,6 +8,7 @@ import { ListingEdit } from "./ListingEdit";
 import { Bookings } from "./Bookings";
 import { Wishlist } from "./Wishlist";
 import { Profile } from "./Profile";
+import { ListingsIndex } from "./ListingsIndex";
 import { AuthProvider } from "../context/AuthContext";
 import { TOKEN_KEY } from "../api/client";
 
@@ -47,7 +48,47 @@ function makeClient() {
 }
 
 describe("frontend page skeletons", () => {
-  it.todo("<ListingsIndex> renders the grid when listings load");
+  it("<ListingsIndex> renders the grid and pagination when listings load", async () => {
+    vi.mocked(listingsApi.listListings).mockResolvedValue({
+      items: [
+        {
+          _id: "a1",
+          title: "Aurora Loft",
+          price: 100,
+          image: "x",
+          location: "Goa",
+        },
+        {
+          _id: "a2",
+          title: "Bay Cabin",
+          price: 120,
+          image: "y",
+          location: "Manali",
+        },
+      ],
+      total: 14,
+      page: 1,
+      pageSize: 12,
+      totalPages: 2,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/listings"]}>
+        <QueryClientProvider client={makeClient()}>
+          <AuthProvider>
+            <ListingsIndex />
+          </AuthProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Aurora Loft")).toBeInTheDocument();
+    expect(screen.getByText("Bay Cabin")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+  });
+
   it.todo("<ListingShow> renders details for an existing listing");
 
   it("<ListingNew> submits createListing on form submit", async () => {

@@ -13,7 +13,24 @@ function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function findAll(filter = {}) {
+const DEFAULT_PAGE_SIZE = 12;
+const MAX_PAGE_SIZE = 50;
+
+// All query values arrive as untrusted strings; parseInt neutralizes any
+// crafted object (?page[$ne]=) and the clamps keep callers from requesting
+// an unbounded page size.
+function parsePage(value) {
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+function parsePageSize(value) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_PAGE_SIZE;
+  return Math.min(n, MAX_PAGE_SIZE);
+}
+
+function buildFilterQuery(filter = {}) {
   const query = {};
   if (filter.location) {
     const rx = new RegExp(escapeRegExp(String(filter.location)), "i");
@@ -25,7 +42,29 @@ async function findAll(filter = {}) {
   if (filter.category) {
     query.categories = String(filter.category);
   }
-  return Listing.find(query);
+  return query;
+}
+
+// Paginated browse results. Returns an envelope (not a bare array) so the grid
+// can render page controls; newest-first via _id (the schema has no timestamps).
+async function findAll(filter = {}, options = {}) {
+  const query = buildFilterQuery(filter);
+  const page = parsePage(options.page);
+  const pageSize = parsePageSize(options.limit);
+  const [items, total] = await Promise.all([
+    Listing.find(query)
+      .sort({ _id: -1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize),
+    Listing.countDocuments(query),
+  ]);
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize),
+  };
 }
 
 async function findById(id) {

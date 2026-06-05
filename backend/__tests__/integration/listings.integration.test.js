@@ -16,10 +16,25 @@ async function makeUser(overrides = {}) {
 }
 
 describe("/api/listings", () => {
-  it("GET / returns an empty array when no listings exist", async () => {
+  it("GET / returns an empty page when no listings exist", async () => {
     const res = await request(app).get("/api/listings");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body).toMatchObject({ items: [], total: 0, totalPages: 0 });
+  });
+
+  it("GET / paginates with ?page and ?limit", async () => {
+    await Listing.insertMany(
+      Array.from({ length: 15 }, (_, i) => ({ title: `L${i}`, price: 10 })),
+    );
+    const page1 = await request(app).get("/api/listings?page=1&limit=10");
+    expect(page1.status).toBe(200);
+    expect(page1.body.items).toHaveLength(10);
+    expect(page1.body.total).toBe(15);
+    expect(page1.body.totalPages).toBe(2);
+
+    const page2 = await request(app).get("/api/listings?page=2&limit=10");
+    expect(page2.body.items).toHaveLength(5);
+    expect(page2.body.page).toBe(2);
   });
 
   it("POST / requires authentication", async () => {

@@ -5,9 +5,12 @@ const ApiError = require("../utils/ApiError");
 
 describe("listingService", () => {
   describe("findAll", () => {
-    it("returns an empty array when no listings exist", async () => {
+    it("returns an empty page when no listings exist", async () => {
       const result = await listingService.findAll();
-      expect(result).toEqual([]);
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
+      expect(result.totalPages).toBe(0);
+      expect(result.page).toBe(1);
     });
 
     it("returns all listings when some exist", async () => {
@@ -16,7 +19,8 @@ describe("listingService", () => {
         { title: "B", price: 200 },
       ]);
       const result = await listingService.findAll();
-      expect(result).toHaveLength(2);
+      expect(result.items).toHaveLength(2);
+      expect(result.total).toBe(2);
     });
 
     it("filters by location (case-insensitive substring)", async () => {
@@ -25,8 +29,8 @@ describe("listingService", () => {
         { title: "City flat", price: 200, location: "Mumbai" },
       ]);
       const result = await listingService.findAll({ location: "goa" });
-      expect(result).toHaveLength(1);
-      expect(result[0].location).toBe("Goa");
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].location).toBe("Goa");
     });
 
     it("matches on title or country too", async () => {
@@ -39,12 +43,12 @@ describe("listingService", () => {
           country: "India",
         },
       ]);
-      expect(await listingService.findAll({ location: "villa" })).toHaveLength(
-        1,
-      );
-      expect(await listingService.findAll({ location: "india" })).toHaveLength(
-        1,
-      );
+      expect(
+        (await listingService.findAll({ location: "villa" })).items,
+      ).toHaveLength(1);
+      expect(
+        (await listingService.findAll({ location: "india" })).items,
+      ).toHaveLength(1);
     });
 
     it("filters by category membership (multi-tag)", async () => {
@@ -58,11 +62,11 @@ describe("listingService", () => {
         { title: "Untagged", price: 300 },
       ]);
       const villas = await listingService.findAll({ category: "Villas" });
-      expect(villas).toHaveLength(1);
-      expect(villas[0].title).toBe("Goa villa");
+      expect(villas.items).toHaveLength(1);
+      expect(villas.items[0].title).toBe("Goa villa");
       // A listing surfaces under every tag it carries.
       expect(
-        await listingService.findAll({ category: "Beachfront" }),
+        (await listingService.findAll({ category: "Beachfront" })).items,
       ).toHaveLength(1);
     });
 
@@ -76,8 +80,8 @@ describe("listingService", () => {
         location: "goa",
         category: "Villas",
       });
-      expect(result).toHaveLength(1);
-      expect(result[0].title).toBe("A");
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].title).toBe("A");
     });
 
     it("neutralizes a Mongo operator smuggled into category (NoSQL injection)", async () => {
@@ -89,7 +93,38 @@ describe("listingService", () => {
       const result = await listingService.findAll({
         category: { $ne: null },
       });
-      expect(result).toEqual([]);
+      expect(result.items).toEqual([]);
+    });
+
+    it("paginates with limit + page and reports totals", async () => {
+      const docs = Array.from({ length: 15 }, (_, i) => ({
+        title: `L${i}`,
+        price: 100,
+      }));
+      await Listing.insertMany(docs);
+
+      const first = await listingService.findAll({}, { page: 1, limit: 12 });
+      expect(first.items).toHaveLength(12);
+      expect(first.total).toBe(15);
+      expect(first.page).toBe(1);
+      expect(first.pageSize).toBe(12);
+      expect(first.totalPages).toBe(2);
+
+      const second = await listingService.findAll({}, { page: 2, limit: 12 });
+      expect(second.items).toHaveLength(3);
+      expect(second.page).toBe(2);
+    });
+
+    it("clamps a bad page/limit to safe defaults", async () => {
+      await Listing.insertMany([{ title: "A", price: 1 }]);
+      // Garbage and operator-objects fall back to page 1 / default size.
+      const result = await listingService.findAll(
+        {},
+        { page: { $ne: null }, limit: "abc" },
+      );
+      expect(result.page).toBe(1);
+      expect(result.pageSize).toBe(12);
+      expect(result.items).toHaveLength(1);
     });
   });
 
