@@ -4,9 +4,18 @@ Full-stack Airbnb-style listings app built as an npm workspaces monorepo. The ba
 
 Listings, bookings, wishlist, reviews, image upload, and Google login are implemented end to end. Image upload requires Cloudinary credentials; without them the upload routes return `501 Not Implemented`.
 
+## Live demo
+
+- **App:** https://nextbnb-rsm4.onrender.com
+- **API:** https://nextbnb-backend.onrender.com — health check at [`/health`](https://nextbnb-backend.onrender.com/health)
+
+Hosted on Render's free tier, so the first request after the service has been idle takes 30–50 seconds to wake. The listings grid is public; booking, wishlist, and hosting are behind Google sign-in.
+
 ## Features
 
 - Listings CRUD with owner-scoped edit/delete and a text search across title, location, and country (`?where=`)
+- Paginated, category-filtered browse grid (`?page=`, `?category=`) returning a page envelope
+- Account page listing your own homes with inline edit and delete
 - Google OAuth login via Passport, with a CSRF `state` check and a 7-day JWT
 - Bookings with check-in/check-out validation and overlap detection (returns `409` on a date clash)
 - Wishlist for saving and removing listings, with an optimistic React Query cache
@@ -15,12 +24,14 @@ Listings, bookings, wishlist, reviews, image upload, and Google login are implem
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 18+ (CI runs on 22)
 - MongoDB running locally at `mongodb://127.0.0.1:27017` — only needed for `npm run dev` and `npm run seed`. Tests use an in-memory MongoDB and need no local instance.
 
 ## Installation
 
 ```bash
+git clone https://github.com/SidVaidya2005/NextBnb.git
+cd NextBnb
 npm install
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env

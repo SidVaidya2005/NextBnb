@@ -63,7 +63,7 @@ Layered. Each layer has a single responsibility:
 
 Listings, bookings, wishlist, reviews, and **image upload** are all implemented end-to-end (service + controller + routes + tests + frontend). Image upload uses `middleware/upload.js` (multer memoryStorage, 5 MB, image MIME allowlist) → `controllers/uploadController.js` → `services/cloudinaryService.js` (streams the buffer to Cloudinary). `cloudinaryService.isConfigured()` gates on the `CLOUDINARY_*` env vars; with none set the upload/delete endpoints throw `ApiError(501)`. The delete route is `/:publicId(*)` so a Cloudinary publicId's folder slash survives routing. There is no `uploadService.js` — the Cloudinary calls live in `cloudinaryService.js`.
 
-- Frontend: `/profile` still renders a layout but calls no API. `/bookings` and `/wishlist` are wired; `api/{bookings,wishlist,reviews}.ts` hit live endpoints. `api/uploads.ts` posts the file and `ListingForm` has a file picker that uploads then fills the image field. `Listing.rating`/`reviewCount` are server-populated, so `deriveListingMeta` is decorative-only now.
+- Frontend: `/profile` is wired — it shows the signed-in account, quick links, and the user's own listings (edit/delete) via `api/listings.listMyListings`. `/bookings` and `/wishlist` are wired; `api/{bookings,wishlist,reviews}.ts` hit live endpoints. `api/uploads.ts` posts the file and `ListingForm` has a file picker that uploads then fills the image field. `Listing.rating`/`reviewCount` are server-populated, so `deriveListingMeta` is decorative-only now.
 
 When filling remaining gaps, work in the existing files rather than introducing new directories.
 
@@ -94,3 +94,5 @@ Many tests are `it.todo(...)` stubs reserving the surface for features that aren
 `.github/workflows/ci.yml` runs on every push to `main` and every PR: `npm ci` → `npm run lint` → `npm run format:check` → `npm run test:backend` → `npm run test:frontend` → `npm run build`. All six must pass. `mongodb-memory-server` downloads a Mongo binary on first CI run (~30s); subsequent runs hit the Actions cache.
 
 A second workflow, `.github/workflows/e2e.yml`, runs the Playwright smoke suite on the same triggers (`npm ci` → `npx playwright install --with-deps chromium` → `npm run test:e2e`) and uploads the HTML report as an artifact on failure.
+
+CodeQL (`.github/workflows/codeql.yml`) also runs on every PR and **can fail it on new security alerts even when the local gate is fully green** — the recurring offender is NoSQL injection from uncoerced query params (see `backend/CLAUDE.md`).
