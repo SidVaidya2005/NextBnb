@@ -6,7 +6,13 @@ import { AuthProvider } from "./context/AuthContext";
 import { App } from "./App";
 
 vi.mock("./api/listings", () => ({
-  listListings: vi.fn().mockResolvedValue([]),
+  listListings: vi.fn().mockResolvedValue({
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 12,
+    totalPages: 0,
+  }),
 }));
 
 function renderApp(initialPath = "/listings") {

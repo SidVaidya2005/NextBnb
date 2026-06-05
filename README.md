@@ -114,15 +114,16 @@ Request and response bodies are flat JSON. Protected routes expect an `Authoriza
 
 ### Listings (`/api/listings`)
 
-| Method   | Path                | Auth | Description                                                 |
-| -------- | ------------------- | ---- | ----------------------------------------------------------- |
-| `GET`    | `/api/listings`     | —    | List all listings; `?where=` filters title/location/country |
-| `POST`   | `/api/listings`     | JWT  | Create a listing (caller becomes the owner)                 |
-| `GET`    | `/api/listings/:id` | —    | Return one listing                                          |
-| `PUT`    | `/api/listings/:id` | JWT  | Update a listing (owner only)                               |
-| `DELETE` | `/api/listings/:id` | JWT  | Delete a listing (owner only)                               |
+| Method   | Path                 | Auth | Description                                                                                 |
+| -------- | -------------------- | ---- | ------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/listings`      | —    | Paginated list; `?where=` filters title/location/country, `?category=`, `?page=`, `?limit=` |
+| `GET`    | `/api/listings/mine` | JWT  | The caller's own listings (newest first)                                                    |
+| `POST`   | `/api/listings`      | JWT  | Create a listing (caller becomes the owner)                                                 |
+| `GET`    | `/api/listings/:id`  | —    | Return one listing                                                                          |
+| `PUT`    | `/api/listings/:id`  | JWT  | Update a listing (owner only)                                                               |
+| `DELETE` | `/api/listings/:id`  | JWT  | Delete a listing (owner only)                                                               |
 
-Body: `{ title, description, image, price, location, country }`.
+`GET /api/listings` returns a page envelope: `{ items, total, page, pageSize, totalPages }` (default `pageSize` 12, max 50). Body for create/update: `{ title, description, image, price, location, country }`.
 
 ### Bookings (`/api/bookings`)
 

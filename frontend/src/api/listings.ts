@@ -1,11 +1,23 @@
 import { apiClient } from "./client";
 import type { Listing, NewListing } from "../types/Listing";
 
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export async function listListings(params?: {
   where?: string;
   category?: string;
-}): Promise<Listing[]> {
-  const { data } = await apiClient.get<Listing[]>("/api/listings", { params });
+  page?: number;
+  limit?: number;
+}): Promise<Page<Listing>> {
+  const { data } = await apiClient.get<Page<Listing>>("/api/listings", {
+    params,
+  });
   return data;
 }
 

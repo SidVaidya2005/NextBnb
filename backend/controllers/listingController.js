@@ -2,11 +2,11 @@ const asyncHandler = require("../utils/asyncHandler");
 const listingService = require("../services/listingService");
 
 const index = asyncHandler(async (req, res) => {
-  const listings = await listingService.findAll({
-    location: req.query.where,
-    category: req.query.category,
-  });
-  res.json(listings);
+  const page = await listingService.findAll(
+    { location: req.query.where, category: req.query.category },
+    { page: req.query.page, limit: req.query.limit },
+  );
+  res.json(page);
 });
 
 // The authed user's own listings (for the Profile "Your listings" section).
