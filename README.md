@@ -11,6 +11,10 @@ Listings, bookings, wishlist, reviews, image upload, and Google login are implem
 
 Hosted on Render's free tier, so the first request after the service has been idle takes 30–50 seconds to wake. The listings grid is public; booking, wishlist, and hosting are behind Google sign-in.
 
+## Screenshots
+
+![NextBnb home page](docs/screenshots/home.png)
+
 ## Features
 
 - Listings CRUD with owner-scoped edit/delete and a text search across title, location, and country (`?where=`)
