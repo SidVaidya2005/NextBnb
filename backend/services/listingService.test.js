@@ -46,6 +46,51 @@ describe("listingService", () => {
         1,
       );
     });
+
+    it("filters by category membership (multi-tag)", async () => {
+      await Listing.insertMany([
+        {
+          title: "Goa villa",
+          price: 100,
+          categories: ["Villas", "Beachfront"],
+        },
+        { title: "City loft", price: 200, categories: ["Top Cities"] },
+        { title: "Untagged", price: 300 },
+      ]);
+      const villas = await listingService.findAll({ category: "Villas" });
+      expect(villas).toHaveLength(1);
+      expect(villas[0].title).toBe("Goa villa");
+      // A listing surfaces under every tag it carries.
+      expect(
+        await listingService.findAll({ category: "Beachfront" }),
+      ).toHaveLength(1);
+    });
+
+    it("combines location and category filters (AND)", async () => {
+      await Listing.insertMany([
+        { title: "A", price: 100, location: "Goa", categories: ["Villas"] },
+        { title: "B", price: 200, location: "Goa", categories: ["Top Cities"] },
+        { title: "C", price: 300, location: "Mumbai", categories: ["Villas"] },
+      ]);
+      const result = await listingService.findAll({
+        location: "goa",
+        category: "Villas",
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0].title).toBe("A");
+    });
+
+    it("neutralizes a Mongo operator smuggled into category (NoSQL injection)", async () => {
+      await Listing.insertMany([
+        { title: "Tagged", price: 100, categories: ["Villas"] },
+        { title: "Untagged", price: 200 },
+      ]);
+      // ?category[$ne]= arrives as an object; coercion must stop it matching all.
+      const result = await listingService.findAll({
+        category: { $ne: null },
+      });
+      expect(result).toEqual([]);
+    });
   });
 
   describe("findById", () => {
@@ -63,6 +108,52 @@ describe("listingService", () => {
       await expect(listingService.findById(fakeId)).rejects.toMatchObject({
         status: 404,
       });
+    });
+  });
+
+  describe("findByImagePublicId", () => {
+    const PUBLIC_ID = "nextbnb/listings/abc123";
+    const IMAGE_URL = `https://res.cloudinary.com/demo/image/upload/v1/${PUBLIC_ID}.jpg`;
+
+    it("returns the caller's listing that uses the image", async () => {
+      const owner = new mongoose.Types.ObjectId();
+      await Listing.create({
+        title: "Mine",
+        price: 10,
+        image: IMAGE_URL,
+        owner,
+      });
+      const found = await listingService.findByImagePublicId(PUBLIC_ID, owner);
+      expect(found).not.toBeNull();
+      expect(found.title).toBe("Mine");
+    });
+
+    it("returns null when another user owns the listing", async () => {
+      const owner = new mongoose.Types.ObjectId();
+      const other = new mongoose.Types.ObjectId();
+      await Listing.create({
+        title: "Theirs",
+        price: 10,
+        image: IMAGE_URL,
+        owner,
+      });
+      expect(
+        await listingService.findByImagePublicId(PUBLIC_ID, other),
+      ).toBeNull();
+    });
+
+    it("does not match a shorter publicId against a longer image id", async () => {
+      const owner = new mongoose.Types.ObjectId();
+      await Listing.create({
+        title: "Mine",
+        price: 10,
+        image: IMAGE_URL,
+        owner,
+      });
+      // "nextbnb/listings/abc" must not authorize deleting ".../abc123.jpg".
+      expect(
+        await listingService.findByImagePublicId("nextbnb/listings/abc", owner),
+      ).toBeNull();
     });
   });
 

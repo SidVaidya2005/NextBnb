@@ -52,19 +52,19 @@ Layered. Each layer has a single responsibility:
 ## Frontend architecture
 
 - **`frontend/src/api/`** — One file per resource (`listings`, `auth`, `bookings`, `wishlist`, `reviews`). All call through the single `apiClient` axios instance in `api/client.ts`. The TOKEN_KEY constant is exported from there too; nothing else writes to localStorage for auth.
-- **`frontend/src/components/`** — Grouped by concern: `layout/` (AppShell, Header, Footer, Container, ProductTabs; legacy `Sidebar.tsx` is not mounted), `listings/` (Card, Grid, Form, HeartButton, GuestFavoriteBadge, RatingDisplay, CityLinkGrid), `search/` (SearchBarPill — composes DateRangeCalendar, DestinationPicker, GuestSelector), `auth/` (login buttons, `ProtectedRoute`), `states/` (Empty, Loading, Error), `common/` (Button, Input, Card, Spinner, Icon). The design system (Rausch #ff385c accent, white canvas, Inter via Google Fonts) is encoded in `frontend/tailwind.config.ts` + `frontend/src/index.css`. Tailwind tokens (`rausch`/`ink`/`surface`/`hairline`, `xxs`–`section` spacing scale, single `shadow-card` tier) live in `frontend/tailwind.config.ts`; typography utility classes (`.t-display-xl`, `.t-title-md`, `.t-body-sm`, `.t-uppercase-tag`, …) live in `frontend/src/index.css` — prefer those over arbitrary `text-[Npx]`. `AppShell` has no SubNav row; categories live on the home page itself.
+- **`frontend/src/components/`** — Grouped by concern: `layout/` (AppShell, Header, Footer, Container; legacy `Sidebar.tsx` is not mounted), `listings/` (Card, Grid, Form, HeartButton, GuestFavoriteBadge, RatingDisplay), `search/` (SearchBarPill — composes DateRangeCalendar, DestinationPicker, GuestSelector), `auth/` (login buttons, `ProtectedRoute`), `states/` (Empty, Loading, Error), `common/` (Button, Input, Card, Spinner, Icon). The design system (Rausch #ff385c accent, white canvas, Inter via Google Fonts) is encoded in `frontend/tailwind.config.ts` + `frontend/src/index.css`. Tailwind tokens (`rausch`/`ink`/`surface`/`hairline`, `xxs`–`section` spacing scale, single `shadow-card` tier) live in `frontend/tailwind.config.ts`; typography utility classes (`.t-display-xl`, `.t-title-md`, `.t-body-sm`, `.t-uppercase-tag`, …) live in `frontend/src/index.css` — prefer those over arbitrary `text-[Npx]`. `AppShell` has no SubNav row; categories live on the home page itself and filter the grid via `?category=` (multi-tag, server-backed by `Listing.categories`).
 - **`frontend/src/pages/`** — Route-level components. Each page composes layout + atoms + state components.
 - **`frontend/src/hooks/`** — shared React Query hooks. `useWishlist` (the wishlist cache + `isSaved`/`toggle`, consumed by `HeartButton`) lives here; add new cross-component data hooks here rather than in components.
 - **`frontend/src/routes/AppRoutes.tsx`** — Public vs. protected split. Protected routes (`/listings/new`, `/listings/:id/edit`, `/profile`, `/bookings`, `/wishlist`) wrap in `<ProtectedRoute>`, which renders `null` while the token is mid-verification and `<Navigate to="/login">` if no token.
 - **`frontend/src/context/AuthContext.tsx`** — Single source of truth for `{ user, token, isAuthenticated, login, logout }`. The `<App>` is wrapped in `<AuthProvider>` in `main.tsx`. Use `useAuth()` everywhere — don't read the token directly from localStorage in components.
 
-## Scaffold-only areas
+## Implemented areas (formerly scaffold)
 
-The remaining scaffold is **uploads only**: `uploadController.js` / `uploadService.js` / `uploadRoutes.js` + `services/cloudinaryService.js` return 501, and there's no `middleware/upload.js` yet (multer wiring lands with the upload feature). Bookings, wishlist, and reviews are now fully implemented end-to-end (service + controller + routes + tests + frontend).
+Listings, bookings, wishlist, reviews, and **image upload** are all implemented end-to-end (service + controller + routes + tests + frontend). Image upload uses `middleware/upload.js` (multer memoryStorage, 5 MB, image MIME allowlist) → `controllers/uploadController.js` → `services/cloudinaryService.js` (streams the buffer to Cloudinary). `cloudinaryService.isConfigured()` gates on the `CLOUDINARY_*` env vars; with none set the upload/delete endpoints throw `ApiError(501)`. The delete route is `/:publicId(*)` so a Cloudinary publicId's folder slash survives routing. There is no `uploadService.js` — the Cloudinary calls live in `cloudinaryService.js`.
 
-- Frontend: `/profile` still renders a layout but calls no API. `/bookings` and `/wishlist` are wired; `api/{bookings,wishlist,reviews}.ts` hit live endpoints. `Listing.rating`/`reviewCount` are server-populated, so `deriveListingMeta` is decorative-only now.
+- Frontend: `/profile` still renders a layout but calls no API. `/bookings` and `/wishlist` are wired; `api/{bookings,wishlist,reviews}.ts` hit live endpoints. `api/uploads.ts` posts the file and `ListingForm` has a file picker that uploads then fills the image field. `Listing.rating`/`reviewCount` are server-populated, so `deriveListingMeta` is decorative-only now.
 
-When implementing the remaining scaffold, fill in the existing files rather than introducing new directories. The scaffold reserves the namespaces deliberately.
+When filling remaining gaps, work in the existing files rather than introducing new directories.
 
 ## Tests
 
@@ -84,7 +84,7 @@ Many tests are `it.todo(...)` stubs reserving the surface for features that aren
 - Vitest 2.x throws if you `require('vitest')` from a CJS test file — backend tests rely on `globals: true` and use bare `describe` / `it` / `expect`.
 - Frontend Vitest config lives in `frontend/vitest.config.ts`, not in a `test` block inside `vite.config.ts` — the block in `vite.config.ts` is silently ignored when you run `vitest`.
 - `frontend/tsconfig.node.json` is a composite reference, so it sets `emitDeclarationOnly: true` + `outDir` instead of `noEmit: true` (the latter breaks `tsc -b`).
-- Seed data in `backend/init/data.js` stores `image` as `{ filename, url }` but the Listing schema stores `image: String`. `backend/init/index.js` flattens `.url` before insert — don't re-add the object shape without also widening the schema.
+- Seed data in `backend/init/data.js` stores `image` as `{ filename, url }` but the Listing schema stores `image: String`. `backend/init/index.js` flattens `.url` before insert — don't re-add the object shape without also widening the schema. The listings are generated per city: the city names must match `frontend/src/components/search/DestinationPicker.tsx` and the `categories` tags must match the home `CategoryStrip`, or search/category filters silently return nothing.
 
 ## CI
 

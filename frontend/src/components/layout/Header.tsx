@@ -2,10 +2,9 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { googleLoginUrl } from "../../api/auth";
 import { Hamburger, UserCircle } from "../common/Icon";
-import { ProductTabs } from "./ProductTabs";
 
-/* White 80px global nav. Wordmark left, centered ProductTabs, right cluster
- * (host link, globe, account menu pill). 1px bottom hairline. */
+/* White 80px global nav. Wordmark left, account cluster right.
+ * 1px bottom hairline. */
 export function Header() {
   const { isAuthenticated, user, logout } = useAuth();
 
@@ -31,10 +30,6 @@ export function Header() {
             NextBnb
           </span>
         </Link>
-
-        <div className="hidden md:block">
-          <ProductTabs />
-        </div>
 
         <div className="flex items-center gap-xs">
           {isAuthenticated ? (

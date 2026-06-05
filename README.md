@@ -2,7 +2,7 @@
 
 Full-stack Airbnb-style listings app built as an npm workspaces monorepo. The backend is a JSON-only Express REST API backed by MongoDB; the frontend is React 18 + TypeScript + Tailwind v3. Authentication is Google OAuth, which issues a stateless JWT.
 
-Listings, bookings, wishlist, reviews, and Google login are implemented end to end. Image upload is the only remaining scaffold — its routes return `501 Not Implemented`.
+Listings, bookings, wishlist, reviews, image upload, and Google login are implemented end to end. Image upload requires Cloudinary credentials; without them the upload routes return `501 Not Implemented`.
 
 ## Features
 
@@ -11,7 +11,7 @@ Listings, bookings, wishlist, reviews, and Google login are implemented end to e
 - Bookings with check-in/check-out validation and overlap detection (returns `409` on a date clash)
 - Wishlist for saving and removing listings, with an optimistic React Query cache
 - Reviews that recompute a listing's average rating and review count on every write
-- Image upload (scaffolded, returns `501`)
+- Image upload to Cloudinary (multipart, image-only, 5 MB cap) wired into the listing form; returns `501` until Cloudinary credentials are set
 
 ## Prerequisites
 
@@ -157,7 +157,12 @@ Body: `{ listing, rating, comment }`.
 
 ### Uploads (`/api/uploads`)
 
-Scaffolded — `POST /api/uploads` and `DELETE /api/uploads/:publicId` return `501`.
+| Method   | Path                     | Auth | Notes                                                             |
+| -------- | ------------------------ | ---- | ----------------------------------------------------------------- |
+| `POST`   | `/api/uploads`           | JWT  | `multipart/form-data` with an `image` field → `{ url, publicId }` |
+| `DELETE` | `/api/uploads/:publicId` | JWT  | Remove an uploaded image by its Cloudinary `publicId`             |
+
+Images stream to Cloudinary (folder `nextbnb/listings`). Only JPEG/PNG/WebP/GIF up to 5 MB are accepted. When Cloudinary credentials are unset the routes return `501 Not Implemented`.
 
 ### Health
 

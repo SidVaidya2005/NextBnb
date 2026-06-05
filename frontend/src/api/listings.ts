@@ -3,6 +3,7 @@ import type { Listing, NewListing } from "../types/Listing";
 
 export async function listListings(params?: {
   where?: string;
+  category?: string;
 }): Promise<Listing[]> {
   const { data } = await apiClient.get<Listing[]>("/api/listings", { params });
   return data;

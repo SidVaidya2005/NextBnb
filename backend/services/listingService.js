@@ -19,6 +19,12 @@ async function findAll(filter = {}) {
     const rx = new RegExp(escapeRegExp(String(filter.location)), "i");
     query.$or = [{ location: rx }, { title: rx }, { country: rx }];
   }
+  // Array equality matches any listing whose `categories` contains the value.
+  // Coerce to a string so a crafted query (?category[$ne]=) can't smuggle a
+  // Mongo operator object into the filter (NoSQL injection).
+  if (filter.category) {
+    query.categories = String(filter.category);
+  }
   return Listing.find(query);
 }
 
@@ -28,6 +34,15 @@ async function findById(id) {
     throw new ApiError(404, "Listing not found");
   }
   return listing;
+}
+
+// Authorization helper for image deletes: finds the caller's listing that uses
+// the given Cloudinary image. The stored value is the secure_url ending in
+// ".../<publicId>.<ext>", so the regex is anchored to that suffix — a shorter
+// publicId must not substring-match a longer image id and authorize deleting it.
+async function findByImagePublicId(publicId, userId) {
+  const rx = new RegExp(`/${escapeRegExp(publicId)}\\.[^/]+$`);
+  return Listing.findOne({ owner: userId, image: rx });
 }
 
 async function create(data) {
@@ -58,4 +73,11 @@ async function remove(id, userId) {
   return listing;
 }
 
-module.exports = { findAll, findById, create, update, remove };
+module.exports = {
+  findAll,
+  findById,
+  findByImagePublicId,
+  create,
+  update,
+  remove,
+};

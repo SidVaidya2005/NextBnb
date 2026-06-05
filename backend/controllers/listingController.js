@@ -2,7 +2,10 @@ const asyncHandler = require("../utils/asyncHandler");
 const listingService = require("../services/listingService");
 
 const index = asyncHandler(async (req, res) => {
-  const listings = await listingService.findAll({ location: req.query.where });
+  const listings = await listingService.findAll({
+    location: req.query.where,
+    category: req.query.category,
+  });
   res.json(listings);
 });
 
