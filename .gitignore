@@ -18,6 +18,12 @@ coverage/
 *.lcov
 .nyc_output/
 
+# Playwright e2e
+/test-results/
+/playwright-report/
+/playwright/.cache/
+e2e/setup/.auth/
+
 # Logs
 logs/
 *.log

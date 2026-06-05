@@ -175,6 +175,7 @@ Images stream to Cloudinary (folder `nextbnb/listings`). Only JPEG/PNG/WebP/GIF 
 npm test                  # backend then frontend suites
 npm run test:backend      # Vitest + supertest, in-memory MongoDB (no local Mongo)
 npm run test:frontend     # Vitest + Testing Library + happy-dom
+npm run test:e2e          # Playwright smoke flow (boots its own backend + frontend)
 npm run lint              # ESLint across both workspaces
 npm run format            # Prettier --write
 npm run format:check
@@ -182,6 +183,8 @@ npm run build             # tsc -b && vite build
 ```
 
 The first backend test run downloads a MongoDB binary for `mongodb-memory-server`; later runs reuse the cache.
+
+`npm run test:e2e` is self-contained: Playwright boots a throwaway backend (in-memory MongoDB seeded with a known user + listings, on `:8090`) and the frontend via Vite in `e2e` mode (`:4321`), then drives a real Chromium browser through browse → paginate → open a listing → view the signed-in profile. Auth is injected as a pre-signed JWT (`e2e/setup/global-setup.ts`), so the Google OAuth flow never runs. Install the browser once with `npx playwright install chromium`.
 
 ## License
 
