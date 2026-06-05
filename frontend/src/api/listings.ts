@@ -9,6 +9,11 @@ export async function listListings(params?: {
   return data;
 }
 
+export async function listMyListings(): Promise<Listing[]> {
+  const { data } = await apiClient.get<Listing[]>("/api/listings/mine");
+  return data;
+}
+
 export async function getListing(id: string): Promise<Listing> {
   const { data } = await apiClient.get<Listing>(`/api/listings/${id}`);
   return data;
