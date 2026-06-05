@@ -25,6 +25,7 @@ npm run seed             # destructive: wipes listings collection, re-inserts in
 npm test                 # runs backend tests then frontend tests
 npm run test:backend
 npm run test:frontend
+npm run test:e2e         # Playwright smoke flow; boots its own backend + frontend
 npm run lint             # both workspaces
 npm run format           # prettier --write across the repo
 npm run format:check
@@ -75,6 +76,8 @@ Vitest on both sides; the test runners are identical.
 
 Many tests are `it.todo(...)` stubs reserving the surface for features that aren't built yet. Adding a real test on top of a stub is the expected workflow — don't delete the stub block, just convert items to real `it(...)` calls.
 
+- **E2E** (`playwright.config.ts` + `e2e/`): Playwright/Chromium smoke flow, run with `npm run test:e2e`. Two webServers boot automatically — `e2e/setup/backend-server.js` (its own in-memory Mongo, seeds a fixed-id user + 15 listings, serves on `:8090`) and the frontend via `vite --mode e2e` (reads the committed `frontend/.env.e2e` → backend on `:8090`, serves on `:4321`). `e2e/setup/global-setup.ts` signs a JWT and writes it into a Playwright `storageState` so tests start authenticated — the real Google OAuth flow never runs. Shared constants live in `e2e/setup/env.ts`. Browsers install once via `npx playwright install chromium`.
+
 ## Conventions worth not relearning
 
 - `backend/.env` and `frontend/.env` are gitignored. Copy from the matching `.env.example` after cloning. Backend env vars are exposed through `backend/config/env.js` — read from there, not `process.env` directly, so defaults are consistent. Required to fill in: `JWT_SECRET` (auth signs/verifies fail otherwise) and `VITE_API_BASE_URL` (axios `baseURL` has no fallback — every API call breaks if unset). OAuth client IDs are only needed if you're exercising the login flow.
@@ -89,3 +92,5 @@ Many tests are `it.todo(...)` stubs reserving the surface for features that aren
 ## CI
 
 `.github/workflows/ci.yml` runs on every push to `main` and every PR: `npm ci` → `npm run lint` → `npm run format:check` → `npm run test:backend` → `npm run test:frontend` → `npm run build`. All six must pass. `mongodb-memory-server` downloads a Mongo binary on first CI run (~30s); subsequent runs hit the Actions cache.
+
+A second workflow, `.github/workflows/e2e.yml`, runs the Playwright smoke suite on the same triggers (`npm ci` → `npx playwright install --with-deps chromium` → `npm run test:e2e`) and uploads the HTML report as an artifact on failure.
