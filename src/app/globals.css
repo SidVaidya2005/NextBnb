@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Design tokens — the single source of truth is context/DESIGN.md (Airbnb-style).
+   Encoded once here as Tailwind v4 theme variables; consume as utilities
+   (bg-primary, text-ink, rounded-md, tablet:...). Never hardcode a hex/size a
+   token already covers. Rausch (#ff385c) is the ONLY accent, used scarcely.
+--------------------------------------------------------------------------- */
+@theme {
+  /* Colors */
+  --color-primary: #ff385c;          /* Rausch — the only accent */
+  --color-primary-active: #e00b41;
+  --color-primary-disabled: #ffd1da;
+  --color-ink: #222222;              /* headlines + primary text */
+  --color-body: #3f3f3f;             /* long-form running text */
+  --color-muted: #6a6a6a;            /* sub-labels, inactive */
+  --color-muted-soft: #929292;
+  --color-hairline: #dddddd;         /* default 1px border */
+  --color-hairline-soft: #ebebeb;
+  --color-border-strong: #c1c1c1;
+  --color-canvas: #ffffff;           /* page floor */
+  --color-surface-soft: #f7f7f7;
+  --color-surface-strong: #f2f2f2;
+  --color-error: #c13515;
+  --color-on-primary: #ffffff;
+
+  /* Radii */
+  --radius-sm: 8px;    /* buttons, inputs */
+  --radius-md: 14px;   /* cards */
+  --radius-lg: 20px;
+  --radius-xl: 32px;
+
+  /* Elevation — the ONE shadow tier from DESIGN.md (card hover / search bar /
+     dropdowns). Everything else stays flat. */
+  --shadow-card: 0 0 0 1px rgba(0, 0, 0, 0.02), 0 2px 6px 0 rgba(0, 0, 0, 0.04),
+    0 4px 8px 0 rgba(0, 0, 0, 0.1);
+
+  /* Custom breakpoints — intentionally differ from Tailwind defaults so iPad
+     maps cleanly (see code-standards.md). Use tablet:/desktop:/wide:. */
+  --breakpoint-tablet: 744px;
+  --breakpoint-desktop: 1128px;
+  --breakpoint-wide: 1440px;
+
+  /* Content caps (DESIGN.md): search/listing pages at 1440px, editorial ~1280px.
+     Backs the max-w-wide / max-w-content utilities. */
+  --container-wide: 1440px;
+  --container-content: 1280px;
+
+  /* Font — Inter ships as the Airbnb Cereal VF substitute (set in layout.tsx as
+     --font-inter). Mapping it to --font-sans makes it the base + font-sans stack. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Base layer — white canvas, ink text, smoothed Inter. */
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
