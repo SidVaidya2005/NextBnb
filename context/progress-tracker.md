@@ -12,15 +12,15 @@ immediately know what is done, what is in progress, and what is next.
 ## Current Status
 
 **Phase:** Phase 1 — Foundation
-**Last completed:** Nothing yet — build not started
-**Next:** 01 Project scaffold, design tokens & integrations
+**Last completed:** 01 Project scaffold, design tokens & integrations
+**Next:** 02 Database schema & RLS
 
 ---
 
 ## Progress
 
 ### Phase 1 — Foundation
-- [ ] 01 Project scaffold, design tokens & integrations
+- [x] 01 Project scaffold, design tokens & integrations
 - [ ] 02 Database schema & RLS
 - [ ] 03 Seed data
 - [ ] 04 Google authentication
@@ -61,3 +61,4 @@ immediately know what is done, what is in progress, and what is next.
 - Targets **Next.js 16** → requires Node ≥20.9 (LTS) and TS ≥5.1; `params`/`cookies`/`headers` are async-only.
 - Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only when its tests pass. E2E runs against the seeded DB with a seed-verification step.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
+- **F01 complete** — hand-authored the Next 16 tree (no `create-next-app`); `lib/supabase/middleware.ts` is config-guarded so the app boots on placeholder Supabase env (real creds deferred to F02/F04); `database.types.ts` is a placeholder until F02; `next-cloudinary`/`zod`/`react-hook-form` deferred to the features that first use them.
