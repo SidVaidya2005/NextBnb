@@ -178,6 +178,11 @@ email. Email lives in `auth.users.email`: the current user reads their own via
 through the public `profiles` policy, and never via the service-role key in a
 request path.
 
+`admin_list_users()` returns exactly **`(id uuid, email text)`** — nothing more.
+Names, join dates, and listing/booking counts are already visible to an admin
+through ordinary RLS-scoped reads, so the one function that bypasses RLS exposes
+only the one column RLS cannot reach.
+
 ### `listings`
 
 | Column | Type | Notes |
@@ -307,19 +312,46 @@ is the current user. `is_admin()` is a `security definer` helper returning
 
 | Table | SELECT (read) | INSERT | UPDATE | DELETE |
 | ----- | ------------- | ------ | ------ | ------ |
-| `profiles` | anyone (public — safe: no email/sensitive columns) | via signup trigger only | own row (`id = auth.uid()`) | none (cascade from auth) |
+| `profiles` | anyone (public — safe: no email/sensitive columns) | via signup trigger only | own row (`id = auth.uid()`), **`full_name` + `avatar_url` columns only** | none (cascade from auth) |
 | `listings` | `is_published = true` **OR** `host_id = auth.uid()` **OR** `is_admin()` | `host_id = auth.uid()` | `host_id = auth.uid()` | `host_id = auth.uid()` **OR** `is_admin()` |
 | `listing_photos` | photo's listing is readable (published, or owner, or admin) | listing `host_id = auth.uid()` | listing `host_id = auth.uid()` | owner **OR** `is_admin()` |
 | `blocked_dates` | listing is readable | listing `host_id = auth.uid()` | listing `host_id = auth.uid()` | listing `host_id = auth.uid()` |
-| `bookings` | `guest_id = auth.uid()` **OR** listing `host_id = auth.uid()` **OR** `is_admin()` | `guest_id = auth.uid()` and listing `host_id <> auth.uid()` (no self-booking) | own booking (guest) **OR** `is_admin()` — cancel only | none (cancel is a status UPDATE) |
+| `bookings` | `guest_id = auth.uid()` **OR** listing `host_id = auth.uid()` **OR** `is_admin()` | `guest_id = auth.uid()`, listing `host_id <> auth.uid()` (no self-booking), and listing `is_published` | guest while `status='confirmed'` **AND** `check_in >= current_date` **OR** `is_admin()` — **`status` + `cancelled_at` columns only** | none (cancel is a status UPDATE) |
 | `favorites` | `user_id = auth.uid()` | `user_id = auth.uid()` | none | `user_id = auth.uid()` |
 | `reviews` | anyone (public) | reviewer is the booking's guest, booking completed, one per booking | none — **reviews are immutable** (to change, delete and re-post) | reviewer **OR** `is_admin()` |
-| `message_threads` | `guest_id = auth.uid()` **OR** `host_id = auth.uid()` | participant creating for self | participants (bump `last_message_at`) | none |
-| `messages` | thread participant | sender is a thread participant (`sender_id = auth.uid()`) | own message (`read_at`) | none |
+| `message_threads` | `guest_id = auth.uid()` **OR** `host_id = auth.uid()` | participant creating for self | participants, **`last_message_at` column only** | none |
+| `messages` | thread participant | sender is a thread participant (`sender_id = auth.uid()`) | **recipient** — participant where `sender_id <> auth.uid()`, **`read_at` column only** | none |
 
 - "Listing is readable" = the referencing listing satisfies the `listings` SELECT policy.
 - Ownership on child tables is checked by joining to the parent `listings.host_id` inside the policy (an `EXISTS (…)` subquery), never trusted from the client.
 - Unpublished listings and their photos are invisible to everyone except the owner and admins — this is enforced here, not only in queries.
+
+### Column-level grants — RLS filters rows, not columns
+
+Wherever the matrix says *"may update, but only this column"*, **the policy alone
+cannot enforce it**. A row-level policy admits or rejects the whole row, so
+`profiles` UPDATE scoped to "own row" would happily accept
+`set is_admin = true`. Postgres checks column privileges *in addition to* RLS,
+so those rules are carried by `GRANT`, not by policy text:
+
+| Table | Writable columns for `authenticated` |
+| ----- | ------------------------------------ |
+| `profiles` | `full_name`, `avatar_url` — **never `is_admin`** (no self-promotion) |
+| `bookings` | `status`, `cancelled_at` — the price snapshot and dates are unwritable |
+| `message_threads` | `last_message_at` |
+| `messages` | `read_at` — message bodies are never editable |
+
+Cells the matrix marks **"none"** are revoked outright rather than left to the
+absence of a policy: an UPDATE/DELETE against a table with RLS on and no
+matching policy affects **zero rows and returns success**, which is
+indistinguishable from "it worked". Revoked: DELETE on `profiles`, `bookings`,
+`message_threads`, `messages`; UPDATE on `reviews` (immutable) and `favorites`.
+`anon` holds no INSERT/UPDATE/DELETE on any table.
+
+### Policy conventions
+
+- Predicates use **`(select auth.uid())`**, never bare `auth.uid()` — the subselect is hoisted into an InitPlan and evaluated once per query instead of once per row.
+- Every policy names its roles (`to authenticated`, or `to anon, authenticated`). Public-readable tables whose predicate consults `is_admin()` are split into a separate anon policy that omits the call, because a signed-out visitor is never an admin — this keeps `EXECUTE` on `is_admin()` off `anon` entirely and shortens the hottest read path in the app.
 
 ---
 
@@ -628,6 +660,7 @@ export async function POST(request: Request) {
 - Every mutation goes through a server action in `src/lib/actions/`; components never write to the database directly.
 - Every server action validates input with a Zod schema and verifies the user with `supabase.auth.getUser()` before mutating.
 - Authorization is never enforced by application code alone — every table has Row Level Security policies, and RLS is the backstop for every read and write.
+- Where a rule limits *which columns* a user may write, it is enforced by a column-level `GRANT`, not by a policy — RLS filters rows, not columns. A user can never write `profiles.is_admin`, a booking's price snapshot or dates, or a message body.
 - Use `getUser()` (not `getSession()`) for any authorization decision on the server.
 - Two `confirmed` bookings can never overlap for the same listing — enforced by the Postgres exclusion constraint, and checked in the booking action before insert.
 - A booking's price fields (`price_per_night`, `cleaning_fee`, `service_fee`, `total`, `nights`) are snapshots written at creation and never recomputed from the current listing afterward.

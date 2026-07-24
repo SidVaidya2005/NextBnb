@@ -12,8 +12,12 @@ immediately know what is done, what is in progress, and what is next.
 ## Current Status
 
 **Phase:** Phase 1 — Foundation
-**Last completed:** 01 Project scaffold, design tokens & integrations
-**Next:** 02 Database schema & RLS
+**Last completed:** 02 Database schema & RLS
+**Next:** 03 Seed data
+
+Supabase project **NextBnb** (`mbrcgzpmqhmdfhjqytnq`, ap-south-1, free plan) is
+live with 6 migrations applied. `SUPABASE_SERVICE_ROLE_KEY` still needs to be
+copied from the dashboard into `.env.local` before F03's seed script can run.
 
 ---
 
@@ -21,7 +25,7 @@ immediately know what is done, what is in progress, and what is next.
 
 ### Phase 1 — Foundation
 - [x] 01 Project scaffold, design tokens & integrations
-- [ ] 02 Database schema & RLS
+- [x] 02 Database schema & RLS
 - [ ] 03 Seed data
 - [ ] 04 Google authentication
 
@@ -62,3 +66,4 @@ immediately know what is done, what is in progress, and what is next.
 - Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only when its tests pass. E2E runs against the seeded DB with a seed-verification step.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
 - **F01 complete** — hand-authored the Next 16 tree (no `create-next-app`); `lib/supabase/middleware.ts` is config-guarded so the app boots on placeholder Supabase env (real creds deferred to F02/F04); `database.types.ts` is a placeholder until F02; `next-cloudinary`/`zod`/`react-hook-form` deferred to the features that first use them.
+- **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
