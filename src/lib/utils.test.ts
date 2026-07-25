@@ -11,6 +11,7 @@ import {
   nightsBetween,
   orderedPhotos,
   safeNextPath,
+  toFavoriteCards,
   toISODate,
 } from '@/lib/utils'
 
@@ -288,5 +289,52 @@ describe('humanizeToken', () => {
 
   it('leaves a single word capitalized', () => {
     expect(humanizeToken('pool')).toBe('Pool')
+  })
+})
+
+describe('toFavoriteCards', () => {
+  const identity = <T,>(listing: T) => listing
+
+  it('returns nothing for no favorites', () => {
+    expect(toFavoriteCards([], identity)).toEqual([])
+  })
+
+  it('unwraps the embedded listing from each row', () => {
+    expect(
+      toFavoriteCards(
+        [{ listings: { id: 'a' } }, { listings: { id: 'b' } }],
+        identity,
+      ),
+    ).toEqual([{ id: 'a' }, { id: 'b' }])
+  })
+
+  it('drops a row whose listing RLS hid, and keeps the rest', () => {
+    // The case the type system cannot warn about: listing_id is NOT NULL, so
+    // the embed is typed as always-present, but an unpublished listing comes
+    // back null to anyone who is not its host.
+    expect(
+      toFavoriteCards(
+        [{ listings: { id: 'a' } }, { listings: null }, { listings: { id: 'c' } }],
+        identity,
+      ),
+    ).toEqual([{ id: 'a' }, { id: 'c' }])
+  })
+
+  it('preserves the order the query returned', () => {
+    expect(
+      toFavoriteCards(
+        [{ listings: { id: 'newest' } }, { listings: { id: 'oldest' } }],
+        (listing) => listing.id,
+      ),
+    ).toEqual(['newest', 'oldest'])
+  })
+
+  it('applies the mapper to every surviving listing', () => {
+    expect(
+      toFavoriteCards(
+        [{ listings: { id: 'a' } }, { listings: null }],
+        (listing) => `card:${listing.id}`,
+      ),
+    ).toEqual(['card:a'])
   })
 })

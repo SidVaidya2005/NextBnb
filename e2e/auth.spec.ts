@@ -61,7 +61,12 @@ test.describe('signed out', () => {
     // safeNextPath must collapse a protocol-relative URL to '/'.
     await page.goto('/?signin=required&next=//evil.com')
 
-    await expect(page.locator('input[name="next"]')).toHaveValue('/')
+    // Scoped to the banner: F08 added a sign-in form behind every saved heart,
+    // so a page-wide `input[name="next"]` now matches ~25 elements. The intent
+    // was always the banner's own form.
+    await expect(
+      page.getByTestId('signin-banner').locator('input[name="next"]'),
+    ).toHaveValue('/')
   })
 })
 

@@ -181,6 +181,34 @@ Let users save and revisit listings.
 **Logic:**
 - `actions/favorites.toggleFavorite` (auth-guarded, upsert/delete on `favorites`); `queries/favorites.getFavorites`; `revalidatePath('/favorites')`.
 
+**As built (deviations worth knowing):**
+- **The action is `setFavorite({ listingId, saved })`, not `toggleFavorite(id)`.** A flip
+  has to read the current row and invert it, so two clicks in flight resolve against the
+  same "before" and can land opposite to what the heart shows. Sending the desired state
+  makes the write idempotent and converge.
+- **No migration.** `favorites` was fully specified in `0001` (composite PK, no surrogate
+  id), `0003` (three `to authenticated` policies) and `0006` (UPDATE revoked — a favorite
+  is created or removed, never edited). `database.types.ts` untouched.
+- **Saved state rides the existing selects** (`favorites(user_id)` nested into
+  `getPublishedListings`/`getListingById`), not a second query. RLS scopes the nested rows
+  to the viewer. **Not F06's trap:** there, fewer rows inferred a *permission*
+  ("everything is available"); here they infer a restriction ("not saved"), which is the
+  right answer for anon.
+- **`useState`, not `useOptimistic`.** Optimistic state reverts to the server prop once the
+  transition settles, and only `/favorites` is revalidated — so on `/` a *successful* save
+  would have snapped back to unsaved.
+- **`ListingCard` is no longer one `<Link>`.** A `<button>` nested in an `<a>` both toggles
+  and navigates (proven by gate proof). The link is scoped to the title and stretched with
+  `after:absolute after:inset-0`; the heart is a sibling on `z-10`.
+- **The detail-page heart overlays the gallery** via a new `action` slot on `PhotoGallery`,
+  rendered as a *sibling* of the scroll container — inside it, the mobile strip would swipe
+  the heart off screen. Its mobile offset is percentage-based, because the strip bleeds a
+  fixed 24px while its first tile is a percentage of that bleed.
+- **The heart is 44px**, overriding DESIGN.md's 32px `icon-button-circle`, per
+  `code-standards.md`'s hard tap-target floor.
+- Signed-out hearts render as sign-in forms carrying `pathname + search` (minus the
+  banner's own `signin`/`next` params), per `project-overview.md`.
+
 ---
 
 ## Phase 3 — Hosting

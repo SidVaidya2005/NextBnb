@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
+import { TEST_USER } from './constants'
 import type { Database } from '@/types/database.types'
 
 /**
@@ -201,6 +202,134 @@ export async function loadDraftListings(): Promise<
   }
 
   return data ?? []
+}
+
+// -----------------------------------------------------------------------------
+// Favorites (F08)
+//
+// Favorites are per-user global state and playwright.config.ts runs
+// `fullyParallel: true` against ONE shared storageState, so specs must not
+// assert on row counts or on "the favorites page is empty" — a sibling worker
+// may legitimately have a row in flight. Each spec claims its own listing and
+// asserts on that listing's title.
+// -----------------------------------------------------------------------------
+
+/** A seeded guest, for proving one user cannot see another's favorites. */
+export const OTHER_USER_ID = '00000000-0000-4000-b000-000000000003'
+
+let cachedTestUserId: string | null = null
+
+/** The Playwright fixture user's id, resolved from the auth admin API. */
+export async function testUserId(): Promise<string> {
+  if (cachedTestUserId) return cachedTestUserId
+
+  const supabase = serviceClient()
+  const { data, error } = await supabase.auth.admin.listUsers({ perPage: 1000 })
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not list users: ${error.message}`)
+  }
+
+  const user = data.users.find((candidate) => candidate.email === TEST_USER.email)
+  if (!user) {
+    throw new Error(
+      `[e2e/fixtures] the test user ${TEST_USER.email} does not exist. auth.setup.ts provisions it — run the setup project first.`,
+    )
+  }
+
+  cachedTestUserId = user.id
+  return user.id
+}
+
+/**
+ * Published listings ordered by id, so a spec can claim `[n]` and be certain no
+ * other spec claimed the same one. Derived from the database rather than
+ * hard-coded: a hard-coded title quietly stops testing anything if the seed
+ * changes.
+ */
+export async function loadPublishedListings(): Promise<
+  { id: string; title: string }[]
+> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('listings')
+    .select('id, title')
+    .eq('is_published', true)
+    .order('id')
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not load listings: ${error.message}`)
+  }
+  if ((data ?? []).length < 7) {
+    throw new Error(
+      '[e2e/fixtures] fewer than 7 published listings. The favorites specs each claim a distinct one.',
+    )
+  }
+
+  return data ?? []
+}
+
+/**
+ * The listing ids a user has saved, read straight from the table.
+ *
+ * The oracle is the table, never the page: asserting the UI against the same
+ * query the UI renders from would only prove it is self-consistent (F06's rule).
+ */
+export async function readFavorites(userId: string): Promise<string[]> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('favorites')
+    .select('listing_id')
+    .eq('user_id', userId)
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read favorites: ${error.message}`)
+  }
+
+  return (data ?? []).map((row) => row.listing_id)
+}
+
+export async function addFavorite(
+  userId: string,
+  listingId: string,
+): Promise<void> {
+  const supabase = serviceClient()
+
+  const { error } = await supabase
+    .from('favorites')
+    .upsert(
+      { user_id: userId, listing_id: listingId },
+      { onConflict: 'user_id,listing_id', ignoreDuplicates: true },
+    )
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not add a favorite: ${error.message}`)
+  }
+}
+
+/**
+ * Removes specific favorites. Scoped to the listings a spec claimed, never a
+ * blanket wipe of the user — that would delete rows a parallel spec is asserting on.
+ */
+export async function clearFavorites(
+  userId: string,
+  listingIds: string[],
+): Promise<void> {
+  if (listingIds.length === 0) return
+
+  const supabase = serviceClient()
+
+  const { error } = await supabase
+    .from('favorites')
+    .delete()
+    .eq('user_id', userId)
+    .in('listing_id', listingIds)
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not clear favorites: ${error.message}`)
+  }
 }
 
 /**

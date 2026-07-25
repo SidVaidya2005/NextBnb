@@ -118,6 +118,29 @@ export function orderedPhotos<T extends { is_cover: boolean; position: number }>
 }
 
 /**
+ * Rows from `favorites` reduced to the listings a card can render, dropping any
+ * whose listing came back empty.
+ *
+ * That null is not paranoia, and **TypeScript will not warn you about it**:
+ * `listing_id` is a NOT NULL foreign key, so postgrest-js types the embed as
+ * always-present. RLS disagrees at runtime — the favorite row survives
+ * independently of the listing's visibility, so a host who unpublishes a stay
+ * someone saved leaves that person holding a row whose `listings` embed comes
+ * back null. PostgREST reports it as absent, not as an error. This filter is
+ * what keeps `/favorites` from rendering a card with no title and no price, and
+ * the type system would never have asked for it.
+ */
+export function toFavoriteCards<L, C>(
+  rows: readonly { listings: L | null }[],
+  toCard: (listing: L) => C,
+): C[] {
+  return rows
+    .map((row) => row.listings)
+    .filter((listing): listing is L => listing !== null)
+    .map(toCard)
+}
+
+/**
  * A listing's capacity line — "5 guests · 2 bedrooms · 3 beds · 1.5 baths".
  *
  * `bathrooms` is `numeric(3,1)`, so halves are real and must not be pluralized

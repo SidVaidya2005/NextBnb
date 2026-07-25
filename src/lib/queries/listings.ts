@@ -20,6 +20,38 @@ export type ListingCardData = Pick<Listing, 'id' | 'title' | 'city' | 'country'>
   /** Mean review rating, or null when the listing has no reviews yet ("New"). */
   rating: number | null
   reviewCount: number
+  /** Whether the *current viewer* has saved it. Always false when signed out. */
+  isFavorited: boolean
+}
+
+/** The columns a card needs, however the listing was reached. */
+type ListingCardRow = Pick<
+  Listing,
+  'id' | 'title' | 'city' | 'country' | 'price_per_night'
+> & {
+  listing_photos: { url: string; is_cover: boolean; position: number }[]
+  reviews: { rating: number }[]
+}
+
+/**
+ * One row → one card. Shared by the home grid and `/favorites` so the two
+ * surfaces cannot drift on what a card shows.
+ */
+export function toListingCard(
+  listing: ListingCardRow,
+  isFavorited: boolean,
+): ListingCardData {
+  return {
+    id: listing.id,
+    title: listing.title,
+    city: listing.city,
+    country: listing.country,
+    pricePerNight: listing.price_per_night,
+    coverUrl: coverPhotoOf(listing.listing_photos)?.url ?? null,
+    rating: averageRating(listing.reviews.map((review) => review.rating)),
+    reviewCount: listing.reviews.length,
+    isFavorited,
+  }
 }
 
 export type ListingPhoto = {
@@ -60,6 +92,8 @@ export type ListingDetailData = Omit<Listing, 'amenities'> & {
   reviews: ListingReview[]
   rating: number | null
   reviewCount: number
+  /** Whether the *current viewer* has saved it. Always false when signed out. */
+  isFavorited: boolean
   /**
    * True when the viewer is looking at an unpublished listing — which, because
    * RLS returned it at all, means they are its host or an admin.
@@ -88,7 +122,7 @@ export async function getPublishedListings(
   let query = supabase
     .from('listings')
     .select(
-      'id, title, city, country, price_per_night, created_at, listing_photos(url, is_cover, position), reviews(rating)',
+      'id, title, city, country, price_per_night, created_at, listing_photos(url, is_cover, position), reviews(rating), favorites(user_id)',
     )
     .eq('is_published', true)
 
@@ -143,16 +177,14 @@ export async function getPublishedListings(
     return []
   }
 
-  return (data ?? []).map((listing) => ({
-    id: listing.id,
-    title: listing.title,
-    city: listing.city,
-    country: listing.country,
-    pricePerNight: listing.price_per_night,
-    coverUrl: coverPhotoOf(listing.listing_photos)?.url ?? null,
-    rating: averageRating(listing.reviews.map((review) => review.rating)),
-    reviewCount: listing.reviews.length,
-  }))
+  // `favorites` is RLS-scoped to `user_id = auth.uid()`, so these rows are the
+  // viewer's own and a signed-out visitor gets none. Reading fewer rows is the
+  // right answer here — unlike the availability filter above, where it would
+  // have meant "everything is free". Absence infers a restriction, not a
+  // permission, which is what makes the nested select safe.
+  return (data ?? []).map((listing) =>
+    toListingCard(listing, listing.favorites.length > 0),
+  )
 }
 
 /**
@@ -178,7 +210,7 @@ export async function getListingById(
   const { data, error } = await supabase
     .from('listings')
     .select(
-      '*, listing_photos(url, public_id, is_cover, position), host:profiles!listings_host_id_fkey(id, full_name, avatar_url, created_at), reviews(id, rating, comment, created_at, reviewer:profiles!reviews_reviewer_id_fkey(full_name, avatar_url))',
+      '*, listing_photos(url, public_id, is_cover, position), host:profiles!listings_host_id_fkey(id, full_name, avatar_url, created_at), reviews(id, rating, comment, created_at, reviewer:profiles!reviews_reviewer_id_fkey(full_name, avatar_url)), favorites(user_id)',
     )
     .eq('id', id)
     .single()
@@ -193,7 +225,8 @@ export async function getListingById(
     return null
   }
 
-  const { listing_photos, host, reviews, amenities, ...listing } = data
+  const { listing_photos, host, reviews, amenities, favorites, ...listing } =
+    data
 
   return {
     ...listing,
@@ -226,6 +259,8 @@ export async function getListingById(
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     rating: averageRating(reviews.map((review) => review.rating)),
     reviewCount: reviews.length,
+    // RLS scopes this to the viewer's own rows (see getPublishedListings).
+    isFavorited: favorites.length > 0,
     isOwnerView: !listing.is_published,
   }
 }

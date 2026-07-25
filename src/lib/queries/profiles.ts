@@ -44,3 +44,22 @@ export async function getCurrentProfile(): Promise<CurrentProfile | null> {
 
   return { ...data, email: user.email ?? null }
 }
+
+/**
+ * Whether anyone is signed in — all the saved heart needs to know.
+ *
+ * Separate from `getCurrentProfile` so the pages that render hearts skip the
+ * `profiles` round trip they have no use for. Callers should `Promise.all` this
+ * alongside their real query so it costs no serial latency.
+ */
+export async function isSignedIn(): Promise<boolean> {
+  const supabase = await createClient()
+
+  // getUser(), not getSession() — code-standards.md, and this decides whether a
+  // control mutates or sends the visitor to sign in.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  return user !== null
+}

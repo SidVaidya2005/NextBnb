@@ -2,6 +2,7 @@ import Link from 'next/link'
 
 import { ListingCard } from '@/components/listings/ListingCard'
 import { getPublishedListings } from '@/lib/queries/listings'
+import { isSignedIn } from '@/lib/queries/profiles'
 import { hasActiveFilters, type ListingFilters } from '@/lib/validations/listings'
 
 /**
@@ -23,7 +24,12 @@ type Props = {
  * lives here, so the page shell around it can paint immediately.
  */
 export async function ListingGrid({ filters }: Props) {
-  const listings = await getPublishedListings(filters)
+  // In parallel: the auth check is a separate round trip and has no bearing on
+  // the query, so it must not sit in front of it.
+  const [listings, signedIn] = await Promise.all([
+    getPublishedListings(filters),
+    isSignedIn(),
+  ])
   const filtered = hasActiveFilters(filters)
 
   // A failed read also lands here — the query logs the real error and returns []
@@ -44,7 +50,11 @@ export async function ListingGrid({ filters }: Props) {
           <li key={listing.id}>
             {/* The widest layout is 4-up, so the first four cards are the ones
                 that can be above the fold and hold the LCP image. */}
-            <ListingCard listing={listing} priority={index < 4} />
+            <ListingCard
+              listing={listing}
+              isSignedIn={signedIn}
+              priority={index < 4}
+            />
           </li>
         ))}
       </ul>

@@ -11,11 +11,40 @@ immediately know what is done, what is in progress, and what is next.
 
 ## Current Status
 
-**Phase:** Phase 2 — Browse & Discover
-**Last completed:** 07 Listing detail
-**Next:** 08 Favorites
+**Phase:** Phase 2 — Browse & Discover **is complete**
+**Last completed:** 08 Favorites
+**Next:** 09 Create listing (Phase 3 — Hosting)
 
-**F07 is live: `/listings/[id]` is a real page.** Photo gallery (1+4 mosaic from
+**F08 is live: stays can be saved.** A heart sits on every card and over the
+listing gallery; `/favorites` lists saved stays newest-first with an empty state.
+Signed out the heart is not hidden — it is a sign-in form carrying the current
+path *and* query string, so hearting a filtered search returns to those results.
+`setFavorite({ listingId, saved })` is **idempotent** (it renames
+`build-plan.md`'s `toggleFavorite`): the client sends the state it wants, so two
+clicks converge instead of racing. **No migration** — `favorites` was fully
+specified back in `0001`/`0003`/`0006`. Gates: `tsc` clean, `lint` clean,
+**75/75** unit, **169 passed / 3 skipped** E2E, `npm run build` green. Anon `/`
+serves 24 cards, 24 sign-in hearts and **0** togglable controls; the advisor
+baseline is unchanged at 5 WARNs; `favorites` is back to 0 rows after a full
+suite run, so the per-spec cleanup works.
+
+**The finding that shaped F08: a passing spec proved nothing, and only the gate
+proof caught it.** `await expect(page).toHaveURL('/')` matches *instantly* when
+the page is already at `/` — so the spec asserting "hearting a card does not
+navigate" passed against markup with the button nested inside the card's `<a>`.
+Rewritten to wait on a real signal (the row appearing in the table) and only then
+read `page.url()`, it fails with the listing URL — which also proves the
+`ListingCard` restructure was necessary, not cosmetic. **F04's journal records
+the identical trap from the other direction.** Every new assertion in this
+feature was run against a deliberately broken build before being trusted.
+
+**A second F08 trap, this one in the types:** `favorites.listing_id` is a NOT
+NULL FK, so postgrest-js types the `listings` embed as always-present — verified
+by probe. RLS disagrees at runtime and returns a null embed for a listing the
+viewer may not see. The filter in `toFavoriteCards` is load-bearing and the type
+system would never have asked for it.
+
+**F07 remains green: `/listings/[id]` is a real page.** Photo gallery (1+4 mosaic from
 `tablet:`, full-bleed swipe strip below — one DOM, switched by CSS), description,
 18-amenity icon list, house rules, capacity, host card, reviews with DESIGN.md's
 64px `rating-display-card`, and a static reservation card (sticky rail ≥744px,
@@ -120,6 +149,16 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 `/listings/[id]`.
 
 **Remaining loose ends (small):**
+- **F08's failure path has never run.** `SaveButton`'s revert-and-announce branch
+  needs `setFavorite` to return `{ ok: false }`, which needs an induced Supabase
+  error. Same shape as F05's never-triggered `error.tsx`.
+- **`toFavoriteCards`' null-listing drop has never met a real null.** It needs a
+  listing favorited and *then* unpublished — F10's publish/unpublish action is
+  the first thing that can produce one.
+- **The `/favorites` empty state renders but is unasserted.** Asserting it would
+  require knowing no parallel worker has a row in flight for the shared fixture
+  user, which the isolation rule forbids. A second test user closes this and
+  `/admin`'s admin-side render together.
 - **`DraftNotice` has never been rendered by a browser.** RLS returns drafts to
   their owner (proven by SQL impersonation), but both seed drafts belong to fake
   users who cannot sign in and the Playwright fixture user owns nothing. F09/F10
@@ -158,7 +197,7 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 - [x] 05 Home & listing grid
 - [x] 06 Search & filters
 - [x] 07 Listing detail
-- [ ] 08 Favorites
+- [x] 08 Favorites
 
 ### Phase 3 — Hosting
 - [ ] 09 Create listing
@@ -185,10 +224,10 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 - Visual design system is fixed by `context/DESIGN.md` (Airbnb-style: Rausch `#ff385c` on white, `#222222` ink, Inter as the Cereal VF substitute, soft radii, one shadow tier). Tokens live in `globals.css @theme`.
 - Fully responsive is a hard requirement — custom Tailwind breakpoints (`tablet:744` / `desktop:1128` / `wide:1440`) map phone/iPad/laptop/desktop; mobile-first, grids drop columns.
 - Images use **Cloudinary** (signed uploads + `CldImage` responsive delivery), **not** Supabase Storage. `listing_photos` stores `url` + `public_id`.
-- Deployment target is **Render** (Web Service). Redirect URLs live in three places: Google console → Supabase `/auth/v1/callback`; Supabase → Render `/auth/callback`; `NEXT_PUBLIC_SITE_URL` = Render URL.
 - Targets **Next.js 16** → requires Node ≥20.9 (LTS) and TS ≥5.1; `params`/`cookies`/`headers` are async-only.
 - Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only when its tests pass. E2E runs against the seeded DB with a seed-verification step.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
 - **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
 - **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waits in F12's booking widget.
+- **F08** — **a green assertion is not a gating assertion; run every new spec against a deliberately broken build.** `toHaveURL('/')` passes instantly when the page is already at `/`, so the spec guarding "the heart must not navigate" passed against the exact markup it existed to reject. Two further F08 traps rhyme with it: postgrest-js types a to-one embed on a NOT NULL FK as never-null while RLS returns null at runtime (the `toFavoriteCards` filter is load-bearing and TS would never demand it), and a spec that snapshots whole-user state races the parallel workers sharing that user. **Generalises: prove the test fails before trusting that it passes** — and F12/F15's write paths get the same treatment.
 - **F07** — **a route `loading.tsx` and a real HTTP 404 cannot coexist.** The implicit `<Suspense>` it creates makes the response stream, and the status commits to **200 before `notFound()` runs** (Next: "a 404 status for non-streamed responses and a 200 for streamed"). Drafts would have been indexable as live pages. `loading.tsx` was dropped; the specs gate against restoring it. **Applies to every future route that can 404** — F13 `/trips`, F14, F17 — so choose the status over the skeleton unless the route can never 404.

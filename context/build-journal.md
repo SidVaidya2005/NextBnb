@@ -967,3 +967,167 @@ Triggered by a real failure, not a review: the Supabase GitHub integration repor
   there is no MCP tool for it, so the developer does it.
 - If branching is re-enabled in F18: move migrations to CLI-first, and use `config.toml`'s
   `[auth]` block to disable the email provider on production instead of the dashboard toggle.
+
+---
+
+## Phase 2 · Feature 08 — Favorites  *(2026-07-25)*
+
+**Scope built (16 files):** `lib/validations/favorites.ts` (`setFavoriteSchema`);
+`lib/actions/favorites.ts` (`setFavorite` — the project's first non-auth action);
+`lib/queries/favorites.ts` (`getFavorites`); `toFavoriteCards` + `toListingCard`
+pure helpers (+5 unit tests); `isSignedIn()` in `queries/profiles.ts`;
+`components/listings/SaveButton.tsx`; `ListingCard` restructured; `PhotoGallery`
+given an `action` slot; `/favorites` replacing its placeholder;
+`e2e/favorites.spec.ts` (13) and `e2e/favorites-responsive.spec.ts` (35).
+**No migration, no new dependency, `database.types.ts` untouched** — `favorites`
+was fully specified in `0001`/`0003`/`0006` and needed nothing.
+
+**Decisions:**
+- **The action takes the state you want, not an instruction to flip.**
+  `setFavorite({ listingId, saved })` upserts or deletes to match. A
+  `toggleFavorite(listingId)` has to read the current row and invert it, so two
+  clicks in flight both resolve against the same "before" and can land opposite
+  to what the heart is showing. Idempotent writes converge instead.
+  **This renames `build-plan.md`'s `toggleFavorite`** — recorded here rather
+  than silently drifting.
+- **Saved state rides the existing selects** (`favorites(user_id)` nested into
+  `getPublishedListings` and `getListingById`) rather than a second query. RLS
+  scopes the nested rows to the viewer, so anon reads `[]`.
+  **This is deliberately *not* F06's trap, and the distinction is the useful
+  part:** there, fewer rows meant "everything is available" — a permissive
+  conclusion drawn from absence, arriving as a success. Here, fewer rows means
+  "you have not saved this", which is exactly right for someone with no account.
+  Reading less is only dangerous when absence infers a *permission*.
+- **`useState` seeded from the prop, not `useOptimistic`.** Optimistic state
+  reverts to the server-rendered prop once the transition settles, and
+  `setFavorite` revalidates only `/favorites` — so on `/` the prop never changes
+  and a *successful* save would visibly snap back to unsaved. The failure would
+  have looked exactly like a broken server action.
+- **`revalidatePath('/favorites')` only.** `/` and `/listings/[id]` are dynamic
+  (cookies + `searchParams`) and re-render on every visit, so revalidating them
+  would re-run the whole filtered search query on each tap of a heart for no
+  freshness gain.
+- **The card is no longer one big `<Link>`.** The link is scoped to the title and
+  stretched with `after:absolute after:inset-0`; the heart is a sibling on
+  `z-10`. Not a style preference — see the gate proof below, the nested version
+  navigates.
+- **`PhotoGallery` takes an `action` slot** instead of importing `SaveButton`, so
+  it stays presentational and never pulls a client component into its module
+  graph. The slot renders as a **sibling of** the scroll container, never a
+  child: the mobile strip is `overflow-x-auto` and anything inside it swipes off
+  screen with the first photo.
+- **The mobile heart offset is a percentage, not a fixed inset.** The strip
+  bleeds 24px past the content column while its first tile is `w-[88%]` of that
+  bleed, so the tile's right edge lands at exactly 88% of the wrapper's width at
+  every phone width. `right-[calc(12%+0.5rem)]` follows it; a fixed inset sits on
+  photo 1 at 375px and on photo *2* by 743px.
+- **The heart is 44px, overriding DESIGN.md's 32px `icon-button-circle`.** The
+  spec itself calls 32px "borderline for AAA"; `code-standards.md` sets a hard
+  44px floor, so the floor wins and the 32px circle becomes the glyph inside it.
+- **`isSignedIn()` is its own tiny query**, `Promise.all`-ed alongside the real
+  one so the auth round trip adds no serial latency and no `profiles` read the
+  heart has no use for.
+- **E2E specs claim a listing by index and clean up only their own rows.** See
+  the gotcha below — this was not optional.
+- **Pruned the Render/redirect-URL bullet** from `progress-tracker.md` Key
+  Decisions to stay under CLAUDE.md's ~10 cap. Nothing is lost: `architecture.md`
+  carries a whole "Redirect URL responsibilities" section, which is more precise
+  than the bullet was, and F18 is where it is next needed.
+
+**Gotchas:**
+- **PostgREST types a to-one embed as non-null, and RLS disagrees at runtime.**
+  `favorites.listing_id` is a NOT NULL foreign key, so the generated types say
+  `listings` is always there — proved by the `const x: null = data` probe, which
+  printed `listings: { id: string; ... }` with no `| null`. But an unpublished
+  listing comes back as a null embed to anyone who is not its host. The filter in
+  `toFavoriteCards` is load-bearing and **the type system would never have asked
+  for it**. Same family as F04's `never` incident: the types were confidently
+  wrong in the direction that hides a bug.
+- **F08 broke a passing F04 spec by adding forms.** `auth.spec.ts`'s open-redirect
+  test located `input[name="next"]` page-wide; the signed-out heart is a sign-in
+  form, so that locator went from 1 match to ~25. Scoped to the banner's own
+  form, which is what it always meant. Third time this project has hit "a locator
+  coupled to something outside the thing under test" (F05's `getByText('0.0')`
+  matching prices, F07's `circle-user-round` counting the nav).
+- **My "does not navigate" spec asserted nothing, and the gate proof is the only
+  reason I know.** `await expect(page).toHaveURL(/\/$/)` matches *instantly*
+  when the page is already at `/`, resolving before any navigation could occur —
+  so it passed against markup with the button nested inside the anchor. F04's
+  journal records the same trap from the other direction ("a no-op wait ... let
+  `goto('/trips')` race the in-flight sign-out POST"). Rewritten to wait on a
+  real signal — the row appearing in the table — and only then read
+  `page.url()`. It then failed with
+  `Received: "/listings/20000000-…-000000000001"`, which also settles that the
+  restructure was necessary rather than tidy.
+- **My own signed-out spec raced the parallel signed-in ones.** It snapshotted
+  `readFavorites(userId)` before and after and compared — but a sibling worker
+  was legitimately writing rows for the same shared account, so it measured
+  *their* work and failed. I had written "no spec asserts on a row count" into
+  the fixture header and then violated it one file later. Now scoped to a
+  claimed listing.
+- **A responsive spec can encode one breakpoint's layout as if it were the
+  design.** "The heart sits over the first photo" is true below `tablet:` and
+  false above it — the mosaic puts a *small* tile in the top-right corner, which
+  is where the heart correctly goes. Split into "inside the photo block" (every
+  width) and "inside the first photo" (mobile only, skipped above 744).
+- **The heart's `next` had to strip `signin` and `next`.** Hearting from
+  `/?signin=required` would otherwise return the user to a page still telling
+  them to sign in. Not a security issue — `safeNextPath` handles the nesting —
+  but a small loop worth not shipping.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run test` **75/75**
+  (70 prior + 5 new); `npm run test:e2e` **169 passed, 3 skipped** (117 prior +
+  52 new; the 3 skips are the mobile-only gallery assertion above `tablet:`)
+  from a free :3000; `npm run build` green, all 11 routes,
+  `ƒ Proxy (Middleware)` still printing.
+- **Rendered HTML checked against the database.** Anon `/` serves **24 `<li>`
+  cards, 24 "Sign in to save" controls and 0 `aria-pressed` toggles** — one heart
+  per published listing, and no togglable control reachable while signed out. The
+  listing page serves exactly **1**. `/favorites` signed out returns **307** to
+  `/?signin=required&next=%2Ffavorites`.
+- **Both new specs demonstrably gate.** Swapping the percentage offset for a
+  fixed `right-4` fails the mobile containment assertion at **all four** phone
+  widths (320/375/414/743) and passes at tablet+, which is exactly the defect
+  shape. Nesting the heart back inside the card's `<Link>` fails the navigation
+  spec with the listing URL in the message.
+- **Live REST, anon key:** `GET /listings?select=id,title,favorites(user_id)`
+  returns `favorites: []` per row with no error, and `GET /favorites` returns
+  `[]`. The nested select degrades to "not saved" rather than failing.
+- `get_advisors(security)` — **still 5 WARNs**, the documented baseline,
+  unchanged. F08 added no function and no policy.
+- **The suite cleans up after itself**: `select count(*) from favorites` is **0**
+  after a full run, and the seed is intact (26 listings / 24 published / 17
+  bookings / 7 reviews).
+
+**Not verified — honestly outstanding:**
+- **The `setFavorite` failure path has never run.** The revert-and-announce
+  branch in `SaveButton` needs the action to return `{ ok: false }`, which needs
+  an induced Supabase error; nothing simulates one. Same shape as F05's
+  never-triggered `error.tsx`.
+- **`toFavoriteCards`' null-listing drop is unit-tested but has never met a real
+  null.** It needs a listing that was favorited and *then* unpublished — F10's
+  publish/unpublish action is the first thing that can produce one.
+- **The `/favorites` empty state is rendered but unasserted.** A spec that
+  asserts it would have to know no parallel worker has a row in flight for the
+  shared user, which is exactly what the isolation rule forbids. A second test
+  user would close it — the same answer `/admin`'s admin-side render has been
+  waiting on since F04.
+- **No keyboard or screen-reader pass on the heart.** `aria-pressed` and the
+  `aria-live` region are written and typed, but the announcement has not been
+  heard, and the gallery overlay's focus order has not been walked. F18 owns it.
+- **`DraftNotice` still has never been rendered by a browser** — unchanged from
+  F07, and still waiting on F09/F10 creating a listing owned by a real account.
+
+**Deferred / follow-ups:**
+- **F09 must add the `publicId ? CldImage : Image` branch** to both `ListingCard`
+  and `PhotoGallery` — still outstanding from F05, and now two components.
+- F10's unpublish is what first exercises the null-embed drop in `getFavorites`;
+  worth an assertion there rather than a new fixture here.
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
+  outside the repo.
+
+**Pruned from `progress-tracker.md` Key Decisions (F08), preserved verbatim:**
+> - Deployment target is **Render** (Web Service). Redirect URLs live in three
+>   places: Google console → Supabase `/auth/v1/callback`; Supabase → Render
+>   `/auth/callback`; `NEXT_PUBLIC_SITE_URL` = Render URL.

@@ -7,7 +7,9 @@ import { HostCard } from '@/components/listings/HostCard'
 import { PhotoGallery } from '@/components/listings/PhotoGallery'
 import { ReservationCard } from '@/components/listings/ReservationCard'
 import { ReviewsSection } from '@/components/listings/ReviewsSection'
+import { SaveButton } from '@/components/listings/SaveButton'
 import { getListingById } from '@/lib/queries/listings'
+import { isSignedIn } from '@/lib/queries/profiles'
 import { formatCapacity, formatTimeOfDay, humanizeToken } from '@/lib/utils'
 import { listingIdSchema } from '@/lib/validations/listings'
 
@@ -19,10 +21,15 @@ type Props = {
 /**
  * The listing a guest inspects before booking.
  *
- * The page awaits its one query rather than streaming behind `<Suspense>` the
- * way `/` does: there is no useful shell to paint first here — the heading *is*
- * the data — and a single nested select is one round trip, so a boundary would
- * gate nothing. `loading.tsx` covers the wait instead.
+ * The page awaits its queries rather than streaming behind `<Suspense>` the way
+ * `/` does: there is no useful shell to paint first here — the heading *is* the
+ * data — and they run in parallel, so a boundary would gate nothing.
+ *
+ * **There is deliberately no `loading.tsx`** (F07). That file wraps the page in
+ * an implicit `<Suspense>`, so the response streams and the HTTP status commits
+ * to 200 *before* `notFound()` runs — every draft listing would then be a
+ * 200-OK, indexable page. See `code-standards.md`; the 404 specs gate against
+ * restoring it.
  *
  * A listing the viewer may not see is a 404, and that decision is the database's:
  * `getListingById` applies no `is_published` filter, so the `listings` SELECT
@@ -35,7 +42,9 @@ export default async function ListingDetailPage({ params }: Props) {
   // Postgres `22P02`.
   if (!listingIdSchema.safeParse(id).success) notFound()
 
-  const listing = await getListingById(id)
+  // In parallel — the auth check is its own round trip and the listing query
+  // does not depend on it.
+  const [listing, signedIn] = await Promise.all([getListingById(id), isSignedIn()])
   if (!listing) notFound()
 
   // Nulls are dropped rather than rendered — 12 of the 24 published listings
@@ -80,7 +89,18 @@ export default async function ListingDetailPage({ params }: Props) {
       </div>
 
       <div className="mt-6">
-        <PhotoGallery photos={listing.photos} title={listing.title} />
+        <PhotoGallery
+          photos={listing.photos}
+          title={listing.title}
+          action={
+            <SaveButton
+              listingId={listing.id}
+              isFavorited={listing.isFavorited}
+              isSignedIn={signedIn}
+              label={listing.title}
+            />
+          }
+        />
       </div>
 
       <div className="mt-10 grid grid-cols-1 gap-10 tablet:grid-cols-[1fr_300px] desktop:grid-cols-[1fr_340px] desktop:gap-16">
