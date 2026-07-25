@@ -72,7 +72,8 @@ const { data, error } = await query.order('created_at', { ascending: false })
 ```
 
 **Rules:**
-- Availability (dates) cannot be expressed as a simple column filter — fetch candidate listings, then exclude those with an overlapping `confirmed` booking or `blocked_dates` range. Prefer a Postgres RPC/`view` for the date check when the result set is large.
+- Availability (dates) is **not** a column filter and **not** an application-code filter: RLS hides `bookings` from anon, so a nested select returns `[]` and every listing looks free. Call the `unavailable_listing_ids(p_check_in, p_check_out)` RPC and exclude its ids (`.not('id', 'in', '(…)')`). See `architecture.md` → Availability Rules.
+- An empty id list must **skip** the `.not(...)` call entirely — `in ()` is a SQL syntax error.
 - Select only the columns/relations you render; use nested selects for related rows (`listing_photos`, `reviews`) instead of N+1 queries.
 - A read never mutates and never uses the service-role key.
 
@@ -199,6 +200,14 @@ await cloudinary.uploader.destroy(publicId, { invalidate: true })
 ## Zod
 
 **Check first:** Context7 `/colinhacks/zod`. Zod schemas are the single source of truth for every client input; they live in `src/lib/validations/<domain>.ts`.
+
+> **The installed version is Zod 4** (`4.4.3`, added in F06). Context7's top hits are
+> often the v3 docs, and two APIs differ in ways that matter here:
+> `z.string().date()` / `.datetime()` are superseded by **`z.iso.date()` /
+> `z.iso.datetime()`**, and `.flatten()` is deprecated in favour of
+> `z.flattenError()`. `z.enum(READONLY_ARRAY)`, `.catch()`, `z.coerce.*` and
+> `safeParse` behave the same as v3. Verify an API shape against the installed
+> package before trusting a snippet.
 
 ### Setup
 

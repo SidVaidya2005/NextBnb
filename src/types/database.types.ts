@@ -460,6 +460,10 @@ export type Database = {
         }[]
       }
       is_admin: { Args: never; Returns: boolean }
+      unavailable_listing_ids: {
+        Args: { p_check_in: string; p_check_out: string }
+        Returns: string[]
+      }
     }
     Enums: {
       booking_status: "confirmed" | "cancelled"

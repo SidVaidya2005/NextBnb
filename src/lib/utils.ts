@@ -1,4 +1,4 @@
-import { differenceInCalendarDays } from 'date-fns'
+import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
@@ -31,6 +31,45 @@ export function nightsBetween(checkIn: Date, checkOut: Date): number {
 }
 
 /**
+ * A calendar date as `YYYY-MM-DD`, the format every `date` column and every
+ * search param uses. Lexicographic order on this format is chronological order,
+ * which is why the filters compare dates as plain strings.
+ */
+export function toISODate(date: Date): string {
+  return format(date, 'yyyy-MM-dd')
+}
+
+/**
+ * Today as `YYYY-MM-DD` in the server's local zone.
+ *
+ * Deliberately local rather than UTC: it is compared against dates a user typed
+ * into a calendar, not against a stored timestamp. Around midnight this can sit
+ * one day either side of the database's `current_date`; for a search filter
+ * that is a non-event, and the booking action (F12) re-checks against the DB.
+ */
+export function todayISO(): string {
+  return toISODate(new Date())
+}
+
+/**
+ * A date range rendered for the search pill — "Aug 5 – 9", collapsing the month
+ * when both ends share one. Returns null when the range is incomplete, so the
+ * caller can fall back to its placeholder.
+ */
+export function formatDateRange(
+  checkIn: string | undefined,
+  checkOut: string | undefined,
+): string | null {
+  if (!checkIn || !checkOut) return null
+
+  const start = parseISO(checkIn)
+  const end = parseISO(checkOut)
+  const sameMonth = format(start, 'yyyy-MM') === format(end, 'yyyy-MM')
+
+  return `${format(start, 'MMM d')} – ${format(end, sameMonth ? 'd' : 'MMM d')}`
+}
+
+/**
  * Mean of a listing's review ratings, or `null` when it has none.
  *
  * `null` is the "New" signal the card renders — deliberately distinct from `0`,
@@ -59,6 +98,17 @@ export function coverPhotoOf<T extends { is_cover: boolean; position: number }>(
   return photos.reduce((lowest, photo) =>
     photo.position < lowest.position ? photo : lowest,
   )
+}
+
+/**
+ * A snake_case constant rendered as a label — `tiny_home` -> "Tiny home",
+ * `air_conditioning` -> "Air conditioning". Keeps `PROPERTY_TYPES` and
+ * `AMENITIES` as the single source of truth instead of pairing each one with a
+ * hand-written display string that can drift.
+ */
+export function humanizeToken(value: string): string {
+  const spaced = value.replace(/_/g, ' ')
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
 /** Compose Tailwind classes conditionally (clsx) and resolve conflicts (tailwind-merge). */

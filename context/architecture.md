@@ -380,6 +380,34 @@ requested `[check_in, check_out)` range iff **none** of these overlap it:
 - A guest **cannot book a range** overlapping either a confirmed booking or a blocked range; the booking action checks both, and the exclusion constraint is the final guard against races.
 - Minimum stay: `check_out - check_in >= listings.min_nights`; dates must be today or later (no past bookings).
 
+### Availability must be computed in the database, not in application code
+
+RLS scopes `bookings` SELECT to the guest, the listing's host, and admins — so an
+**anonymous visitor reads zero booking rows**. Any client- or RSC-side
+availability check built on a `bookings` read therefore concludes that the whole
+catalogue is free, silently and without error. (`blocked_dates` is anon-readable
+for published listings, so only the bookings half is affected — which is worse,
+because half the answer looks right.)
+
+The date check is therefore a `security definer` function, added in `0007`:
+
+```sql
+public.unavailable_listing_ids(p_check_in date, p_check_out date) returns setof uuid
+```
+
+It returns **published listing ids only** — never guest ids, price snapshots, or
+booking rows — unioning confirmed bookings (`'[)'`) with blocked dates
+(`daterange(start_date, end_date + 1, '[)')`). It is hardened like
+`admin_list_users()`: `set search_path = ''`, fully-qualified references,
+`EXECUTE` revoked from `PUBLIC` and granted to `anon, authenticated`. It refuses
+null bounds, because an unbounded `daterange` overlaps everything and would mark
+every listing unavailable — the difference between "no date filter" and "no
+results at all".
+
+Occupancy is public information in this product (F12's date picker must render
+it), so exposing it is the design, not a leak. Search, the listing calendar, and
+the booking action all read availability through this one function.
+
 ## Booking Rules
 
 - **Instant Book only**: a valid reservation is inserted as `confirmed` immediately; there is no pending/host-approval state.
@@ -712,6 +740,7 @@ export async function POST(request: Request) {
 - A booking's price fields (`price_per_night`, `cleaning_fee`, `service_fee`, `total`, `nights`) are snapshots written at creation and never recomputed from the current listing afterward.
 - All money is stored and computed as integer **cents**; never store or arithmetic on floating-point currency.
 - Availability = confirmed bookings ∪ `blocked_dates`; every availability check and calendar considers both, with bookings half-open `[check_in, check_out)` and blocks inclusive `[start, end]` (see Availability Rules).
+- Availability for a date range is resolved by the `unavailable_listing_ids()` definer function — never by reading `bookings` from a query or component. RLS hides bookings from anon, so such a read returns "everything is available" instead of failing.
 - A host can never book their own listing (enforced in the action and the `bookings` INSERT policy).
 - The Cloudinary signature route verifies the user, whitelists the signable keys, and signs only when the `folder` targets a listing the caller owns — it rejects `public_id`, `upload_preset`, and any malformed or unowned folder.
 - A review may be created only by the booking's guest, only after checkout has passed, and at most one review per booking (DB unique on `booking_id`).

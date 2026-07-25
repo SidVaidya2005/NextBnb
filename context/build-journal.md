@@ -551,6 +551,151 @@ dependency, `database.types.ts` untouched. **The first feature that renders real
 
 ---
 
+## Phase 2 · Feature 06 — Search & filters  *(2026-07-25)*
+
+**Scope built (13 files):** migration `0007_availability_search_rpc`
+(`unavailable_listing_ids`); `lib/validations/listings.ts` (first Zod schema in the
+project); `lib/searchParams.ts`; four new pure helpers in `lib/utils.ts`
+(`toISODate`, `todayISO`, `formatDateRange`, `humanizeToken`);
+`components/ui/DateRangePicker.tsx`; `components/search/{SearchBar,FilterPanel}.tsx`;
+`getPublishedListings(filters)`; `ListingGrid` + `app/page.tsx` rewired; `TopNav`
+placeholder replaced; `e2e/fixtures.ts`, `e2e/search.spec.ts` (25),
+`e2e/search-responsive.spec.ts` (16); +30 unit tests. **Zod 4.4.3** installed
+(deferred from F01). First migration since F02.
+
+**Decisions:**
+- **Availability is a `security definer` RPC, because it cannot be anything else.**
+  The `bookings` SELECT policy is guest/host/admin, so an anon visitor reads zero
+  booking rows. A nested `listings(..., bookings(...))` select does not fail — it
+  returns `[]` and reports the entire catalogue as available. `unavailable_listing_ids(
+  p_check_in, p_check_out)` returns published listing ids only, unioning confirmed
+  bookings with blocked dates, hardened exactly like `admin_list_users()`
+  (`search_path = ''`, revoke from PUBLIC, grant to anon+authenticated).
+- **A narrow RPC, not a `search_listings()` mega-function.** Returning ids keeps the
+  other five filters in the typed PostgREST builder; a full-search RPC would move
+  every filter and the photos/reviews aggregation into hand-written SQL and make each
+  future filter change a migration.
+- **The function refuses null bounds.** `daterange(null, null)` is `(-inf, inf)`, which
+  overlaps everything — a null would flip the filter from "no dates chosen" to "nothing
+  is available". Guarded in SQL rather than trusted from the caller.
+- **The RPC joins to published listings**, so calling it directly through PostgREST
+  cannot confirm that a given draft listing id exists.
+- **`stay` is a single derived value, not two date fields.** `parseListingFilters` emits
+  `stay` only when both dates are valid, ordered and forward-looking; the query reads
+  nothing else for dates. The availability filter is therefore structurally incapable of
+  being half-applied — the alternative is one forgotten `&&` away from an unbounded range.
+- **`min_nights` is part of the date filter.** A stay shorter than a listing's minimum is
+  excluded, so search never shows something F12 would then refuse to book.
+- **URL contract: camelCase, price in whole dollars.** Cents govern storage and
+  arithmetic; the URL is a display surface, like `formatPrice`. The conversion exists in
+  exactly one place.
+- **Every schema field is independently `.catch()`-ed.** A URL is hand-editable and
+  bookmarkable, so `?city=Kyoto&guests=abc` filters by city rather than failing. A bad
+  URL degrades; it never throws.
+- **Amenities are accepted comma-separated *and* as repeated params.** A native checkbox
+  group posts `amenities=wifi&amenities=kitchen`, which is what lets `FilterPanel` be a
+  Server Component with no JavaScript at all.
+- **`FilterPanel` shows no result count.** The count costs an awaited query, and the panel
+  renders in the shell that F05 deliberately keeps un-awaited; the count moved inside the
+  Suspense boundary with the grid.
+- **`<Suspense key={JSON.stringify(filters)}>`** — without the key, a new search leaves the
+  previous results on screen while the next set loads, which reads as a broken filter.
+- **The calendar shipped in F06, not F12**, at the developer's call, with an
+  `unavailableRanges` prop F06 leaves empty and F12 fills per listing.
+- **The SearchBar remounts on every URL change** (`key={searchParams.toString()}`), which
+  re-seeds all three fields from the URL — including on browser back — instead of syncing
+  state by hand.
+
+**Gotchas:**
+- **A green availability filter can be entirely wrong and still look right.** This is the
+  feature's whole lesson: RLS does not error when it hides rows, it just returns fewer of
+  them. Had the date filter been written the obvious way, every gate would have passed,
+  the page would have rendered 24 listings for any date range, and the bug would have
+  surfaced in F12 as "booking rejects dates search said were free". **Before computing
+  anything from a table, check what its least-privileged reader can see.**
+- **My own boundary test failed for the wrong reason, and the wrong reason was correct
+  behaviour.** Asserting that Lakefront Villa is bookable on its own checkout day returned
+  0 — I had used a 3-night window, and that listing has `min_nights = 4`. Two independent
+  rules remove listings from a dated search, and a count alone cannot tell them apart.
+  Re-run with 4 nights it passed. The E2E now derives the window length from the listing's
+  own `min_nights` rather than a hard-coded guess.
+- **The E2E oracle must not be the RPC.** Asserting the app against
+  `unavailable_listing_ids()` would only prove the app calls it. `e2e/fixtures.ts` reads
+  the raw `bookings`/`blocked_dates` tables with the service key and re-implements the
+  overlap maths independently, so a mistake in either implementation shows up as a
+  disagreement rather than as mutual agreement.
+- **`exact: true` broke a spec the same way its absence broke one in F05.** With filters
+  active the panel's `<summary>` reads "Filters 2 Show Hide", so `getByText('Filters',
+  { exact: true })` stopped matching the moment the active-filter badge appeared — while
+  the identical locator passed in the test above it, which had no active filters. F05's
+  lesson was "add `exact`"; the general lesson is that text locators are coupled to
+  content that changes with state. Matched by element (`locator('summary')`) instead.
+- **Suspense makes card counts racy.** `page.reload()` then `count()` returned 0 while the
+  grid was still streaming. Fixed with a `waitForGrid` that races the list against *both*
+  empty states — waiting only for the list would hang for the full timeout on a
+  legitimately empty result, which is exactly when a spec should be fastest.
+- **`z.coerce.number()` turns `''` into 0.** `?minPrice=` would have become a real $0
+  filter — active, invisible, and enough to make `hasActiveFilters` claim the grid was
+  narrowed. Empty params are normalised to `undefined` before parsing.
+- **Zod 4 renamed the ISO-date API.** Context7 returns v3 docs by default
+  (`z.string().date()`); the installed 4.4.3 wants `z.iso.date()`. Probed the package
+  directly rather than trusting the snippet — it rejects `2026-02-31`, which a plain
+  format regex would accept. `library-docs.md` now carries the v3/v4 delta.
+- **`.not('id','in','()')` is a SQL syntax error**, so an empty exclusion list has to skip
+  the call rather than pass an empty tuple.
+- **PostgREST treats `*` as a LIKE wildcard as well as `%`.** Left alone, `?city=%` would
+  match everything and read as an ignored filter; wildcards are stripped so a destination
+  matches literally.
+- **The MCP stamps its own migration version, and I named the migration without the
+  ordinal.** Applied as `availability_search_rpc`, which would have produced a local file
+  out of step with the `0001_`…`0006_` convention the F02 follow-up established. Fixed by
+  updating the recorded `name` in `supabase_migrations.schema_migrations` so local and
+  remote agree exactly: `20260725060945_0007_availability_search_rpc`.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run test` **53/53** (23 prior + 30
+  new); `npm run test:e2e` **73/73** (32 prior + 41 new) from a deleted `e2e/.auth`;
+  `npm run build` green with all 11 routes and `ƒ Proxy (Middleware)` still printing.
+- **Counts checked against the database, not against themselves.** A SQL query predicting
+  the app's output — `min_nights <= nights and id not in (unavailable_listing_ids(...))` —
+  returned 18 for a 2-night window and 21 for a 5-night window at +12/+17; the served HTML
+  returned exactly 18 and 21. Kyoto 3, `pool` 3, `pool,hot_tub` 2, repeated params 2,
+  treehouse 1, `guests=16` 1, garbage URL 24.
+- **Half-open semantics proven on a real row, five ways.** For the listing booked
+  Aug 5→10 with a block on Aug 18–23: a stay over the booking is excluded; one starting
+  Aug 10 (its checkout day) is included; one ending Aug 5 (its check-in day) is included;
+  one hitting Aug 16→20 is excluded; and one starting Aug 24 — the day after the inclusive
+  block ends — is included, which is what proves the `end_date + 1` conversion.
+- **Anon REST, live:** `GET /rest/v1/bookings` → `[]`, while
+  `POST /rpc/unavailable_listing_ids` → 3 ids and the same RPC with null bounds → `[]`.
+  The bypass is the function, not the table, and the null guard holds through PostgREST.
+- `get_advisors(security)` — **5 WARNs**, up from 3. Both new ones are the new definer
+  function being anon- and authenticated-executable, which is the design.
+
+**Not verified — honestly outstanding:**
+- **The RPC-failure path returns an empty grid, and has never been exercised.** On error
+  the query returns `[]` rather than unfiltered results — deliberately, since showing
+  unverified availability is worse than showing none — but nothing has induced that error.
+- **No test covers a JavaScript-disabled browser**, even though `FilterPanel` was built to
+  work without it. The claim rests on it being a plain GET form, not on an assertion.
+- **The calendar has had no keyboard-navigation pass.** Cells are real buttons and are
+  tabbable, but arrow-key roving focus (the `role="grid"` pattern) is not implemented;
+  F18's accessibility pass owns it.
+- **Only `unavailableRanges = []` has ever run.** The straddle-rejection branch is written
+  and typed but unexercised until F12 supplies real ranges.
+- The seed's dates are frozen at seed time, not recomputed daily, so absolute-date probes
+  drift. The specs derive their windows from the database for this reason.
+
+**Deferred / follow-ups:**
+- F07 and F12 must read availability through `unavailable_listing_ids()`, never from
+  `bookings`; F12 additionally fills the calendar's `unavailableRanges`.
+- `MAX_LISTINGS = 48` is still a ceiling, not pagination. Filters make it less pressing,
+  not resolved.
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside
+  the repo.
+
+---
+
 ## Phase 1 · F02 follow-up — migration version identity & Supabase branching  *(2026-07-25)*
 
 Triggered by a real failure, not a review: the Supabase GitHub integration reported

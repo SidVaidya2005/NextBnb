@@ -114,6 +114,28 @@ Filter the grid by every supported dimension, with the URL as source of truth.
 **Logic:**
 - Read filters from `searchParams`; extend the listings query (`ilike` city, price bounds, `max_guests`, `property_type`, `amenities` contains) and exclude listings unavailable for the chosen dates (overlapping `confirmed` bookings ∪ `blocked_dates`).
 
+**As built (deviations worth knowing):**
+- **The date filter is a `security definer` RPC (`0007`), not application code.** RLS
+  scopes `bookings` to the guest/host/admin, so an anon visitor reads zero booking rows
+  and an app-side check would report the whole catalogue as available. `unavailable_listing_ids()`
+  returns published listing ids only. See `architecture.md` → Availability Rules.
+- **`min_nights` is part of the date filter**: a stay shorter than a listing's minimum is
+  excluded, so search never offers something F12 would refuse to book.
+- **URL contract is camelCase with price in whole dollars** (`?city=…&checkIn=…&minPrice=50`);
+  dollars→cents conversion happens once, in `lib/validations/listings.ts`. Amenities are
+  accepted both comma-separated and as repeated params, so the filter form works without JS.
+- **A half-specified date range filters nothing.** `parseListingFilters` only emits a `stay`
+  when both dates are valid and ordered — the availability filter cannot be half-applied.
+- **The full `date-picker-day` calendar shipped here**, not in F12, with an
+  `unavailableRanges` prop F06 leaves empty and F12 fills per listing.
+- **The SearchBar replaced the nav placeholder on every route** and is the first client
+  component in the nav that reads `useSearchParams()` (layouts do not receive `searchParams`).
+- **Zod arrived here** (deferred from F01) — and it is **Zod 4**, whose ISO-date API differs
+  from the v3 snippets in `library-docs.md`.
+- The filter panel is a **Server Component**: a native `<details>` + `<form method="get">`,
+  no JavaScript. It shows no result count, because that would force the page to await the
+  query and break F05's streaming shell.
+
 ### 07 Listing detail
 
 The full listing page a guest inspects before booking.

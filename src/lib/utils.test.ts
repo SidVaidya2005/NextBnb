@@ -2,9 +2,12 @@ import { describe, it, expect } from 'vitest'
 import {
   averageRating,
   coverPhotoOf,
+  formatDateRange,
   formatPrice,
+  humanizeToken,
   nightsBetween,
   safeNextPath,
+  toISODate,
 } from '@/lib/utils'
 
 describe('formatPrice', () => {
@@ -125,5 +128,45 @@ describe('safeNextPath', () => {
     expect(safeNextPath(null)).toBe('/')
     expect(safeNextPath(undefined)).toBe('/')
     expect(safeNextPath('')).toBe('/')
+  })
+})
+
+describe('toISODate', () => {
+  it('renders a local calendar date, not a UTC instant', () => {
+    // Constructed with local-time components, so the ISO date must match them
+    // regardless of the machine's zone — a UTC-based format would shift.
+    expect(toISODate(new Date(2026, 7, 5))).toBe('2026-08-05')
+  })
+
+  it('zero-pads month and day so string order is chronological order', () => {
+    expect(toISODate(new Date(2026, 0, 9))).toBe('2026-01-09')
+    expect('2026-01-09' < '2026-01-10').toBe(true)
+  })
+})
+
+describe('formatDateRange', () => {
+  it('collapses the month when both ends share one', () => {
+    expect(formatDateRange('2026-08-05', '2026-08-09')).toBe('Aug 5 – 9')
+  })
+
+  it('keeps both months when the range crosses one', () => {
+    expect(formatDateRange('2026-08-28', '2026-09-02')).toBe('Aug 28 – Sep 2')
+  })
+
+  it('returns null for an incomplete range so the caller can show a placeholder', () => {
+    expect(formatDateRange('2026-08-05', undefined)).toBeNull()
+    expect(formatDateRange(undefined, '2026-08-09')).toBeNull()
+    expect(formatDateRange(undefined, undefined)).toBeNull()
+  })
+})
+
+describe('humanizeToken', () => {
+  it('renders a snake_case constant as a label', () => {
+    expect(humanizeToken('tiny_home')).toBe('Tiny home')
+    expect(humanizeToken('air_conditioning')).toBe('Air conditioning')
+  })
+
+  it('leaves a single word capitalized', () => {
+    expect(humanizeToken('pool')).toBe('Pool')
   })
 })

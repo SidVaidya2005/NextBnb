@@ -12,19 +12,33 @@ immediately know what is done, what is in progress, and what is next.
 ## Current Status
 
 **Phase:** Phase 2 — Browse & Discover
-**Last completed:** 05 Home & listing grid
-**Next:** 06 Search & filters
+**Last completed:** 06 Search & filters
+**Next:** 07 Listing detail
 
-**F05 is live: the app renders real data for the first time.** `/` now shows all
-24 published listings as a responsive card grid (1 / 2 / 4-up), read through
-`lib/queries/listings.getPublishedListings()` and streamed behind a `<Suspense>`
-skeleton. Verified against the database: 24 cards, 24 unique detail links, the 2
-drafts absent (RLS), 20 "New" badges and 4 real averages (2× 4.5, 2× 4.0) exactly
-matching `avg(reviews.rating)`. Gates: `tsc` clean, `lint` clean, **23/23** unit,
-**32/32** E2E, `npm run build` green with `/listings/[id]` in the route table.
+**F06 is live: `/` is now a real search-results page.** All six dimensions
+(destination, dates, guests, price, property type, amenities) read from
+`searchParams`, with a `SearchBar` in the nav (3-segment pill from `tablet:`, a
+full-screen overlay below it), a JS-free `FilterPanel`, and a DESIGN.md
+`date-picker-day` calendar. Counts verified against the database, not just
+against themselves: Kyoto 3, `pool` 3 → `pool,hot_tub` 2 (the AND proof),
+treehouse 1, a 5-night window +12→+17 excludes exactly 3, a 2-night window
+excludes 4 more on `min_nights`, and a garbage URL still renders all 24. Gates:
+`tsc` clean, `lint` clean, **53/53** unit, **73/73** E2E, `npm run build` green.
+
+**The finding that shaped F06: availability cannot be computed in application
+code.** RLS scopes `bookings` to the guest, host and admins, so an anon visitor
+reads **zero** booking rows — a nested select returns `[]` and every listing
+looks free, silently. The date filter is therefore the `security definer` RPC
+`unavailable_listing_ids()` (migration `0007`), returning published listing ids
+only. Confirmed through the live anon REST API: `GET /bookings` still returns
+`[]` while the RPC returns 3 ids — the bypass is the function, not the table.
+
+**F05 remains green:** `/` renders 24 published listings as a responsive grid
+(1 / 2 / 4-up) through `getPublishedListings()`, streamed behind `<Suspense>`,
+with the 2 drafts hidden by RLS and 4 real averages matching `avg(reviews.rating)`.
 
 Supabase project **NextBnb** (`mbrcgzpmqhmdfhjqytnq`, ap-south-1, free plan) is
-live with 6 migrations applied and seeded: 5 demo users, 26 listings (24
+live with 7 migrations applied and seeded: 5 demo users, 26 listings (24
 published + 2 drafts) across 8 cities, 130 Unsplash photos, 17 bookings, 7
 reviews, 5 blocked ranges. Re-run `supabase/seed.sql` any time; verify with
 `supabase/tests/seed-verification.sql` (46 assertions). The E2E suite now fails
@@ -78,12 +92,16 @@ link` or a push. Detail in `build-journal.md` → F02 follow-up.
   user, which belongs to F17 when there is a dashboard worth asserting on.
 - Cancelling at the Google consent screen (`access_denied` → home, no error
   banner) has not been exercised — it needs a human to click Cancel.
-- **The security advisor baseline is 3 WARNs, not F02's 2.** The third is
-  leaked-password protection, disabled because it is **Pro-plan-only**. It
-  appeared when F04 enabled email/password auth for the Playwright fixture,
-  which also leaves email registration reachable via the Auth API
-  (`disable_signup: false`) despite the app offering Google only. Low severity,
-  no privilege path; the fix is a separate Supabase project for E2E in F18.
+- **The security advisor baseline is 5 WARNs.** Three are inherited: `authenticated`
+  must hold EXECUTE on `is_admin()` and `admin_list_users()` (both load-bearing),
+  and leaked-password protection is disabled because it is **Pro-plan-only** — it
+  appeared when F04 enabled email/password auth for the Playwright fixture, which
+  also leaves email registration reachable via the Auth API (`disable_signup: false`)
+  despite the app offering Google only. Low severity, no privilege path; the fix is
+  a separate Supabase project for E2E in F18. **F06 added the other two**: anon and
+  authenticated can both execute the `unavailable_listing_ids()` definer function.
+  That is the design — anon search must filter by dates — and the function is
+  narrowed to published listing ids. **A sixth WARN is a finding, not a baseline.**
 
 ---
 
@@ -97,7 +115,7 @@ link` or a push. Detail in `build-journal.md` → F02 follow-up.
 
 ### Phase 2 — Browse & Discover
 - [x] 05 Home & listing grid
-- [ ] 06 Search & filters
+- [x] 06 Search & filters
 - [ ] 07 Listing detail
 - [ ] 08 Favorites
 
@@ -131,5 +149,5 @@ link` or a push. Detail in `build-journal.md` → F02 follow-up.
 - Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only when its tests pass. E2E runs against the seeded DB with a seed-verification step.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
 - **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
-- **Phase 1 close-out** — **a "verify it looks right" to-do is a defect waiting to happen; make it a spec.** F04 deferred the account-menu breakpoint check to a manual eyeball. Converting it to `e2e/nav-responsive.spec.ts` immediately exposed a 40px tap target against the project's own 44px floor — present at *every* breakpoint, invisible from reading the JSX, and only findable by measuring the rendered box. Responsive checks are now assertions, not intentions.
 - **F05** — **listing photos render through `next/image`, not `CldImage`, and that is not yet a violation.** Every photo in the database is a seed Unsplash URL with `public_id = null`, so the "never a bare `<img>` for a Cloudinary asset" invariant has nothing to bite on and `next-cloudinary` stays uninstalled. **F09 owns the debt**: the first real upload makes `ListingCard` need a `public_id ? CldImage : Image` branch. Until then the card passes `sizes` + `priority` on the first row and gets responsive delivery from the Next optimizer.
+- **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waits in F07's calendar and F12's booking widget.

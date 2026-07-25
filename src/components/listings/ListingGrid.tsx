@@ -1,5 +1,8 @@
+import Link from 'next/link'
+
 import { ListingCard } from '@/components/listings/ListingCard'
 import { getPublishedListings } from '@/lib/queries/listings'
+import { hasActiveFilters, type ListingFilters } from '@/lib/validations/listings'
 
 /**
  * Grid geometry, shared with `ListingGridSkeleton` so the fallback and the real
@@ -11,35 +14,70 @@ import { getPublishedListings } from '@/lib/queries/listings'
 export const LISTING_GRID_CLASSES =
   'grid grid-cols-1 gap-x-4 gap-y-8 tablet:grid-cols-2 desktop:grid-cols-4'
 
+type Props = {
+  filters: ListingFilters
+}
+
 /**
  * The suspending half of the home page: everything that waits on the database
  * lives here, so the page shell around it can paint immediately.
  */
-export async function ListingGrid() {
-  const listings = await getPublishedListings()
+export async function ListingGrid({ filters }: Props) {
+  const listings = await getPublishedListings(filters)
+  const filtered = hasActiveFilters(filters)
 
   // A failed read also lands here — the query logs the real error and returns []
   // so one Supabase hiccup renders an empty grid instead of crashing the page.
   if (listings.length === 0) {
-    return (
-      <div className="rounded-md border border-hairline px-6 py-16 text-center">
-        <p className="text-base font-semibold text-ink">No stays to show yet</p>
-        <p className="mt-2 text-sm text-muted">
-          Once hosts publish their places, they will appear here.
-        </p>
-      </div>
-    )
+    return filtered ? <NoMatches /> : <NoListings />
   }
 
   return (
-    <ul aria-label="Stays" className={LISTING_GRID_CLASSES}>
-      {listings.map((listing, index) => (
-        <li key={listing.id}>
-          {/* The widest layout is 4-up, so the first four cards are the ones
-              that can be above the fold and hold the LCP image. */}
-          <ListingCard listing={listing} priority={index < 4} />
-        </li>
-      ))}
-    </ul>
+    <>
+      <p className="pb-5 text-sm text-muted">
+        {listings.length} {listings.length === 1 ? 'stay' : 'stays'}
+        {filtered ? ' match your search' : ''}
+      </p>
+
+      <ul aria-label="Stays" className={LISTING_GRID_CLASSES}>
+        {listings.map((listing, index) => (
+          <li key={listing.id}>
+            {/* The widest layout is 4-up, so the first four cards are the ones
+                that can be above the fold and hold the LCP image. */}
+            <ListingCard listing={listing} priority={index < 4} />
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+/** Nothing matched — distinct from an empty catalogue, and recoverable. */
+function NoMatches() {
+  return (
+    <div className="rounded-md border border-hairline px-6 py-16 text-center">
+      <p className="text-base font-semibold text-ink">No stays match your search</p>
+      <p className="mt-2 text-sm text-muted">
+        Try different dates, a wider price range, or fewer amenities.
+      </p>
+      <Link
+        href="/"
+        className="mt-6 inline-flex h-12 items-center rounded-sm bg-primary px-6 text-base font-medium text-on-primary hover:bg-primary-active"
+      >
+        Clear search
+      </Link>
+    </div>
+  )
+}
+
+/** The F05 state: no filters, and still nothing to show. */
+function NoListings() {
+  return (
+    <div className="rounded-md border border-hairline px-6 py-16 text-center">
+      <p className="text-base font-semibold text-ink">No stays to show yet</p>
+      <p className="mt-2 text-sm text-muted">
+        Once hosts publish their places, they will appear here.
+      </p>
+    </div>
   )
 }

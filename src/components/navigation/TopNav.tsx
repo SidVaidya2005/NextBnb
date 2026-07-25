@@ -1,12 +1,13 @@
 import Link from 'next/link'
-import { House, Search } from 'lucide-react'
+import { House } from 'lucide-react'
 
 import { AccountMenu } from '@/components/navigation/AccountMenu'
+import { SearchBar } from '@/components/search/SearchBar'
 import { getCurrentProfile } from '@/lib/queries/profiles'
 
 // Server Component (DESIGN.md `top-nav`): resolves the signed-in identity once
-// per render and hands it to the client dropdown. The search pill is still a
-// placeholder until Feature 06.
+// per render and hands it to the client dropdown. The search bar is a client
+// leaf — it reads the URL, which a layout cannot.
 export async function TopNav() {
   const profile = await getCurrentProfile()
 
@@ -23,16 +24,10 @@ export async function TopNav() {
           <span className="text-xl font-semibold tracking-tight">NextBnb</span>
         </Link>
 
-        {/* Search pill — tablet and up. Placeholder until Feature 06. */}
-        <div className="hidden items-center gap-2 rounded-full border border-hairline py-2 pl-6 pr-2 shadow-card tablet:flex">
-          <span className="text-sm font-medium text-ink">Anywhere</span>
-          <span className="h-6 w-px bg-hairline" aria-hidden />
-          <span className="text-sm font-medium text-ink">Any week</span>
-          <span className="h-6 w-px bg-hairline" aria-hidden />
-          <span className="pr-2 text-sm text-muted">Add guests</span>
-          <span className="flex size-8 items-center justify-center rounded-full bg-primary text-on-primary">
-            <Search className="size-4" aria-hidden />
-          </span>
+        {/* Search — the 3-segment pill from tablet:, a single pill that opens a
+            full-screen overlay below it. */}
+        <div className="mx-3 flex min-w-0 flex-1 justify-center tablet:mx-6 tablet:flex-none">
+          <SearchBar />
         </div>
 
         {/* Account cluster. The menu is the only control on mobile, so it is
