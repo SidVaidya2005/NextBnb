@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: 'https', hostname: 'res.cloudinary.com' },
       { protocol: 'https', hostname: 'images.unsplash.com' },
+      // Google profile photos, shown as the account-menu avatar (Feature 04).
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
     ],
   },
 }

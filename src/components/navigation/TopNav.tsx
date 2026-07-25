@@ -1,10 +1,15 @@
 import Link from 'next/link'
-import { House, Search, Menu, CircleUserRound } from 'lucide-react'
+import { House, Search } from 'lucide-react'
 
-// Static presentational top-nav shell (DESIGN.md `top-nav`). Feature 01 ships the
-// visual shell only: the search pill and account control are placeholders — the
-// real search (F06) and auth/account menu (F04) replace them later.
-export function TopNav() {
+import { AccountMenu } from '@/components/navigation/AccountMenu'
+import { getCurrentProfile } from '@/lib/queries/profiles'
+
+// Server Component (DESIGN.md `top-nav`): resolves the signed-in identity once
+// per render and hands it to the client dropdown. The search pill is still a
+// placeholder until Feature 06.
+export async function TopNav() {
+  const profile = await getCurrentProfile()
+
   return (
     <header className="sticky top-0 z-50 border-b border-hairline bg-canvas">
       <div className="mx-auto flex h-20 max-w-wide items-center justify-between px-6 tablet:px-10">
@@ -30,29 +35,17 @@ export function TopNav() {
           </span>
         </div>
 
-        {/* Account cluster — tablet and up. */}
-        <div className="hidden shrink-0 items-center gap-2 tablet:flex">
-          <span className="rounded-full px-4 py-2.5 text-sm font-medium text-ink">
-            Become a host
-          </span>
-          <button
-            type="button"
-            className="flex h-12 items-center gap-2 rounded-full border border-hairline px-3 text-ink"
-            aria-label="Account menu"
+        {/* Account cluster. The menu is the only control on mobile, so it is
+            never hidden — the hamburger lives inside it. */}
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href="/host/listings"
+            className="hidden rounded-full px-4 py-2.5 text-sm font-medium text-ink hover:bg-surface-soft tablet:block"
           >
-            <Menu className="size-4" aria-hidden />
-            <CircleUserRound className="size-7 text-muted" aria-hidden />
-          </button>
+            Become a host
+          </Link>
+          <AccountMenu profile={profile} />
         </div>
-
-        {/* Mobile — logo + hamburger only. */}
-        <button
-          type="button"
-          className="flex size-11 items-center justify-center rounded-full border border-hairline text-ink tablet:hidden"
-          aria-label="Menu"
-        >
-          <Menu className="size-5" aria-hidden />
-        </button>
       </div>
     </header>
   )
