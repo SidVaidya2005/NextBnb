@@ -15,11 +15,21 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  // Feature 01 boots on placeholder env — there is no live Supabase project yet.
-  // Without valid credentials, skip the auth refresh so the app still renders.
-  // Route protection is exercised once real credentials land (Feature 02/04).
+  // Feature 01 skipped the refresh when credentials were absent so the app could
+  // boot on placeholder env. Now that this function is the only thing standing
+  // between a signed-out visitor and every protected route, that silence would
+  // disable route protection on a typo'd env var. Fail loud instead.
   if (!isConfigured(url) || !isConfigured(anonKey)) {
-    return response
+    const missing = [
+      !isConfigured(url) && 'NEXT_PUBLIC_SUPABASE_URL',
+      !isConfigured(anonKey) && 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+    ]
+      .filter(Boolean)
+      .join(', ')
+
+    throw new Error(
+      `[supabase/middleware] Missing ${missing}. Route protection cannot run — set it in .env.local (see .env.example).`,
+    )
   }
 
   const supabase = createServerClient(url, anonKey, {

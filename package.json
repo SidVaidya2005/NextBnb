@@ -16,7 +16,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.6.1",
+    "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.48.1",
     "cloudinary": "^2.5.1",
     "clsx": "^2.1.1",

@@ -1,7 +1,10 @@
 import type { NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
 
-export async function middleware(request: NextRequest) {
+// Next 16 renamed the `middleware` file convention to `proxy`, and the export
+// with it. The proxy runtime is Node-only — which is what the Supabase client
+// wants anyway, so nothing else had to change.
+export async function proxy(request: NextRequest) {
   return await updateSession(request)
 }
 
