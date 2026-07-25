@@ -11,9 +11,17 @@ immediately know what is done, what is in progress, and what is next.
 
 ## Current Status
 
-**Phase:** Phase 1 — Foundation
-**Last completed:** 04 Google authentication
-**Next:** 05 Home & listing grid
+**Phase:** Phase 2 — Browse & Discover
+**Last completed:** 05 Home & listing grid
+**Next:** 06 Search & filters
+
+**F05 is live: the app renders real data for the first time.** `/` now shows all
+24 published listings as a responsive card grid (1 / 2 / 4-up), read through
+`lib/queries/listings.getPublishedListings()` and streamed behind a `<Suspense>`
+skeleton. Verified against the database: 24 cards, 24 unique detail links, the 2
+drafts absent (RLS), 20 "New" badges and 4 real averages (2× 4.5, 2× 4.0) exactly
+matching `avg(reviews.rating)`. Gates: `tsc` clean, `lint` clean, **23/23** unit,
+**32/32** E2E, `npm run build` green with `/listings/[id]` in the route table.
 
 Supabase project **NextBnb** (`mbrcgzpmqhmdfhjqytnq`, ap-south-1, free plan) is
 live with 6 migrations applied and seeded: 5 demo users, 26 listings (24
@@ -88,7 +96,7 @@ link` or a push. Detail in `build-journal.md` → F02 follow-up.
 - [x] 04 Google authentication
 
 ### Phase 2 — Browse & Discover
-- [ ] 05 Home & listing grid
+- [x] 05 Home & listing grid
 - [ ] 06 Search & filters
 - [ ] 07 Listing detail
 - [ ] 08 Favorites
@@ -123,5 +131,5 @@ link` or a push. Detail in `build-journal.md` → F02 follow-up.
 - Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only when its tests pass. E2E runs against the seeded DB with a seed-verification step.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
 - **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
-- **F02 follow-up** — **the MCP and the Supabase CLI disagree on what identifies a migration.** `apply_migration` stamps a server-side **timestamp** version and does not write the local file; the CLI derives the version from the filename prefix and reconciles on version, not name. Mixing the two silently desyncs history — invisible to every test we own, because they all read the live schema, which was never wrong. Pick one writer per project, or plan a reconciliation step.
 - **Phase 1 close-out** — **a "verify it looks right" to-do is a defect waiting to happen; make it a spec.** F04 deferred the account-menu breakpoint check to a manual eyeball. Converting it to `e2e/nav-responsive.spec.ts` immediately exposed a 40px tap target against the project's own 44px floor — present at *every* breakpoint, invisible from reading the JSX, and only findable by measuring the rendered box. Responsive checks are now assertions, not intentions.
+- **F05** — **listing photos render through `next/image`, not `CldImage`, and that is not yet a violation.** Every photo in the database is a seed Unsplash URL with `public_id = null`, so the "never a bare `<img>` for a Cloudinary asset" invariant has nothing to bite on and `next-cloudinary` stays uninstalled. **F09 owns the debt**: the first real upload makes `ListingCard` need a `public_id ? CldImage : Image` branch. Until then the card passes `sizes` + `priority` on the first row and gets responsive delivery from the Next optimizer.

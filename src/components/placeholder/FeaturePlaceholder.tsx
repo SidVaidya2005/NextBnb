@@ -6,9 +6,10 @@ type Props = {
 }
 
 /**
- * Stand-in body for a protected route whose real feature has not been built
- * yet. These exist so a signed-in user can never reach a 404 from their own
- * account menu; the owning feature deletes the page's import when it lands.
+ * Stand-in body for a route whose real feature has not been built yet. These
+ * exist so nothing the UI links to can 404 — the account menu's protected
+ * destinations (Feature 04) and the listing cards' detail links (Feature 05).
+ * The owning feature deletes the page's import when it lands.
  */
 export function FeaturePlaceholder({ title, feature, description }: Props) {
   return (

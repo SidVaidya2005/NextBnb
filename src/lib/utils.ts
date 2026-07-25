@@ -30,6 +30,37 @@ export function nightsBetween(checkIn: Date, checkOut: Date): number {
   return differenceInCalendarDays(checkOut, checkIn)
 }
 
+/**
+ * Mean of a listing's review ratings, or `null` when it has none.
+ *
+ * `null` is the "New" signal the card renders — deliberately distinct from `0`,
+ * which is not a possible rating (the DB checks 1–5). Rounding is left to the
+ * display edge so callers can choose their precision.
+ */
+export function averageRating(ratings: readonly number[]): number | null {
+  if (ratings.length === 0) return null
+  return ratings.reduce((sum, r) => sum + r, 0) / ratings.length
+}
+
+/**
+ * The photo a listing leads with: the one flagged `is_cover`, else the lowest
+ * `position`, else nothing.
+ *
+ * The fallback is not defensive padding — the DB only guarantees *at most* one
+ * cover (a partial unique index); it is F09's create action that guarantees at
+ * least one. A listing whose cover row was deleted must still render.
+ */
+export function coverPhotoOf<T extends { is_cover: boolean; position: number }>(
+  photos: readonly T[],
+): T | null {
+  if (photos.length === 0) return null
+  const flagged = photos.find((photo) => photo.is_cover)
+  if (flagged) return flagged
+  return photos.reduce((lowest, photo) =>
+    photo.position < lowest.position ? photo : lowest,
+  )
+}
+
 /** Compose Tailwind classes conditionally (clsx) and resolve conflicts (tailwind-merge). */
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs))

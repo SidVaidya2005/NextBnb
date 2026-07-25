@@ -441,6 +441,116 @@ before F05 begins, and in doing so turned up one real defect and one config drif
 
 ---
 
+## Phase 2 · Feature 05 — Home & listing grid  *(2026-07-25)*
+
+**Scope built (9 files):** `averageRating` + `coverPhotoOf` pure helpers in
+`lib/utils.ts` (+9 unit tests); `lib/queries/listings.ts` (`getPublishedListings`,
+server-only); `components/listings/{ListingCard,ListingGrid,ListingGridSkeleton}.tsx`;
+`app/page.tsx` rewritten around a `<Suspense>` boundary; `app/error.tsx`;
+`app/listings/[id]/page.tsx` placeholder; `e2e/home.spec.ts` extended 1 → 6 specs;
+`e2e/home-responsive.spec.ts` (8 specs). No migration, no schema change, no new
+dependency, `database.types.ts` untouched. **The first feature that renders real rows.**
+
+**Decisions:**
+- **Aggregation in pure helpers, not SQL.** Average rating and cover-photo selection
+  are computed in `lib/utils.ts` from a nested `listing_photos(...)+reviews(rating)`
+  select, so F05 ships zero SQL and the logic is unit-testable without a database. At
+  24 listings × 7 reviews the payload is trivial. Revisit if F06's date-availability
+  filter forces an RPC anyway.
+- **`averageRating([])` returns `null`, never `0`.** `0` is unreachable from real data
+  (the DB checks rating 1–5), so `null` is an unambiguous "New" signal rather than a
+  value the card has to second-guess. Rounding is left to the display edge.
+- **`coverPhotoOf` falls back to the lowest `position`.** The DB guarantees *at most*
+  one cover (a partial unique index); it is F09's create action that will guarantee at
+  least one. A listing whose cover row was deleted still has to render.
+- **`next/image`, and `next-cloudinary` stays uninstalled.** Every photo is a seed
+  Unsplash URL with `public_id = null` — not a Cloudinary asset — so the `CldImage`
+  invariant does not apply yet. Recorded as F09's debt in the tracker.
+- **`<Suspense>` around the grid, not a route-level `loading.tsx`.** A `loading.tsx`
+  would blank the whole page including the sign-in banner, which is precisely what a
+  user redirected by the proxy needs to see first. Only the grid suspends.
+- **`getPublishedListings()` takes no arguments.** F06 adds the filters parameter when
+  there are real filters to pass; an empty-filters seam now would be an untestable
+  dead branch.
+- **`/listings/[id]` shipped as a placeholder**, following F04's precedent of pulling
+  routes forward so nothing clickable 404s. Without it the home page would be 24 dead
+  ends for a whole feature. F07 replaces the file wholesale.
+- **Semantic `<ul>`/`<li>` with `aria-label="Stays"`, not test ids.** The grid *is* a
+  list, so the correct markup also gives the E2E a stable, scoped selector
+  (`getByRole('list', { name: 'Stays' })`) without inventing a test-only attribute.
+- **Pruned the F02-follow-up bullet** from `progress-tracker.md` Key Decisions to stay
+  under CLAUDE.md's ~10 cap. It is preserved verbatim in the F02 follow-up entry below.
+
+**Gotchas:**
+- **`getByText('0.0')` substring-matches prices, and the assertion failed loudly for
+  the wrong reason.** The spec asserting "no listing renders a 0.0 rating" found
+  **7 matches** — none of them ratings. `formatPrice` renders `$180.00`, which
+  *contains* the substring `0.0`. Playwright's `getByText` is substring-by-default, so
+  the test was silently measuring the price column. Fixed with `{ exact: true }`. The
+  near miss is the lesson: had the count happened to be 0, this would have shipped as
+  a passing test that asserted nothing about ratings at all.
+- **The same spec could have passed while the rating path was entirely broken.**
+  Asserting only "a New badge is visible" is satisfied by *every* card rendering New —
+  the exact symptom of `averageRating` mis-returning `null`. It now also asserts a real
+  average matching `/^[1-5]\.\d$/` is on screen, so both branches are pinned.
+- **Next flags the cover image as an unprioritized LCP element.** The dev server warned
+  on every home render; fixed by threading a `priority` prop to the first four cards
+  (the widest layout is 4-up, so those are the ones that can be above the fold). Worth
+  noting it only appears in the dev-server log, not in any gate — no test would have
+  caught it.
+- **`getPublishedListings` selects `created_at` purely to order by it.** It is not in
+  the returned view model and looks removable; dropping it from the select breaks the
+  sort silently. Left with the ordering call adjacent so the pairing is visible.
+- **The skeleton imports its layout from `ListingGrid`, not the reverse.** Both need
+  identical grid geometry or the fallback shifts on swap; the constant lives in the
+  primary component so a reader meets it there first, and the skeleton is visibly a
+  copy of the grid rather than the source of it.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean — notable because F04's `@supabase/ssr` upgrade is what made
+  typed queries resolve at all; this is the first *nested* select, and
+  `listing_photos`/`reviews` thread through as real types, not `never`.
+- `npm run lint` clean; `npm run test` **23/23** (14 prior + 9 new).
+- `npm run test:e2e` **32/32** (19 prior + 13 new), from a deleted `e2e/.auth`.
+- `npm run build` green; `/listings/[id]` present in the route table and
+  `ƒ Proxy (Middleware)` still prints.
+- **Rendered HTML checked against the database, not just against itself.** The served
+  page has exactly **24 `<li>` cards, 24 unique `/listings/<uuid>` links, 20 "New"
+  badges and 4 averages (2× 4.5, 2× 4.0)**. A direct
+  `select avg(rating) ... group by listing` returns exactly four rated published
+  listings at 4.50, 4.50, 4.00, 4.00 — a one-to-one match, so the aggregation is
+  correct and not merely plausible.
+- **Both drafts are absent** from the served HTML (grep for their exact titles). This
+  is the RLS proof: `Belém Riverside Home` and `Barton Creek Cottage` say "Draft" only
+  in their *descriptions*, which cards do not render — the first version of that spec
+  asserted on the word "Draft" and would have passed vacuously.
+- The Suspense fallback is present in the streamed response (`animate-pulse` in the
+  initial HTML), confirming the shell flushes before the grid resolves.
+
+**Not verified — honestly outstanding:**
+- **The empty state has never rendered.** It is reachable only when the query returns
+  `[]`, which needs either an empty database or an induced Supabase error; neither was
+  simulated. The code path is trivial, but it is untested.
+- **`error.tsx` has never been triggered.** Queries swallow their own failures and
+  return safe empties, so nothing in F05 can throw into it by design.
+- **The skeleton was not observed under throttling** — its presence is proven from the
+  streamed HTML rather than watched in a browser.
+- **Rating precision beyond one decimal is a display choice nobody has reviewed.**
+  `4.6667` renders as `4.7`; Airbnb shows two decimals. Cosmetic, revisit in F18.
+
+**Deferred / follow-ups:**
+- **F09 must add the `public_id ? CldImage : Image` branch** to `ListingCard` when real
+  uploads land, and install `next-cloudinary` then.
+- F06 extends `getPublishedListings()` with the filters parameter and the date-based
+  availability exclusion; the `MAX_LISTINGS = 48` ceiling becomes real pagination
+  pressure only if the catalogue grows past it.
+- F08 adds the saved heart to `ListingCard` (deliberately omitted — a card that cannot
+  save anything should not show the control).
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside
+  the repo.
+
+---
+
 ## Phase 1 · F02 follow-up — migration version identity & Supabase branching  *(2026-07-25)*
 
 Triggered by a real failure, not a review: the Supabase GitHub integration reported

@@ -1,14 +1,23 @@
+import { Suspense } from 'react'
+
+import { ListingGrid } from '@/components/listings/ListingGrid'
+import { ListingGridSkeleton } from '@/components/listings/ListingGridSkeleton'
 import { SignInBanner } from '@/components/navigation/SignInBanner'
-import { formatPrice, safeNextPath } from '@/lib/utils'
+import { safeNextPath } from '@/lib/utils'
 
 // Next 16: searchParams is async and must be awaited.
 type Props = {
   searchParams: Promise<{ signin?: string; next?: string }>
 }
 
-// Home placeholder for Feature 01 — proves the app boots and the DESIGN.md tokens
-// (Rausch accent, ink, Inter, radii) render. The real search + listing grid land
-// in Features 05–06. Feature 04 added the signed-out sign-in prompt.
+/**
+ * Home — the discovery surface. Renders every published listing (Feature 05);
+ * the search bar and filters that narrow it arrive in Feature 06.
+ *
+ * The page itself must never await the listings query: the shell (banner +
+ * heading) is what a redirected user needs to see first, so only <ListingGrid>
+ * suspends and the rest streams immediately.
+ */
 export default async function HomePage({ searchParams }: Props) {
   const { signin, next } = await searchParams
 
@@ -21,28 +30,18 @@ export default async function HomePage({ searchParams }: Props) {
         />
       )}
 
-      <div className="mx-auto max-w-wide px-6 py-16 tablet:px-10">
-        <p className="text-sm font-medium uppercase tracking-wide text-primary">
-          NextBnb
-        </p>
-        <h1 className="mt-3 max-w-2xl text-2xl font-semibold tracking-tight text-ink tablet:text-[28px]">
-          Find a place to stay. Or host one of your own.
+      <div className="mx-auto max-w-wide px-6 py-10 tablet:px-10">
+        <h1 className="text-2xl font-bold tracking-tight text-ink tablet:text-[28px]">
+          Stays for your next trip
         </h1>
-        <p className="mt-4 max-w-xl text-base text-body">
-          The scaffold is live. Search, listings, booking, and hosting arrive in the
-          features ahead — starting from a real Supabase-backed grid.
+        <p className="mt-2 text-base text-body">
+          Browse places to stay around the world.
         </p>
 
-        <div className="mt-8 flex flex-wrap items-center gap-4">
-          <button
-            type="button"
-            className="h-12 rounded-sm bg-primary px-6 text-base font-medium text-on-primary transition-colors hover:bg-primary-active"
-          >
-            Explore stays
-          </button>
-          <span className="text-sm text-muted">
-            e.g. from {formatPrice(9500)} / night
-          </span>
+        <div className="mt-8">
+          <Suspense fallback={<ListingGridSkeleton />}>
+            <ListingGrid />
+          </Suspense>
         </div>
       </div>
     </>

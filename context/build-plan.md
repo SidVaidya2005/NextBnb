@@ -90,6 +90,20 @@ The primary discovery surface rendered from real listings.
 **Logic:**
 - `queries/listings.getPublishedListings`; compute average rating from nested `reviews`; resolve cover photo public URL.
 
+**As built (deviations worth knowing):**
+- Photos render through **`next/image`**, not `CldImage` — every seed photo is an
+  external Unsplash URL with `public_id = null`, so `next-cloudinary` stays uninstalled
+  until **F09** adds the `public_id ? CldImage : Image` branch with the first real upload.
+- Aggregation is **pure application code** (`averageRating` / `coverPhotoOf` in
+  `lib/utils.ts`), not a view or RPC — F05 ships no migration. `averageRating` returns
+  `null`, never `0`, for an unreviewed listing; that is the "New" signal.
+- The grid streams behind a **`<Suspense>` boundary**, not a route `loading.tsx`, so the
+  sign-in banner and heading paint immediately for a proxy-redirected user.
+- `getPublishedListings()` takes **no arguments**; F06 adds the filters parameter.
+- **`/listings/[id]` shipped as a placeholder** (F04's precedent) so no card is a dead
+  end. F07 replaces the file wholesale.
+- `app/error.tsx` was added here, since `/` became the first data-backed route.
+
 ### 06 Search & filters
 
 Filter the grid by every supported dimension, with the URL as source of truth.
