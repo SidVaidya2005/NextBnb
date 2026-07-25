@@ -34,3 +34,6 @@ yarn-error.log*
 .vscode/*
 !.vscode/extensions.json
 .idea
+
+# playwright auth state (contains a real session)
+/e2e/.auth

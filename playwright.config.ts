@@ -13,7 +13,18 @@ export default defineConfig({
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    // Provisions the test user and saves a signed-in storageState.
+    { name: 'setup', testMatch: /auth\.setup\.ts/ },
+    {
+      // Stays SIGNED OUT by default so the public surface is what specs see;
+      // a spec that needs a session opts in with
+      // `test.use({ storageState: AUTH_STATE_FILE })`.
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['setup'],
+    },
+  ],
   // Boots the app for the suite; reuses a running dev server locally.
   webServer: {
     command: 'npm run dev',

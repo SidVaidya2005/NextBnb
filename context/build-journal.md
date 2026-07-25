@@ -183,3 +183,157 @@ no `src/` change, no new dependency, `database.types.ts` untouched.
 - `supabase/seed.sql` ends with a commented, non-executing "adopt" snippet: after F04
   sign-in, reassigning `listings.host_id` to a real profile id fills `/host/listings` and
   `/host/reservations` without waiting for F09.
+
+---
+
+## Phase 1 · Feature 04 — Google authentication  *(2026-07-25)*
+
+**Scope built:** `safeNextPath` (+7 unit tests); `lib/queries/profiles.ts`
+(`getCurrentProfile`); `lib/actions/auth.ts` (`signInWithGoogle`, `signOut`);
+`app/auth/callback/route.ts`; `AccountMenu` (client dropdown) and `SignInBanner`;
+`TopNav` converted to an async Server Component; six protected placeholder pages with
+the `/admin` `is_admin` gate; `src/middleware.ts` → `src/proxy.ts`; hardened env guard;
+`lh3.googleusercontent.com` whitelisted; Playwright auth fixture (`e2e/auth.setup.ts`,
+`e2e/constants.ts`) + `e2e/auth.spec.ts` (9 specs). `@supabase/ssr` upgraded 0.6.1 → 0.12.3.
+
+**Decisions:**
+- **Sign-in is a server action, not a browser-client call.** A `<form action={signInWithGoogle}>`
+  posts to the action, which calls `signInWithOAuth({ skipBrowserRedirect: true })` and
+  `redirect()`s to the returned URL. The PKCE verifier cookie is written by the same client
+  that reads it back in the callback, and no browser Supabase client is needed at all in F04.
+  `architecture.md`'s Data Flow diagram has been corrected to match.
+- **Redirecting actions are the documented exception to `ActionResult`.** `redirect()` throws
+  `NEXT_REDIRECT`, so these two return `void` and report failure as `/?signin=error`. Recorded
+  in `code-standards.md` so it does not read as drift later.
+- **All six protected routes got placeholders, and `/admin`'s gate was pulled forward from
+  F17.** Nothing in the account menu can lead to a 404, and the signed-in E2E has real pages
+  to land on. F17 inherits the route guard rather than writing it; its scope shrinks accordingly.
+- **The admin check lives in the page, not the proxy** — a proxy-level `is_admin` lookup would
+  put a database round trip in front of every request in the app.
+- **The nav reads the `profiles` row, not `user_metadata`** — `is_admin` exists only on the row,
+  and a custom avatar will eventually supersede the Google one.
+- **F01's silent env-skip became a thrown error.** When `updateSession` is the only thing
+  between a signed-out visitor and every protected route, degrading to a no-op on a typo'd env
+  var is a security failure, not a convenience.
+- **The E2E fixture signs in through email/password, not Google.** Consent screens cannot be
+  driven by Playwright, and Supabase issues identical cookies either way, so the proxy refresh,
+  `getUser()` and RLS all behave the same downstream. The default Playwright project stays
+  signed out; signed-in specs opt in via `test.use({ storageState })`.
+- **The fixture never hand-rolls the auth cookie.** `sb-<ref>-auth-token` has a base64 prefix
+  and chunking rules that change between versions, so an in-memory cookie jar is handed to
+  `createServerClient` and `setSession()` is called — whatever the library writes is what
+  Playwright stores.
+- **`signOut({ scope: 'local' })`, not the Supabase default.** The default (`'global'`) revokes
+  every refresh token the user holds, so signing out on a laptop would sign them out on their
+  phone — surprising for a marketplace. It is also a precondition for test isolation: with
+  global scope, giving a spec its own session would not help, because every session dies anyway.
+- **Session minting lives in `e2e/session.ts`, and sign-out specs mint their own.** Logout
+  deletes the session row server-side, so a spec that signs out while sharing the suite's
+  `storageState` logs out every worker beside it.
+- **The fixture signs in first and only provisions on failure.** After the first run the user
+  exists, so the admin API — and the service-role key — stays off the common path entirely.
+
+**Gotchas:**
+- **`@supabase/ssr@0.6.1` silently degraded every typed query to `never`.** The package was
+  pinned ~10 months behind the hoisted `supabase-js`/`postgrest-js` 2.110.8, so the `Database`
+  generic stopped threading through `createServerClient`. `select('*')` on `profiles` inferred
+  `never[]`, and the *only* symptom was a single opaque `TS2698: Spread types may only be
+  created from object types`. Bisecting mattered: plain `supabase-js` typed the same table
+  correctly, `createServerClient` did not, and the `Database` type itself was fine — which
+  isolated it to the SSR package. Upgraded to `0.12.3`; `SetAllCookies` is still exported so
+  F01's overload annotation still holds (it gained an optional second `headers` param).
+  **No typed query existed before F04, which is why F02/F03 passed clean.**
+- **Two of my own diagnoses were wrong and the probes caught it.** I first "fixed" the spread
+  error by adding `|| !data`, reasoning that destructuring loses the discriminant — it does
+  not; `if (error)` narrows fine once the types resolve. And `never`-detection probes of the
+  form `[T] extends [never]` silently pass for `Row | null`, so they proved nothing until the
+  probe was changed to `const x: null = data`, which makes TS print the real type.
+- **`SUPABASE_SERVICE_ROLE_KEY` contained a *publishable* key.** F02 left it blank with a note
+  to copy it from the dashboard; the value that landed was `sb_publishable_…`. It looks
+  plausible, is accepted by PostgREST, and quietly **obeys RLS** — a `select` for unpublished
+  listings returned `[]` rather than the two drafts — while the auth admin API rejects it with
+  the unhelpful "This endpoint requires a valid Bearer token". `e2e/session.ts` now checks the
+  prefix and fails with the fix spelled out. **Replaced with a real `sb_secret_` key**; confirmed
+  by querying draft listings, which returns 2 rows with the secret key and 0 with the publishable
+  one — the sharpest test of whether a key actually bypasses RLS.
+- **Supabase rejects `.test` and `example.com` sign-up addresses**, so a public-signup fallback
+  that would have avoided the service key entirely is not available — its email validator
+  blocklists non-deliverable domains.
+- **Writing a regex of literal control characters corrupts the source file.** Typing the
+  control-character class as raw bytes embeds a real NUL in the `.ts` file; the tell was
+  `grep` reporting no match on a line that plainly existed, because grep had classified the
+  file as binary. It must be written as escape *text* (`[\u0000-\u001f\u007f]`) — the characters
+  `\`, `u`, `0`... — not the bytes they denote. (Committed the same mistake a second time
+  while writing this very bullet into the journal.)
+- **A shared `storageState` cannot survive a sign-out spec.** Four signed-in specs reused one
+  session, so the sign-out spec deleted that session row mid-run and the others failed with
+  `session_not_found` — while the sign-out spec itself failed the opposite way. Two failures,
+  one cause. Fixed by giving sign-out its own minted session; `scope: 'local'` alone was not
+  enough, because a global logout kills sibling sessions regardless of isolation.
+- **`await expect(page).toHaveURL('/')` is a no-op wait when the page is already at `/`.** It
+  passed instantly and let `goto('/trips')` race the in-flight sign-out POST, which looked
+  exactly like "sign-out does not clear cookies". Instrumenting the flow proved the app was
+  correct all along — cookies AFTER were `(none)`. The assertion now polls `context.cookies()`
+  for the session cookie disappearing: both a real wait and the thing worth asserting.
+- **Supabase’s auth admin API intermittently rejected a valid `sb_secret_` key** right after
+  the key rotation (`unrecognized JWT kid <nil> for algorithm ES256`), while the same key
+  succeeded via curl and in a standalone Node script seconds earlier. Treated as propagation
+  lag rather than chased: the fixture now signs in first and only calls `createUser` when the
+  account is genuinely missing, so the flaky path is not touched on normal runs.
+- **Playwright reuses whatever is already on :3000** (`reuseExistingServer`), so an orphaned
+  `next-server` from an earlier run can serve stale code and make a fix look ineffective.
+  Worth killing the port before concluding a change did not work.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run test` **14/14** (7 prior + 7 new
+  `safeNextPath`, including the `//evil.com` open-redirect rejection).
+- `npm run build` — succeeds, and the route table prints **`ƒ Proxy (Middleware)`** with no
+  deprecation warning, confirming the Next 16 rename took effect. All 10 routes present.
+- `npm run test:e2e` — **11/11 passed, three consecutive clean runs** from a deleted
+  `e2e/.auth`. Signed out: the bounce from `/trips` carries `?signin=required&next=%2Ftrips`;
+  **all five** protected prefixes are guarded; the account menu offers Google sign-in and
+  advertises nothing behind the wall; `?signin=error` renders the error banner; and
+  `next=//evil.com` collapses to `/` in the form's hidden input. Signed in: every protected
+  route renders instead of redirecting; the menu shows the user's email, the signed-in
+  destinations, and **no Admin entry** for a non-admin; `/admin` redirects a non-admin home;
+  sign-out clears the session cookie and re-locks `/trips`. The signed-out set passes *because*
+  `proxy.ts` is running — they are the rename's proof.
+- Type resolution re-verified after the upgrade: the profiles query now infers
+  `{ id: string; full_name: string | null; avatar_url: string | null; is_admin: boolean } | null`
+  — real columns, not `any`.
+
+**Live Google round trip — verified end to end:**
+- `/auth/v1/settings` now reports `"google": true`; the developer signed in with a real Google
+  account and landed back in the app.
+- `auth.users` holds the account with `raw_app_meta_data ->> 'provider' = 'google'`, and
+  **`handle_new_user()` fired**: the `profiles` row carries `full_name` and `avatar_url`,
+  proving the `full_name`/`name` and `avatar_url`/`picture` coalesce written in F02 matches what
+  Google actually sends. `is_admin` is `false`, as designed — no self-promotion path exists.
+- The avatar URL is on `lh3.googleusercontent.com`, the host added to
+  `next.config.ts` `remotePatterns` in this feature. Had it been missed, the account menu's
+  `next/image` would have thrown on the first signed-in render.
+- This closes the one gap the E2E suite structurally cannot cover: the suite proves the session
+  *shape* (identical cookies, same proxy → `getUser()` → RLS path), not the Google hop itself.
+
+**First admin created.** `update profiles set is_admin = true` run by hand against the
+developer's Google profile — F02's deliberate choice: no bootstrap code, no attack surface. The
+project now has exactly one admin, so `/admin` and the menu's Admin entry open for that account.
+
+**Not verified — honestly outstanding:**
+- **The admin-side render of `/admin`** is not covered automatically. The E2E asserts the
+  non-admin redirect (the security-relevant half); asserting the admin half needs a *second*
+  test user, since flipping the shared fixture user's `is_admin` mid-run would race the
+  "no Admin entry for a non-admin" spec. That belongs to F17, when there is a dashboard worth
+  asserting on.
+- **`access_denied` handling** (cancelling at the Google consent screen should return home with
+  no error banner) has not been exercised — it needs a deliberate cancel.
+- **Responsive verification of the account menu** at the four DESIGN.md breakpoints has not been
+  done — the dropdown drives both the tablet+ control and the mobile hamburger, so it is the one
+  new piece of UI whose collapse behaviour still needs eyes on it.
+
+**Deferred / follow-ups:**
+- After the first real Google sign-in, flip `is_admin` by hand on that profile (F02's step) to
+  make `/admin` reachable; the non-admin redirect is already covered by a spec.
+- `supabase/seed.sql`'s commented "adopt" snippet can now be used to point seeded listings at
+  the real profile, filling `/host/listings` before F09.
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside the repo.

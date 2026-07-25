@@ -67,8 +67,14 @@ Let users sign in and enforce protected routes.
 - Signed-out redirect handling with `?signin=required&next=…` and an error toast on `?signin=error`.
 
 **Logic:**
-- `signInWithOAuth({ provider:'google' })`; `/auth/callback/route.ts` exchanging the code and redirecting to `next`.
-- Middleware guards `/trips`, `/favorites`, `/messages`, `/host/**`, `/admin/**`; sign-out action.
+- `signInWithOAuth({ provider:'google' })` from a **server action** (`lib/actions/auth.ts`, `skipBrowserRedirect` + `redirect(data.url)`); `/auth/callback/route.ts` exchanging the code and redirecting to `safeNextPath(next)`.
+- `src/proxy.ts` (Next 16's rename of `middleware`) guards `/trips`, `/favorites`, `/messages`, `/host/**`, `/admin/**`; sign-out action.
+
+**As built (deviations worth knowing):**
+- Placeholder pages ship for all six protected routes, and `/admin`'s `is_admin` route gate was pulled forward from **F17** — so nothing in the account menu leads to a 404. F17 inherits that guard instead of building it.
+- `signInWithGoogle` / `signOut` return `void`, not `ActionResult` — the documented exception for actions whose only outcome is navigation.
+- `safeNextPath` (`lib/utils.ts`) sanitizes every post-auth redirect target; a bare `startsWith('/')` check still admits `//evil.com`.
+- E2E signs in via the email/password provider (`e2e/auth.setup.ts`) because Google consent cannot be automated; the fixture unlocks signed-in specs for F08 onward.
 
 ---
 

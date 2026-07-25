@@ -44,6 +44,7 @@ The AI agent on this project operates as a senior engineer. This means:
 - Data **writes** happen only through server actions in `src/lib/actions/*` (`'use server'`). Client components call these actions; they never touch Supabase directly.
 - After a mutation, call `revalidatePath` (or `revalidateTag`) for every route whose data changed. Never rely on the client to refetch stale data.
 - Route files use framework names: `page.tsx`, `layout.tsx`, `loading.tsx`, `error.tsx`, `not-found.tsx`, `route.ts`. Provide `loading.tsx` and `error.tsx` for data-backed routes.
+- Request-level interception lives in `src/proxy.ts` exporting `proxy` — Next 16 renamed the `middleware` convention. The proxy runtime is Node-only (no edge).
 - Read search/filter state from `searchParams` (the URL is the source of truth for search); do not mirror it into client state.
 - Never import `src/lib/supabase/server.ts`, `next/headers`, or any secret-bearing module into a client component.
 - `params`, `searchParams`, `cookies()`, and `headers()` are **async and must be awaited** — Next 16 removed synchronous access.
@@ -172,6 +173,7 @@ export async function doThing(input: unknown): Promise<ActionResult<ResultShape>
 ```
 
 - Always `'use server'`, validate first, authorize with `getUser()`, mutate, revalidate, return `ActionResult` — in that order.
+- **Exception — actions whose only outcome is navigation** (`signInWithGoogle`, `signOut`) return `Promise<void>`, not `ActionResult`: `redirect()` signals by throwing `NEXT_REDIRECT`, so nothing after it runs and there is no value to return. Keep the `redirect()` call outside any `try`, and surface failure as a redirect flag the UI renders (`/?signin=error`).
 - Never `throw` for expected failures; return `{ ok: false, error }` with a **user-safe** message. Log the real error with the `[actions/<domain>]` prefix.
 - Rely on RLS as the authorization backstop; the `getUser()` check is for UX, not the only guard.
 

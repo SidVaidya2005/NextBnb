@@ -64,7 +64,7 @@ NextBnb/
 │   │   ├── supabase/
 │   │   │   ├── server.ts         → createServerClient (RSC / server actions)
 │   │   │   ├── client.ts         → createBrowserClient (client components)
-│   │   │   └── middleware.ts     → session-refresh helper used by middleware.ts
+│   │   │   └── middleware.ts     → session-refresh helper used by proxy.ts
 │   │   ├── cloudinary.ts         → configured Cloudinary Node SDK (server-only)
 │   │   ├── actions/              → server actions grouped by domain (bookings.ts, listings.ts, …)
 │   │   ├── queries/              → read functions for RSC (listings.ts, bookings.ts, …)
@@ -73,7 +73,8 @@ NextBnb/
 │   │   └── utils.ts              → pure helpers (formatPrice, nightsBetween, …)
 │   ├── types/
 │   │   └── database.types.ts     → generated Supabase types (source of truth for row shapes)
-│   └── middleware.ts             → refreshes session, guards protected routes
+│   └── proxy.ts                  → refreshes session, guards protected routes
+│                                   (Next 16 renamed the `middleware` convention)
 ├── .env.local                    → secrets (gitignored)
 └── package.json
 ```
@@ -145,12 +146,22 @@ Send: server action inserts message + bumps thread.last_message_at
 ### Google auth
 
 ```
-Client "Sign in" → supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo:/auth/callback } })
+<form action={signInWithGoogle}> → server action (lib/actions/auth.ts)
+  → supabase.auth.signInWithOAuth({ provider:'google',
+      options:{ redirectTo: `${SITE_URL}/auth/callback?next=…`, skipBrowserRedirect:true } })
+  → redirect(data.url)              [PKCE verifier cookie written server-side]
   → Google consent → redirect /auth/callback?code=...
   → route.ts: exchangeCodeForSession(code) sets cookies
   → DB trigger on auth.users insert upserts a profiles row
-  → redirect to `next` param (or /)
+  → redirect to safeNextPath(next) (or /)
 ```
+
+Sign-in runs **server-side**, not from the browser client: the same client that
+writes the PKCE code verifier reads it back in the callback, and the sign-in
+button needs no `'use client'`. `signInWithGoogle` and `signOut` are the one
+documented exception to the `ActionResult` contract — their only outcome is
+navigation, and `redirect()` signals by throwing, so they return `void` and
+surface failure as `/?signin=error`.
 
 ---
 
@@ -402,7 +413,8 @@ delivery. Uploads are **signed server-side** — the browser never sees the API 
 - Methods: "Sign in with Google" only. No email/password, no other providers.
 - Protected: `/trips`, `/favorites`, `/messages`, `/host/**`, and all mutating server actions. `/admin/**` additionally requires `profiles.is_admin = true`.
 - Public: `/`, `/listings/[id]`, `/auth/callback`, and static assets.
-- The session check for pages/actions uses `supabase.auth.getUser()` (verifies with the auth server) — never trust `getSession()` alone for authorization. `middleware.ts` refreshes the session cookie on every request and redirects unauthenticated users away from protected routes.
+- The session check for pages/actions uses `supabase.auth.getUser()` (verifies with the auth server) — never trust `getSession()` alone for authorization. `src/proxy.ts` refreshes the session cookie on every request and redirects unauthenticated users away from protected routes.
+- The proxy guards **authentication only**. `/admin` additionally needs `is_admin`, and that check lives in `src/app/admin/page.tsx` — putting it in the proxy would add a database round trip to every request in the app. RLS remains the backstop for the data itself.
 - Post-login destination: the `next` query param passed into the OAuth `redirectTo`, defaulting to `/`. The `redirectTo` base is `NEXT_PUBLIC_SITE_URL`.
 - A Postgres trigger on `auth.users` insert creates the matching `profiles` row, so a profile always exists after first sign-in.
 
@@ -480,11 +492,16 @@ export function createClient() {
 }
 ```
 
-### Middleware session refresh (`src/middleware.ts`)
+### Proxy session refresh (`src/proxy.ts`)
 
 Refreshes the auth cookie on every request and redirects unauthenticated users
 away from protected routes. Always return the `supabaseResponse` object so
 refreshed cookies are preserved.
+
+Next 16 renamed the `middleware` file convention to `proxy` (and the export with
+it); the proxy runtime is Node-only, which is what the Supabase client wants. The
+thin route file is `src/proxy.ts`; the logic stays in `src/lib/supabase/middleware.ts`,
+which keeps its filename because it is a library helper, not a file convention.
 
 ```ts
 import { createServerClient } from '@supabase/ssr'
@@ -492,7 +509,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const PROTECTED = ['/trips', '/favorites', '/messages', '/host', '/admin']
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -579,22 +596,39 @@ export async function createBooking(input: unknown): Promise<ActionResult<{ id: 
 
 ### OAuth callback route (`src/app/auth/callback/route.ts`)
 
+`next` is attacker-controlled (it round-trips through the provider), so it is
+sanitized by `safeNextPath` — a bare `startsWith('/')` check still admits the
+protocol-relative `//evil.com`, which browsers treat as an absolute URL. Behind
+Render's load balancer `origin` is the internal address, so the forwarded host
+is what gets the user back to the URL they actually typed.
+
 ```ts
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { safeNextPath } from '@/lib/utils'
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  const next = searchParams.get('next') ?? '/'
+  const next = safeNextPath(searchParams.get('next'))
+  const oauthError = searchParams.get('error')
+
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  const base =
+    process.env.NODE_ENV === 'development' || !forwardedHost
+      ? origin
+      : `https://${forwardedHost}`
+
+  // Declining at the consent screen is a choice, not a failure.
+  if (oauthError === 'access_denied') return NextResponse.redirect(`${base}/`)
 
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
-    if (!error) return NextResponse.redirect(`${origin}${next}`)
+    if (!error) return NextResponse.redirect(`${base}${next}`)
   }
 
-  return NextResponse.redirect(`${origin}/?signin=error`)
+  return NextResponse.redirect(`${base}/?signin=error`)
 }
 ```
 
@@ -662,6 +696,8 @@ export async function POST(request: Request) {
 - Authorization is never enforced by application code alone — every table has Row Level Security policies, and RLS is the backstop for every read and write.
 - Where a rule limits *which columns* a user may write, it is enforced by a column-level `GRANT`, not by a policy — RLS filters rows, not columns. A user can never write `profiles.is_admin`, a booking's price snapshot or dates, or a message body.
 - Use `getUser()` (not `getSession()`) for any authorization decision on the server.
+- Any post-auth redirect target taken from the URL passes through `safeNextPath` before use — a rooted path only, never a protocol-relative or absolute URL.
+- `src/lib/supabase/middleware.ts` **throws** when its Supabase env vars are missing. It is the only thing standing between a signed-out visitor and every protected route, so it must never degrade to a silent no-op.
 - Two `confirmed` bookings can never overlap for the same listing — enforced by the Postgres exclusion constraint, and checked in the booking action before insert.
 - A booking's price fields (`price_per_night`, `cleaning_fee`, `service_fee`, `total`, `nights`) are snapshots written at creation and never recomputed from the current listing afterward.
 - All money is stored and computed as integer **cents**; never store or arithmetic on floating-point currency.
