@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatPrice, nightsBetween } from '@/lib/utils'
+import { formatPrice, nightsBetween, safeNextPath } from '@/lib/utils'
 
 describe('formatPrice', () => {
   it('formats whole-dollar cents', () => {
@@ -36,5 +36,39 @@ describe('nightsBetween', () => {
     expect(
       nightsBetween(new Date('2026-08-01'), new Date('2026-08-01')),
     ).toBe(0)
+  })
+})
+
+describe('safeNextPath', () => {
+  it('passes a plain rooted path through', () => {
+    expect(safeNextPath('/trips')).toBe('/trips')
+  })
+
+  it('preserves nested paths and query strings', () => {
+    expect(safeNextPath('/host/listings?status=draft')).toBe(
+      '/host/listings?status=draft',
+    )
+  })
+
+  it('rejects a protocol-relative URL — the open redirect a naive startsWith("/") lets through', () => {
+    expect(safeNextPath('//evil.com')).toBe('/')
+  })
+
+  it('rejects the backslash variant of a protocol-relative URL', () => {
+    expect(safeNextPath('/\\evil.com')).toBe('/')
+  })
+
+  it('rejects an absolute URL', () => {
+    expect(safeNextPath('https://evil.com/steal')).toBe('/')
+  })
+
+  it('rejects a control character that could split the Location header', () => {
+    expect(safeNextPath('/trips\nLocation: https://evil.com')).toBe('/')
+  })
+
+  it('falls back to root for null, undefined, and empty input', () => {
+    expect(safeNextPath(null)).toBe('/')
+    expect(safeNextPath(undefined)).toBe('/')
+    expect(safeNextPath('')).toBe('/')
   })
 })
