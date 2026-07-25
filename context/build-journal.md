@@ -696,6 +696,200 @@ placeholder replaced; `e2e/fixtures.ts`, `e2e/search.spec.ts` (25),
 
 ---
 
+## Phase 2 · Feature 07 — Listing detail  *(2026-07-25)*
+
+**Scope built (17 files):** four pure helpers in `lib/utils.ts` (`orderedPhotos`,
+`formatCapacity`, `formatTimeOfDay`, `formatMonthYear`, +17 unit tests);
+`listingIdSchema` in `lib/validations/listings.ts`; `getListingById` +
+`ListingDetailData`/`ListingPhoto`/`ListingHost`/`ListingReview` in
+`lib/queries/listings.ts`; `components/ui/Avatar.tsx`; five feature components
+(`PhotoGallery`, `AmenityList`, `HostCard`, `ReviewsSection`, `ReservationCard`) plus
+`DraftNotice`; `app/listings/[id]/page.tsx` rewritten wholesale and
+`not-found.tsx` added; `--container-listing` token; `e2e/fixtures.ts` extended
+(`loadListingDetail`, `loadDraftListings`, extracted `serviceClient`);
+`e2e/listing-detail.spec.ts` (18) and `e2e/listing-detail-responsive.spec.ts` (20).
+**No migration, no new dependency, `database.types.ts` untouched.**
+
+**Decisions:**
+- **No `loading.tsx` — a real 404 beat a skeleton.** This was not a style call. A route
+  `loading.tsx` wraps the page in an implicit `<Suspense>`; the response then streams and
+  the status is committed **before** `notFound()` runs. Next documents it plainly:
+  *"a 404 HTTP status code for non-streamed responses and a 200 status code for streamed
+  responses"*. With `loading.tsx` present every draft and every dead link returned **200**;
+  without it, **404**. Measured both ways on a production build before choosing.
+- **RLS decides the 404; the query does not.** `getListingById` deliberately omits
+  `.eq('is_published', true)` — the `listings` SELECT policy already returns a draft to
+  its host and to admins and nothing to anyone else. Adding the filter would have
+  re-implemented in application code something the database enforces better, and would
+  have broken the host-preview branch F10 needs.
+- **The booking widget reads no availability, because it cannot.**
+  `unavailable_listing_ids(p_check_in, p_check_out)` has no listing parameter and
+  `returns setof uuid` — it answers "which listings are busy in this range", never "which
+  dates are busy for this listing". `blocked_dates` *is* anon-readable, so half an answer
+  was available and would have been worse than none: the calendar would have shown booked
+  nights as free. F12 owns the per-listing definer function.
+- **One DOM for the gallery, switched by CSS.** A `flex` snap-scroll strip below `tablet:`
+  becomes a `grid` mosaic above it. Two trees read more simply but would put all five
+  photos in the document twice, and a `display:none` image is still fetched.
+- **No position dots on the mobile strip.** Tracking scroll offset needs JavaScript, and
+  dots that never move are worse than none; the next photo peeking past the edge is the
+  affordance. (The approved sketch showed dots — this is a deliberate departure.)
+- **The 64px `rating-display-card` renders only when reviews exist.** 20 of 24 published
+  listings are unrated, so a 64px "New" would be shouting about missing information.
+- **Amenity labels are written out, not derived.** `humanizeToken` renders `bbq_grill` as
+  "Bbq grill" and `ev_charger` as "Ev charger" — the acronyms are exactly what a
+  mechanical transform gets wrong. `AMENITY_META` is keyed on `Amenity`, so adding a
+  constant without an entry is a type error rather than a blank row.
+- **The icon map lives in `AmenityList.tsx`, not `constants.ts`** — that module is pure
+  data imported by `validations/listings.ts`, and icons would pull `lucide-react` into
+  every consumer.
+- **The id is validated before the query.** `id` is a `uuid` column, so `/listings/abc`
+  raises Postgres `22P02` — a logged database error for what is only a bad link.
+  `PGRST116` ("no rows") is likewise *not* logged: it is the ordinary 404.
+- Added `--container-listing: 1080px`. **DESIGN.md contradicts itself here** — Grid &
+  Container says listing detail caps "closer to 1080px", its Responsive table says 1440px
+  for "listing/search" pages. The more specific line won.
+
+**Gotchas:**
+- **`z.uuid()` exists in Zod 4 and was verified, not assumed.** Probed the installed
+  4.4.3 directly (F06's lesson about Context7 serving v3 docs): it accepts our seed ids,
+  rejects `not-a-uuid` and `''`, and is lenient about the version nibble — which is
+  correct, since Postgres accepts any well-formed uuid.
+- **A `circle-user-round` count was off by one, and the extra one was the nav.** The
+  null-avatar spec counted fallback icons page-wide and got 2 for 1 missing avatar: the
+  signed-out account menu renders the same icon. Same family as F05's `getByText('0.0')`
+  matching prices — a locator coupled to something outside the thing under test. Now
+  scoped to the reviews region, and paired with a count of real `<img>` avatars so it
+  cannot pass by *everything* falling back.
+- **Walking all 24 listings in one browser test overran the 30s timeout** under parallel
+  load, while passing in isolation at 16s. Rewritten to drive Playwright's `request`
+  fixture: the server still renders the HTML, only the browser is skipped, and each
+  listing's `<h1>` is compared to its own title. It also now reports **every** mismatch
+  at once instead of dying on the first.
+- **`priority` does not emit `fetchpriority="high"` here.** It emits a
+  `<link rel="preload" as="image">` carrying the cover's srcset and our exact
+  `imageSizes`. Asserting on `fetchpriority` would have "proved" the cover was
+  unprioritised when it was not.
+- **`.single()` narrows `error` but not `data`.** The `if (failure)` guard leaves
+  `data` as possibly-null to TypeScript; the fixture needed an explicit check, which is
+  better anyway — a missing fixture row now fails loudly instead of as a puzzling
+  assertion further down.
+- A grid item stretches to its cell, which leaves `position: sticky` nowhere to travel.
+  The reservation rail needs `self-start` or it simply never sticks.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run test` **70/70** (53 prior +
+  17 new); `npm run test:e2e` **117/117** from a deleted `e2e/.auth` and a free :3000
+  (73 prior + 38 F07 + 7 added to `nav-responsive` by the fixes below, minus the
+  reworked ones); `npm run build` green, all 11 routes, `ƒ Proxy (Middleware)` still
+  printing.
+- **The nav is clean at 22 widths from 320 to 1920** on both `/` and `/listings/[id]`:
+  zero logo overlap, zero nav-row overflow, zero page overflow.
+- **Inferred types proved real, not `never`.** A throwaway `const x: null = …` probe made
+  tsc print the actual types for the nested select — `ListingHost | null`,
+  `ListingReview[]`, `ListingPhoto[]`, and `amenities` narrowed to the 18-value `Amenity`
+  union. F04's `@supabase/ssr` incident is why this is checked rather than assumed.
+- **Rendered HTML checked against the database.** Listing 1: title, `Alfama, Lisbon,
+  Portugal` (state null, no stray comma), 4.5 / (2 reviews), `4 guests · 1 bedroom ·
+  2 beds · 1 bath`, $145.00, cleaning $35.00, min 2 nights, After 3:00 PM / Before
+  11:00 AM, host Maya Okonkwo, member since July 2026, 7 amenities — every one matching
+  a direct SQL read. Listing 4: `1.5 baths` and singular `(1 review)`. Listing 8
+  (`cleaning_fee = 0`, `house_rules` null): fee row absent, rules absent, "No reviews
+  yet", **no rating number**. Listing 16: the 4-part location. Listing 20: 3 amenities,
+  no kitchen. Gallery images per listing = **5**, scoped by the gallery's own `sizes`
+  attribute — an unscoped count returned 6–8 because host and reviewer avatars are
+  Unsplash URLs too.
+- **The cover is the `is_cover` row**, confirmed against `listing_photos`: the preloaded
+  and first-rendered photo is `photo-1502005229762-cf1b2da7c5d6`, the row with
+  `is_cover = true, position = 0`.
+- **The 404 branch proven at the HTTP layer on a production build**: drafts 25 and 26,
+  an unmatched uuid, and a malformed id all return **404**, and the draft's title appears
+  nowhere in the body.
+- **The owner-sees-draft branch proven by SQL impersonation** (the technique
+  `schema-verification.sql` uses): for draft 25, `anon` → 0 rows, an authenticated
+  **non-owner** → 0 rows, the **owner (Maya)** → 1 row `Belém Riverside Home`, an
+  **admin** → 1 row. That is exactly the four-way branch the page relies on.
+- **The new specs demonstrably gate.** Restoring `loading.tsx` — the precise regression
+  that silently turns 404s into 200s — fails **4** of the 404 specs. They were run
+  against the broken state and then the fix.
+- **Responsive measured, not eyeballed**, at 375 / 834 / 1280 / 1512: zero horizontal
+  overflow at every width; exactly one of the rail and the bottom bar visible at each
+  (never both, never neither); the visible Reserve control ≥44px; the gallery never wider
+  than the viewport; the end of the page reachable past the fixed bar.
+
+**Two pre-existing F06 nav defects, found here and fixed on request:**
+
+Both predate F07 (the identical breakage was on `/`, which this feature does not touch)
+and both were invisible to a suite that already had the right assertions — because
+`nav-responsive.spec.ts` sampled only the *middle* of each band.
+
+1. **The mobile search pill overlapped the logo on every phone width** — measured
+   **59px at 320, 32px at 375, 12px at 414**, clean from ~500px. Cause: the pill is
+   `flex-1`, which *looks* like it shrinks, but a flex item defaults to
+   `min-width: auto` and therefore floors at its content width (~199px in a 111px
+   slot). It overflowed its wrapper and, because the wrapper is `justify-center`,
+   spilled **symmetrically** — 44px each side, which is exactly the measured overlap.
+   Fix: `min-w-0` on the pill, plus the wordmark hidden below `tablet:` (it costs
+   ~86px and a phone row cannot seat wordmark + usable pill + account menu). The
+   `<Link>` keeps its `aria-label="NextBnb home"`, so both existing specs that locate
+   it by accessible name still pass.
+2. **The nav row overflowed the viewport by 89px across 744–833** — iPad mini and iPad
+   portrait, the entire lower half of the tablet band. Cause: "Become a host" turns on
+   at `tablet:` beside the full 3-segment pill, and the row is over budget until
+   ~834px. Fix: moved to `desktop:`. It is the only one of the four elements that is
+   redundant — the account menu's "Manage listings" reaches the same route.
+   Confirmed pre-existing by stashing the F07 changes and re-measuring: 89 / 73 / 33 / 0
+   at 744 / 760 / 800 / 834.
+
+- **`nav-responsive.spec.ts` now samples each band's lower boundary** (320, 375, 744,
+  834, 1128, 1280, 1512) and adds `expectNothingCoversTheLogo` and `expectNavRowFits`.
+  Its own header comment used to say *"widths are representative points INSIDE each
+  band, not the boundaries"* — that is precisely how it missed both defects, since a
+  band's tightest point is its first pixel. 8 specs → 15.
+- **`px-3.5`/`gap-1.5` on the pill instead of `px-4`/`gap-2`.** After the fix the labels
+  were still clipped at 375px — by **one pixel** ("Anywhere" got 67px and needed 68).
+  Reclaiming 8px of chrome renders "Anywhere · Any week" in full at 375 and 414; 320 and
+  360 still ellipsize, which is what `truncate` is for.
+
+**Gotcha that nearly invalidated the fix — a gate-proof that proved nothing.** The first
+attempt to show the new assertions gate reverted both components and got **15/15
+passing**. The cause was `reuseExistingServer`: a production `npm start` from the
+verification pass was still holding :3000, so Playwright tested the *fixed build* while
+the source was reverted. This is F04's journal warning arriving from the other direction
+— there it made a real fix look ineffective, here it made a broken state look fixed.
+Re-run with :3000 free, the specs fail **6** ways with exactly the right messages
+("something in the nav overlaps the logo" at 320/375, "the nav row overflows its
+container" and "page scrolls horizontally" at 744, and "Become a host" visible when it
+should be hidden). **Kill the port before trusting any before/after E2E comparison.**
+
+**Not verified — honestly outstanding:**
+- **The `DraftNotice` has never been rendered by a browser.** RLS returns the draft to its
+  owner (proven above), but the two seed drafts belong to fake users who cannot sign in,
+  and the Playwright fixture user owns nothing — so no E2E can reach the branch. Same
+  structural gap, and the same reason, as `/admin`'s admin-side render deferred to F17.
+  F09/F10 will create a listing owned by a real account and close it for free.
+- **`next-cloudinary` is still uninstalled and `publicId` is carried but unused.** Every
+  photo remains an Unsplash seed row with `public_id = null`; F09 still owns the
+  `publicId ? CldImage : Image` branch.
+- **No keyboard/screen-reader pass.** The page adds regions, an `<hr>` rhythm and a
+  scroll-snap strip; the strip is not keyboard-scrollable without focusing it. F18 owns it.
+- **The gallery's fewer-than-5 and more-than-5 photo branches are unexercised** — every
+  seeded listing has exactly 5. The mosaic caps at 5 and a single photo spans full width;
+  both are written and typed but only F09 will supply a real counterexample.
+- **`error.tsx` still cannot be reached from this route** — the query swallows its own
+  failures and returns `null`, which becomes a 404.
+
+**Deferred / follow-ups:**
+- F12 must add the per-listing availability definer function and fill
+  `DateRangePicker`'s `unavailableRanges` — still the only honest way to show a calendar.
+- No `generateMetadata`, so the browser tab shows the site title rather than the
+  listing's. It would cost a second query per render without a shared cache; revisit
+  in F18.
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside
+  the repo.
+
+---
+
 ## Phase 1 · F02 follow-up — migration version identity & Supabase branching  *(2026-07-25)*
 
 Triggered by a real failure, not a review: the Supabase GitHub integration reported

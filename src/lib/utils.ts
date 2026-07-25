@@ -101,6 +101,81 @@ export function coverPhotoOf<T extends { is_cover: boolean; position: number }>(
 }
 
 /**
+ * Every photo in gallery order: the cover first, then ascending `position`.
+ *
+ * The same rule `coverPhotoOf` applies, widened to the whole set — so
+ * `orderedPhotos(photos)[0]` and `coverPhotoOf(photos)` always agree, including
+ * when no row is flagged (see that function for why the fallback is load-bearing).
+ * Sorts a copy: the caller's array is query data shared with other renders.
+ */
+export function orderedPhotos<T extends { is_cover: boolean; position: number }>(
+  photos: readonly T[],
+): T[] {
+  return [...photos].sort((a, b) => {
+    if (a.is_cover !== b.is_cover) return a.is_cover ? -1 : 1
+    return a.position - b.position
+  })
+}
+
+/**
+ * A listing's capacity line — "5 guests · 2 bedrooms · 3 beds · 1.5 baths".
+ *
+ * `bathrooms` is `numeric(3,1)`, so halves are real and must not be pluralized
+ * as singular ("1.5 baths", not "1.5 bath"). `bedrooms` is 0 for a studio, which
+ * reads as "Studio" rather than "0 bedrooms".
+ */
+export function formatCapacity(capacity: {
+  maxGuests: number
+  bedrooms: number
+  beds: number
+  bathrooms: number
+}): string {
+  return [
+    pluralize(capacity.maxGuests, 'guest'),
+    capacity.bedrooms === 0 ? 'Studio' : pluralize(capacity.bedrooms, 'bedroom'),
+    pluralize(capacity.beds, 'bed'),
+    pluralize(capacity.bathrooms, 'bath'),
+  ].join(' · ')
+}
+
+function pluralize(count: number, singular: string): string {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`
+}
+
+/**
+ * A check-in/check-out time for display — `'15:00'` -> `'3:00 PM'`.
+ *
+ * `check_in_time`/`check_out_time` are plain `text` columns, not `time`, so the
+ * database guarantees nothing about their shape. Anything that is not `HH:MM`
+ * returns null and the caller omits the row, rather than rendering garbage or
+ * throwing on a listing that is otherwise fine.
+ */
+export function formatTimeOfDay(value: string | null): string | null {
+  if (!value) return null
+
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
+  if (!match) return null
+
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours > 23 || minutes > 59) return null
+
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12
+  return `${hour12}:${match[2]} ${hours < 12 ? 'AM' : 'PM'}`
+}
+
+/**
+ * A timestamp as "March 2025", for the host card's member-since line. Returns
+ * null on an unparseable value so a malformed timestamp costs the line, not the
+ * page — `format` throws on an invalid Date.
+ */
+export function formatMonthYear(iso: string): string | null {
+  const date = parseISO(iso)
+  if (Number.isNaN(date.getTime())) return null
+  return format(date, 'MMMM yyyy')
+}
+
+/**
  * A snake_case constant rendered as a label — `tiny_home` -> "Tiny home",
  * `air_conditioning` -> "Air conditioning". Keeps `PROPERTY_TYPES` and
  * `AMENITIES` as the single source of truth instead of pairing each one with a

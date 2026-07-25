@@ -22,7 +22,12 @@ export type SeedSnapshot = {
   blocks: { listingId: string; start: string; end: string }[]
 }
 
-export async function loadSeedSnapshot(): Promise<SeedSnapshot> {
+/**
+ * A service-role client. Bypasses RLS, so it can see drafts and bookings — both
+ * of which the app deliberately hides, and both of which the expectations here
+ * need in order to be an independent check rather than an echo.
+ */
+function serviceClient() {
   process.loadEnvFile('.env.local')
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -41,9 +46,13 @@ export async function loadSeedSnapshot(): Promise<SeedSnapshot> {
     )
   }
 
-  const supabase = createClient<Database>(url, serviceKey, {
+  return createClient<Database>(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
+}
+
+export async function loadSeedSnapshot(): Promise<SeedSnapshot> {
+  const supabase = serviceClient()
 
   const [listings, bookings, blocks] = await Promise.all([
     supabase.from('listings').select('id, title, min_nights').eq('is_published', true),
@@ -81,6 +90,117 @@ export async function loadSeedSnapshot(): Promise<SeedSnapshot> {
       end: row.end_date,
     })),
   }
+}
+
+/**
+ * What a listing's detail page should show, read straight from the tables.
+ *
+ * The rating is averaged here rather than taken from the app, so a mistake in
+ * `averageRating` shows up as a disagreement instead of agreeing with itself.
+ */
+export type ListingDetailFixture = {
+  id: string
+  title: string
+  /** The location line, nulls dropped — 12 of 24 published listings have no state. */
+  location: string
+  isPublished: boolean
+  photoCount: number
+  amenityCount: number
+  reviewCount: number
+  /** Mean rating to one decimal as the page prints it, or null when unreviewed. */
+  rating: string | null
+  cleaningFeeCents: number
+  hasHouseRules: boolean
+  hostName: string | null
+  /** Reviewers who have no avatar_url — they must fall back to the icon. */
+  reviewersWithoutAvatar: string[]
+}
+
+export async function loadListingDetail(
+  id: string,
+): Promise<ListingDetailFixture> {
+  const supabase = serviceClient()
+
+  const [listing, photos, reviews] = await Promise.all([
+    supabase
+      .from('listings')
+      .select(
+        'id, title, neighborhood, city, state, country, is_published, amenities, cleaning_fee, house_rules, profiles!listings_host_id_fkey(full_name)',
+      )
+      .eq('id', id)
+      .single(),
+    supabase.from('listing_photos').select('id').eq('listing_id', id),
+    supabase
+      .from('reviews')
+      .select('rating, profiles!reviews_reviewer_id_fkey(full_name, avatar_url)')
+      .eq('listing_id', id),
+  ])
+
+  const failure = listing.error ?? photos.error ?? reviews.error
+  if (failure) {
+    throw new Error(
+      `[e2e/fixtures] could not load listing ${id}: ${failure.message}`,
+    )
+  }
+
+  const row = listing.data
+  // Narrowing on `error` alone does not narrow `data`; and a missing fixture
+  // row should fail loudly here rather than as a confusing assertion later.
+  if (!row) {
+    throw new Error(`[e2e/fixtures] listing ${id} is not in the database.`)
+  }
+  const ratings = (reviews.data ?? []).map((review) => review.rating)
+  const mean =
+    ratings.length === 0
+      ? null
+      : ratings.reduce((sum, value) => sum + value, 0) / ratings.length
+
+  return {
+    id: row.id,
+    title: row.title,
+    location: [row.neighborhood, row.city, row.state, row.country]
+      .filter(Boolean)
+      .join(', '),
+    isPublished: row.is_published,
+    photoCount: (photos.data ?? []).length,
+    amenityCount: row.amenities.length,
+    reviewCount: ratings.length,
+    rating: mean === null ? null : mean.toFixed(1),
+    cleaningFeeCents: row.cleaning_fee,
+    hasHouseRules: row.house_rules !== null,
+    hostName: row.profiles?.full_name ?? null,
+    reviewersWithoutAvatar: (reviews.data ?? [])
+      .filter((review) => !review.profiles?.avatar_url)
+      .map((review) => review.profiles?.full_name ?? '')
+      .filter(Boolean),
+  }
+}
+
+/**
+ * The unpublished listings, found rather than hard-coded — these are the only
+ * ids that prove the 404 branch, and a hard-coded one would quietly stop testing
+ * anything if the seed changed.
+ */
+export async function loadDraftListings(): Promise<
+  { id: string; title: string }[]
+> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('listings')
+    .select('id, title')
+    .eq('is_published', false)
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not load drafts: ${error.message}`)
+  }
+  if ((data ?? []).length === 0) {
+    throw new Error(
+      '[e2e/fixtures] read zero unpublished listings. The seed provides two; without them the 404 specs assert nothing.',
+    )
+  }
+
+  return data ?? []
 }
 
 /**

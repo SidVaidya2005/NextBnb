@@ -77,7 +77,15 @@ function SearchBarFields({ searchParams }: { searchParams: URLSearchParams }) {
       <button
         type="button"
         onClick={() => setOverlayOpen(true)}
-        className="flex h-12 flex-1 items-center gap-2 rounded-full border border-hairline px-4 shadow-card tablet:hidden"
+        // `min-w-0` is load-bearing, not tidying: a flex item defaults to
+        // `min-width: auto`, so `flex-1` alone cannot shrink this below its
+        // content width. It overflowed its wrapper and, because the wrapper
+        // centres it, spilled equally over the logo and the account menu.
+        // `px-3.5`/`gap-1.5` rather than the roomier `px-4`/`gap-2`: at 375px —
+        // the most common phone width — the labels were clipped by a single
+        // pixel, so 8px of chrome buys "Anywhere · Any week" in full. Narrower
+        // phones still ellipsize, which is what `truncate` is there for.
+        className="flex h-12 min-w-0 flex-1 items-center gap-1.5 rounded-full border border-hairline px-3.5 shadow-card tablet:hidden"
       >
         <Search className="size-4 shrink-0 text-ink" aria-hidden />
         <span className="truncate text-sm font-medium text-ink">

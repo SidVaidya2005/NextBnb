@@ -12,10 +12,34 @@ immediately know what is done, what is in progress, and what is next.
 ## Current Status
 
 **Phase:** Phase 2 — Browse & Discover
-**Last completed:** 06 Search & filters
-**Next:** 07 Listing detail
+**Last completed:** 07 Listing detail
+**Next:** 08 Favorites
 
-**F06 is live: `/` is now a real search-results page.** All six dimensions
+**F07 is live: `/listings/[id]` is a real page.** Photo gallery (1+4 mosaic from
+`tablet:`, full-bleed swipe strip below — one DOM, switched by CSS), description,
+18-amenity icon list, house rules, capacity, host card, reviews with DESIGN.md's
+64px `rating-display-card`, and a static reservation card (sticky rail ≥744px,
+sticky bottom bar below). Content verified against the database, not against
+itself: listing 1 renders 4.5 / 2 reviews / 7 amenities / 5 photos and
+`Alfama, Lisbon, Portugal` with the null state dropped; listing 4 shows
+`1.5 baths` and singular `(1 review)`; listing 8 (`cleaning_fee = 0`,
+`house_rules` null) omits both rows and shows no rating number. Gates: `tsc`
+clean, `lint` clean, **70/70** unit, **117/117** E2E, `npm run build` green.
+
+**The finding that shaped F07: `loading.tsx` and a real 404 are mutually
+exclusive.** A route `loading.tsx` wraps the page in an implicit `<Suspense>`, so
+the response streams and the HTTP status commits to **200 before `notFound()`
+runs** — Next's documented behaviour. With it, every draft and dead link returned
+200 and would have been indexable; without it, 404. Measured both ways on a
+production build. **`loading.tsx` was dropped** and the 404 specs now gate against
+exactly that regression (restoring the file fails 4 of them).
+
+**RLS is the 404.** `getListingById` deliberately omits `.eq('is_published',
+true)`: the `listings` SELECT policy already returns a draft to its host and to
+admins and nothing to anyone else. Proven four ways by SQL impersonation — anon
+0 rows, authenticated non-owner 0 rows, owner 1 row, admin 1 row.
+
+**F06 remains green: `/` is a real search-results page.** All six dimensions
 (destination, dates, guests, price, property type, amenities) read from
 `searchParams`, with a `SearchBar` in the nav (3-segment pill from `tablet:`, a
 full-screen overlay below it), a JS-free `FilterPanel`, and a DESIGN.md
@@ -82,7 +106,24 @@ gates every PR on a migration workflow we are not yet using. **The rename is
 documented-correct but not observed-working** — confirming it needs `supabase
 link` or a push. Detail in `build-journal.md` → F02 follow-up.
 
+**Two F06 nav defects were found and fixed during F07's responsive pass.** Both
+predated F07 and were invisible to the suite because `nav-responsive.spec.ts`
+sampled only the *middle* of each band. (1) The mobile search pill overlapped the
+logo — **59px at 320, 32px at 375, 12px at 414** — because `flex-1` cannot shrink
+past `min-width: auto`, so the pill overflowed its centred wrapper. (2) The nav
+row overflowed the viewport by **89px across 744–833** (iPad mini, iPad portrait)
+because "Become a host" turned on at `tablet:` beside the full 3-segment pill.
+Fixes: `min-w-0` on the pill, the wordmark hidden below `tablet:`, and the host
+link moved to `desktop:`. The spec now samples each band's **lower boundary** and
+asserts nothing overlaps the logo and the row fits — proven to gate by reverting
+both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
+`/listings/[id]`.
+
 **Remaining loose ends (small):**
+- **`DraftNotice` has never been rendered by a browser.** RLS returns drafts to
+  their owner (proven by SQL impersonation), but both seed drafts belong to fake
+  users who cannot sign in and the Playwright fixture user owns nothing. F09/F10
+  close it for free by creating a listing owned by a real account.
 - **Disable the GitHub integration** in the Supabase dashboard (Project Settings
   → Integrations) — a dashboard action, no MCP tool for it. The Supabase branch
   `main` is parked at `MIGRATIONS_FAILED`; it is inert and the production
@@ -116,7 +157,7 @@ link` or a push. Detail in `build-journal.md` → F02 follow-up.
 ### Phase 2 — Browse & Discover
 - [x] 05 Home & listing grid
 - [x] 06 Search & filters
-- [ ] 07 Listing detail
+- [x] 07 Listing detail
 - [ ] 08 Favorites
 
 ### Phase 3 — Hosting
@@ -149,5 +190,5 @@ link` or a push. Detail in `build-journal.md` → F02 follow-up.
 - Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only when its tests pass. E2E runs against the seeded DB with a seed-verification step.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
 - **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
-- **F05** — **listing photos render through `next/image`, not `CldImage`, and that is not yet a violation.** Every photo in the database is a seed Unsplash URL with `public_id = null`, so the "never a bare `<img>` for a Cloudinary asset" invariant has nothing to bite on and `next-cloudinary` stays uninstalled. **F09 owns the debt**: the first real upload makes `ListingCard` need a `public_id ? CldImage : Image` branch. Until then the card passes `sizes` + `priority` on the first row and gets responsive delivery from the Next optimizer.
-- **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waits in F07's calendar and F12's booking widget.
+- **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waits in F12's booking widget.
+- **F07** — **a route `loading.tsx` and a real HTTP 404 cannot coexist.** The implicit `<Suspense>` it creates makes the response stream, and the status commits to **200 before `notFound()` runs** (Next: "a 404 status for non-streamed responses and a 200 for streamed"). Drafts would have been indexable as live pages. `loading.tsx` was dropped; the specs gate against restoring it. **Applies to every future route that can 404** — F13 `/trips`, F14, F17 — so choose the status over the skeleton unless the route can never 404.

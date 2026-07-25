@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest'
 import {
   averageRating,
   coverPhotoOf,
+  formatCapacity,
   formatDateRange,
+  formatMonthYear,
   formatPrice,
+  formatTimeOfDay,
   humanizeToken,
   nightsBetween,
+  orderedPhotos,
   safeNextPath,
   toISODate,
 } from '@/lib/utils'
@@ -94,6 +98,122 @@ describe('coverPhotoOf', () => {
 
   it('returns the only photo when there is exactly one, flagged or not', () => {
     expect(coverPhotoOf([photo(7, false)])?.url).toBe('photo-7')
+  })
+})
+
+describe('orderedPhotos', () => {
+  const photo = (position: number, is_cover: boolean) => ({
+    position,
+    is_cover,
+    url: `photo-${position}`,
+  })
+
+  const urls = (photos: { url: string }[]) => photos.map((p) => p.url)
+
+  it('returns an empty array for a listing with no photos', () => {
+    expect(orderedPhotos([])).toEqual([])
+  })
+
+  it('leads with the cover, then orders the rest by position', () => {
+    const photos = [photo(1, false), photo(3, true), photo(0, false), photo(2, false)]
+    expect(urls(orderedPhotos(photos))).toEqual([
+      'photo-3',
+      'photo-0',
+      'photo-1',
+      'photo-2',
+    ])
+  })
+
+  it('orders purely by position when no photo is flagged as cover', () => {
+    const photos = [photo(4, false), photo(1, false), photo(2, false)]
+    expect(urls(orderedPhotos(photos))).toEqual(['photo-1', 'photo-2', 'photo-4'])
+  })
+
+  it('does not mutate the array it was given', () => {
+    const photos = [photo(2, false), photo(0, true)]
+    orderedPhotos(photos)
+    expect(urls(photos)).toEqual(['photo-2', 'photo-0'])
+  })
+
+  it('agrees with coverPhotoOf on which photo leads — flagged or not', () => {
+    const flagged = [photo(0, false), photo(2, true), photo(1, false)]
+    expect(orderedPhotos(flagged)[0]).toBe(coverPhotoOf(flagged))
+
+    const unflagged = [photo(3, false), photo(1, false), photo(2, false)]
+    expect(orderedPhotos(unflagged)[0]).toBe(coverPhotoOf(unflagged))
+  })
+})
+
+describe('formatCapacity', () => {
+  it('renders the full line with plurals', () => {
+    expect(
+      formatCapacity({ maxGuests: 5, bedrooms: 2, beds: 3, bathrooms: 2 }),
+    ).toBe('5 guests · 2 bedrooms · 3 beds · 2 baths')
+  })
+
+  it('uses singular forms for a count of one', () => {
+    expect(
+      formatCapacity({ maxGuests: 1, bedrooms: 1, beds: 1, bathrooms: 1 }),
+    ).toBe('1 guest · 1 bedroom · 1 bed · 1 bath')
+  })
+
+  it('renders zero bedrooms as "Studio", not "0 bedrooms"', () => {
+    expect(
+      formatCapacity({ maxGuests: 2, bedrooms: 0, beds: 1, bathrooms: 1 }),
+    ).toBe('2 guests · Studio · 1 bed · 1 bath')
+  })
+
+  it('pluralizes a half bath — numeric(3,1) makes 1.5 a real value', () => {
+    expect(
+      formatCapacity({ maxGuests: 4, bedrooms: 2, beds: 2, bathrooms: 1.5 }),
+    ).toBe('4 guests · 2 bedrooms · 2 beds · 1.5 baths')
+  })
+
+  it('renders a whole numeric bathroom count without a trailing decimal', () => {
+    expect(
+      formatCapacity({ maxGuests: 2, bedrooms: 1, beds: 1, bathrooms: 1.0 }),
+    ).toContain('1 bath')
+  })
+})
+
+describe('formatTimeOfDay', () => {
+  it('converts a 24-hour column value to a 12-hour label', () => {
+    expect(formatTimeOfDay('15:00')).toBe('3:00 PM')
+    expect(formatTimeOfDay('10:00')).toBe('10:00 AM')
+    expect(formatTimeOfDay('16:30')).toBe('4:30 PM')
+  })
+
+  it('renders both midnights as 12, not 0', () => {
+    expect(formatTimeOfDay('00:00')).toBe('12:00 AM')
+    expect(formatTimeOfDay('12:00')).toBe('12:00 PM')
+  })
+
+  it('returns null for null or empty, so the caller omits the row', () => {
+    expect(formatTimeOfDay(null)).toBeNull()
+    expect(formatTimeOfDay('')).toBeNull()
+  })
+
+  it('returns null rather than throwing on a malformed text column', () => {
+    // These are `text` columns, not `time` — the database guarantees nothing.
+    expect(formatTimeOfDay('afternoon')).toBeNull()
+    expect(formatTimeOfDay('25:00')).toBeNull()
+    expect(formatTimeOfDay('12:75')).toBeNull()
+    expect(formatTimeOfDay('3pm')).toBeNull()
+  })
+})
+
+describe('formatMonthYear', () => {
+  it('renders a timestamptz as a month and year', () => {
+    expect(formatMonthYear('2025-03-14T09:26:53.000Z')).toBe('March 2025')
+  })
+
+  it('accepts a plain date string', () => {
+    expect(formatMonthYear('2026-01-09')).toBe('January 2026')
+  })
+
+  it('returns null for an unparseable value instead of throwing', () => {
+    expect(formatMonthYear('not-a-date')).toBeNull()
+    expect(formatMonthYear('')).toBeNull()
   })
 })
 

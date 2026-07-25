@@ -8,14 +8,23 @@ import { AUTH_STATE_FILE } from './constants'
  * verification part of "done" rather than polish — so it is asserted here
  * instead of eyeballed once and forgotten.
  *
- * Widths are representative points INSIDE each band, not the boundaries:
- * mobile <744 / tablet 744-1128 / desktop 1128-1440 / wide >1440.
+ * Bands: mobile <744 / tablet 744-1128 / desktop 1128-1440 / wide >1440.
+ *
+ * This list used to sample only the middle of each band, and that is exactly
+ * how it missed two real defects that F07's responsive pass found by measuring:
+ * the search pill overlapped the logo on every phone width, and the row
+ * overflowed the viewport by 89px across 744-833. **The lower boundary of each
+ * band is now sampled too** — a band's tightest point is its first pixel, not
+ * its middle.
  */
 const BREAKPOINTS = [
-  { name: 'mobile', width: 375, height: 812, compact: true },
-  { name: 'tablet', width: 834, height: 1112, compact: false },
-  { name: 'desktop', width: 1280, height: 800, compact: false },
-  { name: 'wide', width: 1512, height: 900, compact: false },
+  { name: 'mobile-narrow', width: 320, height: 700, compact: true, hostLink: false },
+  { name: 'mobile', width: 375, height: 812, compact: true, hostLink: false },
+  { name: 'tablet-min', width: 744, height: 1000, compact: false, hostLink: false },
+  { name: 'tablet', width: 834, height: 1112, compact: false, hostLink: false },
+  { name: 'desktop-min', width: 1128, height: 800, compact: false, hostLink: true },
+  { name: 'desktop', width: 1280, height: 800, compact: false, hostLink: true },
+  { name: 'wide', width: 1512, height: 900, compact: false, hostLink: true },
 ] as const
 
 /** code-standards.md: "never ship a tap target below 44px". */
@@ -69,6 +78,49 @@ async function expectNoHorizontalScroll(page: Page, label: string) {
   expect.soft(overflow, `${label}: page scrolls horizontally`).toBeLessThanOrEqual(0)
 }
 
+/**
+ * Nothing in the nav may sit on top of the logo.
+ *
+ * Reading the JSX never caught this: the mobile search pill is `flex-1`, which
+ * *looks* like it shrinks, but a flex item defaults to `min-width: auto` and so
+ * floors at its content width. It overflowed its wrapper and — because the
+ * wrapper centres it — spilled over the logo by 59px at 320 and 32px at 375.
+ * Only measuring the rendered boxes shows it.
+ */
+async function expectNothingCoversTheLogo(page: Page, label: string) {
+  const worst = await page.evaluate(() => {
+    const logo = document.querySelector('a[aria-label="NextBnb home"]')
+    if (!logo) return -1
+
+    const target = logo.getBoundingClientRect()
+    let overlap = 0
+
+    for (const element of document.querySelectorAll('header *')) {
+      if (element.contains(logo) || logo.contains(element)) continue
+      const box = element.getBoundingClientRect()
+      if (box.width === 0 || box.height === 0) continue
+
+      const x = Math.min(target.right, box.right) - Math.max(target.left, box.left)
+      const y = Math.min(target.bottom, box.bottom) - Math.max(target.top, box.top)
+      if (x > 1 && y > 1) overlap = Math.max(overlap, x)
+    }
+
+    return Math.round(overlap)
+  })
+
+  expect.soft(worst, `${label}: the logo must be present`).toBeGreaterThanOrEqual(0)
+  expect.soft(worst, `${label}: something in the nav overlaps the logo`).toBe(0)
+}
+
+/** The nav row itself must fit, independently of whether the page scrolls. */
+async function expectNavRowFits(page: Page, label: string) {
+  const overflow = await page.evaluate(() => {
+    const row = document.querySelector('header > div')
+    return row ? Math.round(row.scrollWidth - row.clientWidth) : 0
+  })
+  expect.soft(overflow, `${label}: the nav row overflows its container`).toBeLessThanOrEqual(0)
+}
+
 test.describe('nav responsive — signed out', () => {
   for (const bp of BREAKPOINTS) {
     test(`${bp.name} (${bp.width}px): nav collapses and the menu stays reachable`, async ({
@@ -79,13 +131,19 @@ test.describe('nav responsive — signed out', () => {
 
       await expect(page.getByRole('link', { name: 'NextBnb home' })).toBeVisible()
 
-      // The search pill and "Become a host" are tablet+ only; on mobile the
-      // account menu is the sole control (the hamburger lives inside it).
+      // Nothing may cover the logo, and the row must fit — asserted before the
+      // menu opens, since both are properties of the resting nav.
+      await expectNothingCoversTheLogo(page, `${bp.name} signed out`)
+      await expectNavRowFits(page, `${bp.name} signed out`)
+
+      // "Become a host" is desktop+ only: between 744 and 833 it does not fit
+      // beside the full search pill. It stays reachable from the account menu
+      // ("Manage listings"), which is the same route.
       const becomeHost = page.getByRole('link', { name: 'Become a host' })
-      if (bp.compact) {
-        await expect(becomeHost).toBeHidden()
-      } else {
+      if (bp.hostLink) {
         await expect(becomeHost).toBeVisible()
+      } else {
+        await expect(becomeHost).toBeHidden()
       }
 
       const trigger = page.getByRole('button', { name: 'Account menu' })
@@ -117,6 +175,9 @@ test.describe('nav responsive — signed in', () => {
     }) => {
       await page.setViewportSize({ width: bp.width, height: bp.height })
       await page.goto('/')
+
+      await expectNothingCoversTheLogo(page, `${bp.name} signed in`)
+      await expectNavRowFits(page, `${bp.name} signed in`)
 
       await openAccountMenu(page)
 

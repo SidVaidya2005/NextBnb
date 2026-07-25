@@ -45,6 +45,11 @@
      Backs the max-w-wide / max-w-content utilities. */
   --container-wide: 1440px;
   --container-content: 1280px;
+  /* Listing detail sits narrower — DESIGN.md → Grid & Container: "Listing detail
+     pages cap closer to 1080px to keep the photo banner and reservation rail
+     readable". (Its Responsive table says 1440px for "listing/search" pages; the
+     more specific line wins.) */
+  --container-listing: 1080px;
 
   /* Font — Inter ships as the Airbnb Cereal VF substitute (set in layout.tsx as
      --font-inter). Mapping it to --font-sans makes it the base + font-sans stack. */

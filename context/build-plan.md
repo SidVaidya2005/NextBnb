@@ -135,6 +135,11 @@ Filter the grid by every supported dimension, with the URL as source of truth.
 - The filter panel is a **Server Component**: a native `<details>` + `<form method="get">`,
   no JavaScript. It shows no result count, because that would force the page to await the
   query and break F05's streaming shell.
+- **Two nav sizing defects shipped here and were fixed during F07** (see
+  `build-journal.md` → F07): the mobile pill overlapped the logo (`flex-1` cannot shrink
+  past `min-width: auto` — needs `min-w-0`), and the row overflowed by 89px across
+  744–833. The wordmark is now `tablet:`-only and "Become a host" is `desktop:`-only.
+  `nav-responsive.spec.ts` samples each band's **lower boundary** as a result.
 
 ### 07 Listing detail
 
@@ -145,6 +150,26 @@ The full listing page a guest inspects before booking.
 
 **Logic:**
 - `queries/listings.getListingById` with photos, host profile, and reviews; 404 for unpublished listings viewed by non-owners.
+
+**As built (deviations worth knowing):**
+- **No `loading.tsx`, and that is a correctness choice, not an omission.** A route
+  `loading.tsx` wraps the page in an implicit `<Suspense>`, so the response streams and
+  the HTTP status commits to **200 before `notFound()` runs** — Next's documented
+  behaviour ("a 404 status for non-streamed responses and a 200 for streamed"). Drafts
+  would have been indexable as live pages. Measured both ways; the skeleton lost.
+- **The booking widget reads no availability at all.** `unavailable_listing_ids()` takes
+  a date range and returns listing *ids*; it cannot answer "which dates are taken for
+  this listing". F12 owns that RPC, so F07's reservation card is a static shell.
+- **RLS is the 404**, not an `is_published` filter: `getListingById` deliberately omits
+  one, so the host and admins see their own drafts behind a `DraftNotice` while everyone
+  else gets an indistinguishable 404.
+- **The gallery is one DOM switched by CSS** — a `flex` scroll-snap strip that becomes a
+  `grid` mosaic at `tablet:`. Two trees would put every photo in the document twice, and
+  a `display:none` image is still fetched.
+- **The 64px `rating-display-card` renders only when reviews exist**; 20 of 24 published
+  listings are unrated, so the empty state is the common case.
+- `not-found.tsx` is the project's first, scoped to this route so it keeps the nav.
+- New `--container-listing: 1080px` token (DESIGN.md → Grid & Container).
 
 ### 08 Favorites
 

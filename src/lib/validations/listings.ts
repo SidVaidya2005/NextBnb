@@ -45,6 +45,16 @@ export type ListingFilters = {
 
 export const NO_FILTERS: ListingFilters = { amenities: [] }
 
+/**
+ * A listing id taken from the URL path.
+ *
+ * Checked before the id reaches a query: `id` is a `uuid` column, so Postgres
+ * raises `22P02` on anything that is not one. That surfaces as a logged database
+ * error for what is really just a stale or hand-edited link — the right answer
+ * is a 404, decided here, before any round trip.
+ */
+export const listingIdSchema = z.uuid()
+
 // $100k/night is far past any plausible listing and stops a hostile URL from
 // turning a price bound into a giant number the query has to reason about.
 const MAX_PRICE_DOLLARS = 100_000
