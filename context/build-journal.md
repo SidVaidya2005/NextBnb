@@ -56,6 +56,10 @@ live credentials.
 
 **Decisions:**
 - **Migrations split four ways by concern** (tables / functions / policies+grants / realtime), then two follow-ups from verification — `0005_definer_hardening`, `0006_lock_remaining_writes`. Applied migrations are never rewritten, so remote history and the repo stay in lockstep.
+  > **Corrected 2026-07-25:** "in lockstep" held for *content* but not for *version identity* — the
+  > files were named `0001_`…`0006_` while the remote recorded 14-digit timestamps, which broke
+  > Supabase branching. Files renamed to `<remote-version>_<original-name>.sql`. See the F02
+  > follow-up entry at the end of this journal.
 - **`admin_list_users()` returns `(id, email)` only.** Names, join dates and counts are already admin-visible through RLS, so the one function that bypasses RLS exposes only the column RLS cannot reach. It guards itself with `is_admin()` *before* touching `auth.users`; the grant to `authenticated` is a second lock, not the gate.
 - **Cover photo: at-most-one in the DB** (partial unique index `on (listing_id) where is_cover`), at-least-one guaranteed by F09's create action. Exactly-one would need a deferred constraint trigger firing on every cascade delete.
 - **The cancellation window lives in the DB.** The `bookings` UPDATE policy requires `status='confirmed' AND check_in >= current_date`, so F13's action enforces UX, not authorization. Because USING also demands `status='confirmed'`, a cancelled booking can never be un-cancelled.
@@ -337,3 +341,180 @@ project now has exactly one admin, so `/admin` and the menu's Admin entry open f
 - `supabase/seed.sql`'s commented "adopt" snippet can now be used to point seeded listings at
   the real profile, filling `/host/listings` before F09.
 - The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside the repo.
+
+---
+
+## Phase 1 · Close-out — verification catch-up  *(2026-07-25)*
+
+Not a numbered feature and not a bug fix: Phase 1 was already green on all four
+gates when this started. This pass closed the **verifications F04 left open**
+before F05 begins, and in doing so turned up one real defect and one config drift.
+
+**Scope built:** `e2e/nav-responsive.spec.ts` (8 specs); a 4px padding fix in
+`AccountMenu.tsx`. No new dependency, no migration, no schema change.
+
+**Decisions:**
+- **Automated the breakpoint check instead of eyeballing it.** F04 left "verify the
+  account menu at the four breakpoints" as a manual to-do. A one-time look would have
+  found the defect below and then stopped protecting against it, so the check is a spec
+  that asserts tap-target height, viewport containment and horizontal overflow at
+  375 / 834 / 1280 / 1512 in both auth states. F18's responsive QA inherits it rather
+  than starting from scratch.
+- **`py-3`, not `min-h-11`, for the tap-target fix.** 12px + 20px line-height + 12px
+  lands exactly on the 44px floor *and* matches DESIGN.md's `amenity-row` 12px row
+  padding, so the fix comes from the token scale rather than bolting on a min-height.
+- **This is logged as a close-out, not as "F04.5 error fix".** Naming it after an error
+  would plant a false lead in the one document consulted when investigating a future
+  regression. Nothing was broken; verifications were simply outstanding.
+- **Pruned three Key Decisions** out of `progress-tracker.md` (F01 scaffold choices, F03
+  seed-derivation, the `@supabase/ssr` `never` bug) per CLAUDE.md's ~10-bullet cap. All
+  three are archived in full in their own entries above — nothing was lost.
+
+**Gotchas:**
+- **Every account-menu row shipped at 40px against the project's own 44px floor.**
+  `px-4 py-2.5 text-sm` computes to 10 + 20 + 10 = 40px, and `code-standards.md` says
+  "never ship a tap target below 44px". All six signed-in destinations, Sign out, and
+  Sign in with Google were affected at *every* breakpoint — so this was never a mobile
+  bug, which is probably why reading the JSX did not catch it. Only measuring the
+  rendered box did. The spec failed 8/8 before the fix and passes 9/9 after, so it
+  demonstrably gates.
+- **The security advisor baseline had drifted from 2 WARNs to 3, and nobody noticed.**
+  F02 recorded two intentional, load-bearing warnings (`authenticated` must hold EXECUTE
+  on `is_admin()` and `admin_list_users()`). A third — leaked-password protection
+  disabled — appeared when F04 enabled the email/password provider for the Playwright
+  fixture. A documented baseline is only useful if a new entry is treated as a finding,
+  so the count itself belongs in the docs.
+- **Leaked-password protection cannot be enabled on this project: it is Pro-plan-only**
+  and NextBnb is on the free plan. There is also no MCP tool for auth config, so it is a
+  dashboard action regardless of plan.
+- **The live auth config contradicts a documented invariant.**
+  `/auth/v1/settings` reports `"email": true` with `"disable_signup": false`, so public
+  email/password registration is open, while `architecture.md` states "Sign in with
+  Google only. No email/password, no other providers." Severity is low and worth stating
+  precisely: `mailer_autoconfirm` is `false` so registration needs a deliverable address
+  and a clicked confirmation, and the resulting account is an ordinary guest — the 37
+  assertions re-run in this pass confirm `is_admin` is unreachable via column grant,
+  price snapshots are unwritable, and every table is RLS-scoped. It is an unintended
+  account-creation path, not a privilege path. **Globally disabling signups is not the
+  fix** — that would also block first-time Google users, i.e. all real onboarding. The
+  proper fix is a separate Supabase project for E2E so production can disable the email
+  provider outright; deferred to F18. `architecture.md` has been annotated so the doc
+  stops asserting something the config does not do.
+
+**Verified (agent, Node v26.5.0):**
+- Baseline before any change: `npx tsc --noEmit` clean, `npm run lint` clean,
+  `npm run test` 14/14, `npm run test:e2e` 11/11, working tree clean at `79e8979`.
+  Phase 1 was green — there was no error to fix.
+- **`schema-verification.sql` — 37/37 PASS**, re-run via the Supabase MCP against the
+  *seeded* database. This was F03's honest gap: it audited sentinel coexistence by
+  reading the script but never re-executed it. Both known globals still hold
+  (`admin_list_users() >= 4` now returns more; a stranger still sees 0 favorites because
+  RLS scopes the table, not because the seed adds none).
+- **Seed intact after the re-run** — 26 listings (24 published), 130 photos, 17 bookings,
+  7 reviews, 5 blocked ranges, **0 sentinel leftovers**, 1 admin. The script's cleanup
+  cascades only its own `a000` users, as designed. `profiles` = 7 reconciles as 5 seed +
+  the developer's Google account + the persistent Playwright fixture user.
+- `npm run test:e2e` — **19/19** (11 prior + 8 new), `npx tsc --noEmit` clean,
+  `npm run lint` clean after the fix.
+
+**Not verified — still honestly outstanding:**
+- **The admin-side render of `/admin`** — unchanged from F04, still belongs to F17 (needs
+  a second test user; flipping the shared fixture user's `is_admin` mid-run would race
+  the "no Admin entry for a non-admin" spec).
+- **`access_denied` handling** (cancelling at the Google consent screen) — needs a human
+  to click Cancel on a real consent screen; cannot be automated.
+- **Whether `disable_signup: true` blocks first-time Google users** — asserted from
+  GoTrue behaviour, deliberately *not* tested, because testing it means flipping the
+  project's auth config and risking real onboarding.
+- Mobile search-overlay collapse is still unbuilt, not unverified — the nav's search pill
+  is a placeholder until F06, so `<744px` currently has no search affordance by design.
+
+**Deferred / follow-ups:**
+- If leaked-password protection is wanted, it needs the Pro plan
+  (Authentication → Sign In / Providers → Email). Free-plan hardening that *is* available:
+  raise the minimum password length and required character classes on the same screen.
+- A **separate Supabase project for E2E** so production can disable the email provider
+  entirely — the real answer to the open-signup finding. Decide during F18/deploy.
+- The stray `~/package-lock.json` (dated 2026-03-11, outside the repo) still triggers
+  Next's multiple-lockfile warning. Cosmetic; left alone deliberately since it lives in
+  the developer's home directory.
+
+---
+
+## Phase 1 · F02 follow-up — migration version identity & Supabase branching  *(2026-07-25)*
+
+Triggered by a real failure, not a review: the Supabase GitHub integration reported
+**"Remote migration versions not found in local migrations directory"**.
+
+**Root cause — two independent problems, one visible:**
+1. **Version identity mismatch.** F02 applied migrations through the Supabase MCP's
+   `apply_migration`, which stamps the version **server-side as a 14-digit timestamp**
+   while keeping the human-readable name. The repo files were authored separately with
+   ordinal prefixes (`0001_`…`0006_`). The CLI derives a migration's version from the
+   filename prefix and reconciles on **version**, not name — so it saw six remote versions
+   with zero local counterparts. F02's "remote history and the repo stay in lockstep" was
+   true of content and false of identity; **nothing read migration versions until branching
+   did**, which is why six migrations, 37 schema assertions, 46 seed assertions and four
+   green gates all passed over it.
+2. **`supabase/config.toml` did not exist.** The repo had `supabase/migrations/`, `seed.sql`
+   and `tests/` but was never `supabase init`-ed, so the integration had no project config
+   even before it got to the migrations. Fixing only #1 would have hit this next.
+
+**Decisions:**
+- **Renamed the files to the remote versions rather than repairing remote history.** The SQL
+  content is unchanged and already applied, so renaming makes local match remote with no
+  re-apply, no `migration repair`, and no risk to a database holding real seed data. The
+  timestamps ascend in the same order as the ordinals (191157 < 191240 < 191457 < 191517 <
+  191633 < 192345), so replay order is preserved.
+- **Kept the ordinal inside the name** (`20260724191633_0005_definer_hardening.sql`). The
+  name then equals the remote's recorded `name` exactly, and the `0005_`/`0006_` references
+  already in this journal still resolve. Uglier filename, zero doc churn.
+- **Used `git mv`** so the renames register as renames rather than delete+add.
+- **Branching is being switched off until F18.** Nothing in `build-plan.md` asks for Supabase
+  branching (deploy is F18, to Render); branches bill hourly at **$0.01344/hr ≈ $9.70/mo
+  each**; and it adds a CI gate that must stay green on every PR *while migrations are still
+  applied via MCP* — the exact workflow that caused the mismatch. Re-enabling it means moving
+  to CLI-first migrations (`supabase migration new` → `db push`).
+
+**Gotchas:**
+- **MCP `apply_migration` and the CLI disagree about what a migration's identity is.** This is
+  the trap for anyone mixing the two: the MCP is convenient and correct at the database level,
+  but it does not write the local file, and the version it records will never match a
+  hand-named one. Pick one writer per project, or accept a reconciliation step.
+- **A green test suite proves nothing about migration *history*.** Every gate we own reads the
+  live schema, and the schema was always correct. The broken thing was the mapping between
+  files and history rows, which no test looks at.
+- **`config.toml` will matter more than it looks if branching ever returns.** Its `[auth]` block
+  becomes the source of truth for preview branches — which is the clean way to fix the
+  open-email-signup finding from the close-out entry above (`[auth.email] enabled = false` for
+  production) rather than toggling it by hand in the dashboard.
+- `supabase init` is **non-interactive by default** in CLI 2.109.1 (`-i` opts in), and it left
+  `seed.sql` untouched. It also wrote a nested `supabase/.gitignore`; that one ignores
+  `supabase/.env.local`, **not** the root `.env.local` — the root `.gitignore:26` (`.env*.local`)
+  is what protects the service-role key, verified still ignored and untracked.
+
+**Verified:**
+- Local filenames now match remote `supabase_migrations.schema_migrations` one-to-one:
+  `20260724191157` / `191240` / `191457` / `191517` / `191633` / `192345`, confirmed against
+  the Supabase MCP `list_migrations` output.
+- `config.toml` sanity-checked against the live project: `major_version = 17` matches remote
+  PG 17.6.1, and `[db.seed] sql_paths = ["./seed.sql"]` points at the real seed.
+- Database untouched and healthy throughout — `ACTIVE_HEALTHY`, and the 37/37 schema
+  re-run in the close-out entry above happened against this same database.
+- Post-change gates: `npx tsc --noEmit` clean, `npm run lint` clean, `npm run test` 14/14,
+  `npm run test:e2e` 19/19. (Expected — no application file changed; recorded so the next
+  session knows the rename was not load-bearing for the app.)
+
+**Not verified — outstanding:**
+- **That the integration actually goes green.** Confirming it needs either `supabase link`
+  (database password + a personal access token, neither of which the agent holds) or a push to
+  GitHub so the integration re-runs. Since branching is being disabled, this is moot for now —
+  but it means **the rename is a documented-correct fix, not an observed-working one**.
+- The Supabase branch `main` was left at status `MIGRATIONS_FAILED` (since 2026-07-24 19:23).
+  It is inert — the production database is unaffected — and disabling the integration retires it.
+
+**Deferred / follow-ups:**
+- Disabling the GitHub integration is a **dashboard action** (Project Settings → Integrations);
+  there is no MCP tool for it, so the developer does it.
+- If branching is re-enabled in F18: move migrations to CLI-first, and use `config.toml`'s
+  `[auth]` block to disable the email provider on production instead of the dashboard toggle.

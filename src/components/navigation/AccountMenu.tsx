@@ -93,7 +93,7 @@ export function AccountMenu({ profile }: Props) {
                 <button
                   type="submit"
                   role="menuitem"
-                  className="w-full px-4 py-2.5 text-left text-sm text-ink hover:bg-surface-soft"
+                  className="w-full px-4 py-3 text-left text-sm text-ink hover:bg-surface-soft"
                 >
                   Sign out
                 </button>
@@ -105,7 +105,7 @@ export function AccountMenu({ profile }: Props) {
               <button
                 type="submit"
                 role="menuitem"
-                className="w-full px-4 py-2.5 text-left text-sm font-medium text-ink hover:bg-surface-soft"
+                className="w-full px-4 py-3 text-left text-sm font-medium text-ink hover:bg-surface-soft"
               >
                 Sign in with Google
               </button>
@@ -124,11 +124,14 @@ function MenuLink({
   href: string
   children: React.ReactNode
 }) {
+  // py-3 (not py-2.5) is load-bearing: 12px + 20px line-height + 12px = the 44px
+  // tap-target floor in code-standards.md. It also matches DESIGN.md's
+  // `amenity-row` 12px row padding. Asserted by e2e/nav-responsive.spec.ts.
   return (
     <Link
       href={href}
       role="menuitem"
-      className="block px-4 py-2.5 text-sm text-ink hover:bg-surface-soft"
+      className="block px-4 py-3 text-sm text-ink hover:bg-surface-soft"
     >
       {children}
     </Link>

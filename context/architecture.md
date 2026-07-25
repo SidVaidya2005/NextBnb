@@ -411,6 +411,16 @@ delivery. Uploads are **signed server-side** — the browser never sees the API 
 
 - Provider: Supabase Auth via Google OAuth (PKCE flow), using `@supabase/ssr` for cookie-based sessions.
 - Methods: "Sign in with Google" only. No email/password, no other providers.
+- **Caveat — the app offers Google only, the Supabase project does not.** The
+  email/password provider is enabled at the project level because the Playwright
+  fixture signs in through it (Google consent cannot be automated), and
+  `disable_signup` is `false`, so email registration is reachable via the Auth API
+  even though no UI exposes it. Low severity — email confirmation is required and the
+  resulting account is an ordinary guest with no privilege path (RLS + column grants) —
+  but it is a real gap between this document and the live config. Turning signups off
+  globally is **not** the fix: it would also block first-time Google users. The fix is
+  a separate Supabase project for E2E so production can disable the email provider
+  outright; deferred to F18. See `build-journal.md` → Phase 1 close-out.
 - Protected: `/trips`, `/favorites`, `/messages`, `/host/**`, and all mutating server actions. `/admin/**` additionally requires `profiles.is_admin = true`.
 - Public: `/`, `/listings/[id]`, `/auth/callback`, and static assets.
 - The session check for pages/actions uses `supabase.auth.getUser()` (verifies with the auth server) — never trust `getSession()` alone for authorization. `src/proxy.ts` refreshes the session cookie on every request and redirects unauthenticated users away from protected routes.

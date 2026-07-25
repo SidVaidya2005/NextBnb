@@ -38,13 +38,44 @@ Google profile (F02's deliberate no-bootstrap-code decision); the project has
 exactly one admin. `/admin` and the account menu's Admin entry now open for that
 account.
 
-**Remaining F04 loose ends (small):**
+**A Phase 1 close-out pass ran before F05** (2026-07-25). Phase 1 was already
+green on all four gates — this closed F04's open *verifications*, not a defect
+list. It re-ran `schema-verification.sql` (**37/37**, the re-execution F03 never
+did) and confirmed the seed survived it intact, and it replaced the manual
+"eyeball the account menu" to-do with `e2e/nav-responsive.spec.ts` (8 specs).
+That spec immediately caught a real defect: **every account-menu row was 40px
+against the project's own 44px tap-target floor**, at every breakpoint — fixed
+with `py-3`. E2E is now **19/19**. Full detail in `build-journal.md`.
+
+**Supabase branching is being switched off until F18** (2026-07-25). The GitHub
+integration failed with *"Remote migration versions not found in local
+migrations directory"*: F02 applied migrations via the MCP, which stamps
+**timestamp** versions server-side, while the repo files were named `0001_`…
+`0006_` — and the CLI reconciles on version, not name. The six files are now
+renamed to their remote versions (`20260724191157_0001_…` etc., content
+untouched, `git mv`), and `supabase/config.toml` exists for the first time
+(`supabase init` — the repo was never initialised). Branching stays off because
+nothing in `build-plan.md` needs it, branches bill **~$9.70/mo each**, and it
+gates every PR on a migration workflow we are not yet using. **The rename is
+documented-correct but not observed-working** — confirming it needs `supabase
+link` or a push. Detail in `build-journal.md` → F02 follow-up.
+
+**Remaining loose ends (small):**
+- **Disable the GitHub integration** in the Supabase dashboard (Project Settings
+  → Integrations) — a dashboard action, no MCP tool for it. The Supabase branch
+  `main` is parked at `MIGRATIONS_FAILED`; it is inert and the production
+  database is unaffected.
 - The **admin-side** render of `/admin` is untested automatically — the E2E only
   proves the non-admin redirect. Covering the admin path needs a second test
   user, which belongs to F17 when there is a dashboard worth asserting on.
 - Cancelling at the Google consent screen (`access_denied` → home, no error
-  banner) has not been exercised.
-- The account menu has not been eyeballed at the four DESIGN.md breakpoints.
+  banner) has not been exercised — it needs a human to click Cancel.
+- **The security advisor baseline is 3 WARNs, not F02's 2.** The third is
+  leaked-password protection, disabled because it is **Pro-plan-only**. It
+  appeared when F04 enabled email/password auth for the Playwright fixture,
+  which also leaves email registration reachable via the Auth API
+  (`disable_signup: false`) despite the app offering Google only. Low severity,
+  no privilege path; the fix is a separate Supabase project for E2E in F18.
 
 ---
 
@@ -91,8 +122,6 @@ account.
 - Targets **Next.js 16** → requires Node ≥20.9 (LTS) and TS ≥5.1; `params`/`cookies`/`headers` are async-only.
 - Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only when its tests pass. E2E runs against the seeded DB with a seed-verification step.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
-- **F01 complete** — hand-authored the Next 16 tree (no `create-next-app`); `lib/supabase/middleware.ts` is config-guarded so the app boots on placeholder Supabase env (real creds deferred to F02/F04); `database.types.ts` is a placeholder until F02; `next-cloudinary`/`zod`/`react-hook-form` deferred to the features that first use them.
-- **F03 complete** — **the seed runs as service-role, so RLS enforces nothing while it runs.** Fixture rows that no real user could produce (a review with no matching booking, a host booking their own listing) insert silently. Rows that must obey a rule are therefore *derived* from their parent — bookings select their price snapshot from `listings`, reviews select `listing_id`/`reviewer_id` from `bookings` — and `seed-verification.sql` re-asserts every rule by hand (46/46).
-- **F04 complete** — **sessions are shared state; specs that mutate them must own them.** Four signed-in E2E specs reusing one `storageState` meant the sign-out spec deleted that session server-side mid-run, failing its siblings with `session_not_found`. Sign-out specs now mint their own session (`e2e/session.ts`), and `signOut` uses `scope: 'local'` so one browser logging out never revokes another device.
-- **F04 complete** — **`@supabase/ssr@0.6.1` silently degraded every typed query to `never`.** The pinned SSR package was ~10 months older than the hoisted `supabase-js`/`postgrest-js` 2.110.8, so the `Database` generic stopped threading through `createServerClient`: `select('*')` on `profiles` returned `never[]`, and the only symptom was one confusing spread error. Upgraded to `0.12.3`. Nothing typed had been written yet, which is why F02/F03 never noticed — F05's first listing query would have hit it head-on.
 - **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
+- **F02 follow-up** — **the MCP and the Supabase CLI disagree on what identifies a migration.** `apply_migration` stamps a server-side **timestamp** version and does not write the local file; the CLI derives the version from the filename prefix and reconciles on version, not name. Mixing the two silently desyncs history — invisible to every test we own, because they all read the live schema, which was never wrong. Pick one writer per project, or plan a reconciliation step.
+- **Phase 1 close-out** — **a "verify it looks right" to-do is a defect waiting to happen; make it a spec.** F04 deferred the account-menu breakpoint check to a manual eyeball. Converting it to `e2e/nav-responsive.spec.ts` immediately exposed a 40px tap target against the project's own 44px floor — present at *every* breakpoint, invisible from reading the JSX, and only findable by measuring the rendered box. Responsive checks are now assertions, not intentions.
