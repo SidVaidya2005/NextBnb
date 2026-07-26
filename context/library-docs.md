@@ -34,7 +34,7 @@ frequently and training data may be outdated.
 
 ## @supabase/ssr + @supabase/supabase-js
 
-**Check first:** Context7 `/supabase/ssr` for auth/cookie APIs; `/supabase/supabase` (or the Supabase MCP `search_docs`) for queries, Storage, and Realtime. Client construction lives only in `src/lib/supabase/` — see `architecture.md` → Key Patterns for the `server.ts`, `client.ts`, and middleware snippets; do not re-create them elsewhere.
+**Check first:** Context7 `/supabase/ssr` for auth/cookie APIs; `/supabase/supabase` (or the Supabase MCP `search_docs`) for queries, Storage, and Realtime. Client construction lives only in `src/lib/supabase/` — read `server.ts` / `client.ts` / `middleware.ts` themselves, and `architecture.md` → Key Patterns for why each looks the way it does. Do not re-create them elsewhere.
 
 ### Setup
 
@@ -259,8 +259,9 @@ the schema rather than declaring them twice.
 ```ts
 const parsed = createListingSchema.safeParse(input)
 if (!parsed.success) {
-  // For forms, surface field errors:
-  const { fieldErrors } = parsed.error.flatten()
+  // For forms, surface field errors. Zod 4: the top-level `z.flattenError()`,
+  // not the deprecated `parsed.error.flatten()` method (see the version note above).
+  const { fieldErrors } = z.flattenError(parsed.error)
   return { ok: false, error: 'Please fix the highlighted fields.' }
 }
 // parsed.data is fully typed
@@ -270,7 +271,7 @@ if (!parsed.success) {
 - Every server action and route input is `safeParse`d before use — inputs are `unknown` until then.
 - Derive TS types with `z.infer<typeof schema>`; never maintain a separate hand-written type for the same shape.
 - Enums that mirror DB enums/constants use `z.enum(PROPERTY_TYPES)` / `z.enum(AMENITIES)` so they stay in sync with `constants.ts`.
-- Use `.flatten().fieldErrors` when the caller is a form; return a single safe `error` string otherwise.
+- Use `z.flattenError(parsed.error).fieldErrors` when the caller is a form; return a single safe `error` string otherwise. **Not `parsed.error.flatten()`** — that method still exists in 4.4.3 but is deprecated; the top-level function returns the identical `{ formErrors, fieldErrors }` shape (verified against the installed package).
 
 ---
 

@@ -30,7 +30,7 @@ The AI agent on this project operates as a senior engineer. This means:
 - TypeScript ≥5.1 (Next 16 minimum). Prefer `type` aliases for data shapes; reserve `interface` for extensible object contracts.
 - Server-action and query inputs from the client are `unknown` until validated by Zod — never trust their shape.
 - Row and enum types come from `src/types/database.types.ts` (generated). Derive with helpers like `type Listing = Database['public']['Tables']['listings']['Row']`; do not re-declare table columns by hand.
-- No non-null assertions (`!`) except on **env vars read at a client/SDK construction boundary** — the Supabase client factories (`lib/supabase/*`) and the Cloudinary signing call in `/api/sign-cloudinary`, whose shapes are fixed in `architecture.md` → Key Patterns. Handle `null`/`undefined` explicitly everywhere else.
+- No non-null assertions (`!`) except on **env vars read at a client/SDK construction boundary** — the Supabase client factories (`lib/supabase/*`) and the Cloudinary signing call in `/api/sign-cloudinary`, whose rationale is recorded in `architecture.md` → Key Patterns. Handle `null`/`undefined` explicitly everywhere else.
 - Use `async/await`; no floating promises (await or explicitly void them).
 - Prefer immutable data — `const`, and don't mutate function parameters or shared arrays/objects.
 - Exhaustively handle union/enum branches (e.g. `booking_status`); use a `never` check in the default case where practical.
@@ -129,7 +129,7 @@ export function ListingCard({ listing, coverUrl }: Props) {
 
 - One primary export per file; helpers used only by that file stay in that file, below the component.
 - Props are a named `Props` type, destructured in the signature.
-- No default exports except where a framework requires them (`page.tsx`, `layout.tsx`, `route.ts` handlers, `middleware.ts`).
+- No default exports except where a framework requires them (`page.tsx`, `layout.tsx`, `route.ts` handlers). `src/proxy.ts` is a named export (`proxy`), not a default.
 
 ---
 
@@ -207,7 +207,7 @@ export async function getPublishedListings(filters: ListingFilters): Promise<Lis
 ### Route handler (`src/app/**/route.ts`)
 
 - Handlers do HTTP only — the OAuth callback (`/auth/callback`) and the Cloudinary signature route (`/api/sign-cloudinary`). No UI. Keep them thin: verify the user, do the one job (code exchange, or ownership-checked signing), return a `Response`/redirect. Any real mutation belongs in a server action, not a route handler.
-- **The one sanctioned read outside `lib/queries/`** is the sign route's ownership check (`.from('listings').select('id').eq('host_id', user.id)`), whose exact shape is fixed in `architecture.md` → Key Patterns. It stays inline because it *is* the handler's one job — the authorization decision the signature depends on — and routing it through a query module would put the guard a call away from the thing it guards. Do not read this as licence for other inline reads.
+- **The one sanctioned read outside `lib/queries/`** is the sign route's ownership check (`.from('listings').select('id').eq('host_id', user.id)`), whose rationale is recorded in `architecture.md` → Key Patterns. It stays inline because it *is* the handler's one job — the authorization decision the signature depends on — and routing it through a query module would put the guard a call away from the thing it guards. Do not read this as licence for other inline reads.
 
 ---
 

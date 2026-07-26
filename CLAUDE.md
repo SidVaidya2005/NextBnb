@@ -25,6 +25,7 @@ writing any code**, and keep it current as you work. Read in this order:
 - **Fully responsive, mobile-first.** Verify every screen at the DESIGN.md breakpoints (`tablet:744` / `desktop:1128` / `wide:1440`) — phone, iPad, laptop, desktop. Images render via `next-cloudinary` `CldImage` with `sizes`, never a bare `<img>`.
 - **Update `progress-tracker.md`** after every completed feature — check the box, set current status, and add the single most important decision to "Key Decisions" (cap ~10 bullets).
 - **Archive detail in `build-journal.md`** — after each feature, append a dated entry with full decisions, gotchas, and verification results. Prune `progress-tracker.md` "Key Decisions" into here when it exceeds ~10 bullets. Consult it when revisiting a completed feature, investigating a regression, or making a decision that might conflict with past work.
+- **Maintain the journal, don't just append to it.** Follow its "How to maintain this file" block: when a past claim turns out false add a dated `> **Corrected …:**` note *beneath the original*; when a "Not verified"/"Deferred" item closes append `→ **Closed by F<NN>**`; when a prediction fails append `→ **Did not happen.**`. Never delete wrong turns, verification numbers, or gotchas, and never prune the file for length — it is read on demand, so edit it for accuracy only.
 
 ## Runtime & Commands
 

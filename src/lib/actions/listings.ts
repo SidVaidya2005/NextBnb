@@ -96,7 +96,7 @@ export async function createListing(
  * claim the cover and collide on the `listing_photos_one_cover_idx` partial
  * unique index. Leaving the flag unset is race-free and costs nothing:
  * `coverPhotoOf` already falls back to the lowest `position`, so the gallery
- * renders correctly, and `publishListing` promotes an explicit cover before the
+ * renders correctly, and `setListingPublished` promotes an explicit cover before the
  * listing is ever public.
  */
 export async function addListingPhoto(input: unknown): Promise<ActionResult> {

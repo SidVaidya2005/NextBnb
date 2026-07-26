@@ -6,7 +6,7 @@ const PROTECTED = ['/trips', '/favorites', '/messages', '/host', '/admin']
 /**
  * Refreshes the auth session cookie on every request and redirects
  * unauthenticated users away from protected routes. The returned response
- * carries the refreshed cookies — the caller (src/middleware.ts) MUST return it
+ * carries the refreshed cookies — the caller (src/proxy.ts) MUST return it
  * as-is so they are preserved.
  */
 export async function updateSession(request: NextRequest): Promise<NextResponse> {

@@ -428,6 +428,7 @@ If Airbnb Cereal VF and Circular are unavailable, **Inter** is the closest open-
 
 ### Grid & Container
 - **Max content width:** ~1280px centered on the homepage and editorial pages. Listing detail pages cap closer to 1080px to keep the photo banner and reservation rail readable.
+  > **NextBnb resolution (F07):** this line and the Responsive Behavior table below disagree — that table says "content caps at 1440px on listing/search pages". The more specific line wins: **listing detail caps at 1080px** (`--container-listing`), **search/home caps at 1440px** (`--container-wide`). Both tokens are in `globals.css @theme`.
 - **City link grid (homepage footer):** 6-column grid at desktop with each cell housing a city name in `{typography.title-md}` and a category sub-label in `{typography.body-sm}` muted.
 - **Listing detail:** 2-column with photo / amenity body on the left (~64% width) and a sticky reservation card (`{component.reservation-card}`) on the right (~32%).
 - **Footer:** 3-column link list (Support / Hosting / Airbnb) at desktop, collapsing to 1-column on mobile.
@@ -522,7 +523,7 @@ There are no progressive elevation tiers — the system either has the one shado
 | Mobile | < 744px | Top nav collapses to logo + hamburger; product tabs hide behind a sheet; search bar collapses to a single tappable pill; property cards stack 1-up; city grid 1-column; listing detail collapses reservation card to a sticky bottom bar. |
 | Tablet | 744–1128px | Top nav keeps product tabs but search bar narrows; property cards 2-up; city grid 2–3 column; reservation card stays sticky right-rail at narrower width. |
 | Desktop | 1128–1440px | Full top nav with three product tabs centered; search bar at full pill width with all 3 segments visible; property cards 4-up; city grid 6-column; listing detail 2-column with reservation rail. |
-| Wide | > 1440px | Content width caps at 1440px on listing/search pages and ~1280px on editorial; gutters absorb the rest. |
+| Wide | > 1440px | Content width caps at 1440px on listing/search pages and ~1280px on editorial; gutters absorb the rest. **(NextBnb: listing detail caps at 1080px — see the Grid & Container note above.)** |
 
 ### Touch Targets
 - Primary CTAs at minimum 48×48px (above WCAG AAA).

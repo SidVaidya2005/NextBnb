@@ -4,6 +4,30 @@
 > **Write to after every completed feature.** When `progress-tracker.md` "Key Decisions" exceeds ~10 bullets, prune the older/lower-stakes ones here.
 > **Relates to:** mirrors the feature order in `build-plan.md`.
 
+## How to maintain this file
+
+Mostly append — but it is **not** append-only, because an entry that has quietly
+become false is worse than no entry. Editing rules, adopted 2026-07-26:
+
+- **Correct, don't rewrite.** When a past claim turns out wrong, leave the original
+  text and add a dated `> **Corrected YYYY-MM-DD:** …` blockquote beneath it. The
+  superseded belief usually explains a decision made at the time — delete it and that
+  decision reads as arbitrary.
+- **Mark open items resolved, don't delete them.** When a "Not verified" or "Deferred"
+  item closes, append `→ **Closed by F<NN>** (date): <what closed it>` under it. How
+  long a gap stayed open is itself evidence — the Phase 3 close-out's whole lesson is
+  that three gaps survived from F04 to F11 for one structural reason.
+- **A prediction that didn't come true gets `→ **Did not happen.**`** plus what
+  happened instead. These are the entries most likely to mislead, because they read
+  as statements of fact.
+- **Never remove:** wrong turns and failed diagnoses, verification evidence and
+  numbers, or library/framework gotchas — even where the code has moved on. These are
+  the asset; every Key Decision in `progress-tracker.md` came from one of them.
+- **Delete only** genuinely redundant boilerplate repeated across entries (see
+  Standing environment notes below for where such notes belong instead).
+- **Never prune for length.** This file is read on demand, not per session, so its
+  size costs nothing. Edit it for accuracy only.
+
 <!-- Entry format — repeat per completed feature:
 
 ## Phase {{N}} · Feature {{NN}} — {{FEATURE_NAME}}  *(YYYY-MM-DD)*
@@ -12,6 +36,21 @@
 - Verified: …
 
 -->
+
+## Standing environment notes
+
+Known, accepted, and deliberately not re-litigated per feature. Recorded here so
+entries below do not each carry a copy.
+
+- **The stray `~/package-lock.json` multiple-lockfile warning is cosmetic and out of
+  scope.** A lockfile dated 2026-03-11 in the developer's home directory makes Next
+  infer the wrong workspace root ("detected multiple lockfiles"). It is outside the
+  repo, affects nothing, and is left alone deliberately. First observed in F02 and
+  unchanged through F12; the per-feature repetitions of this note were consolidated
+  here during the 2026-07-26 context audit. If it ever stops being cosmetic, that is
+  a finding worth its own entry.
+
+---
 
 ## Phase 1 · Feature 01 — Project scaffold, design tokens & integrations  *(2026-07-25)*
 
@@ -25,6 +64,10 @@ modules + `src/middleware.ts`; `cloudinary.ts` + `/api/sign-cloudinary`; `consta
 
 **Decisions:**
 - **Hand-authored the whole tree** (no `create-next-app`) — deterministic/reproducible, and Node isn't on the agent shell's PATH, so the developer runs `npm`/`npx` in their own terminal (Node 26.5.0).
+  > **Corrected 2026-07-26:** Node **is** on the agent shell (v26.5.0) and has been
+  > since F02 — run `tsc`/`lint`/`vitest`/`playwright` directly. The belief recorded
+  > here is why F01 handed verification to the developer; it stays so that choice
+  > still makes sense.
 - **Deferred credentials.** `updateSession` in `lib/supabase/middleware.ts` skips the auth refresh when `NEXT_PUBLIC_SUPABASE_URL`/anon key are empty, so the app boots on placeholder `.env.local`. Real project + route protection exercised from F02/F04.
 - **Scoped runtime deps to F01's imports.** Deferred `next-cloudinary` (F07 — also had a Next-16 peer-dep risk), `zod` (F06), `react-hook-form` + `@hookform/resolvers` (F09) to the features that first use them. Full test/lint toolchain kept — standing up that harness is F01's job.
 - `database.types.ts` is a minimal **PLACEHOLDER** (`listings.id`/`host_id` only, for the clients + sign route) — regenerated wholesale in F02.
@@ -87,8 +130,12 @@ live credentials.
 
 **Deferred / follow-ups:**
 - `SUPABASE_SERVICE_ROLE_KEY` is still blank in `.env.local` — it is not exposed by any MCP tool. Copy it from the dashboard (Project Settings → API keys → `service_role`) before F03's seed script.
+  → **Closed by F04** (2026-07-25): a real `sb_secret_` key is in place. F04 also
+    caught that the first value pasted was a *publishable* key, which obeys RLS
+    silently — see F04's gotchas.
 - Next 16 warns that **the `middleware` file convention is deprecated in favour of `proxy`**. Pre-existing from F01 and harmless today; worth handling in F04 when auth actually exercises the middleware.
-- A stray `~/package-lock.json` makes Next infer the wrong workspace root ("detected multiple lockfiles"). Cosmetic, outside the repo, unrelated to this feature.
+  → **Closed by F04** (2026-07-25): renamed to `src/proxy.ts`; the build now prints
+    `ƒ Proxy (Middleware)` with no deprecation warning.
 
 ---
 
@@ -183,7 +230,7 @@ no `src/` change, no new dependency, `database.types.ts` untouched.
 **Deferred / follow-ups:**
 - The Next 16 `middleware` → `proxy` deprecation warning is still outstanding from F01;
   F04 is where auth actually exercises the middleware, so handle it there.
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside the repo.
+  → **Closed by F04** (2026-07-25): renamed to `src/proxy.ts`.
 - `supabase/seed.sql` ends with a commented, non-executing "adopt" snippet: after F04
   sign-in, reassigning `listings.host_id` to a real profile id fills `/host/listings` and
   `/host/reservations` without waiting for F09.
@@ -329,18 +376,24 @@ project now has exactly one admin, so `/admin` and the menu's Admin entry open f
   test user, since flipping the shared fixture user's `is_admin` mid-run would race the
   "no Admin entry for a non-admin" spec. That belongs to F17, when there is a dashboard worth
   asserting on.
+  → **Closed by the Phase 3 close-out** (2026-07-26): the second fixture account
+    proves the route gate opens and closes with `is_admin`. F17 still owns asserting
+    on a dashboard once there is one.
 - **`access_denied` handling** (cancelling at the Google consent screen should return home with
   no error banner) has not been exercised — it needs a deliberate cancel.
 - **Responsive verification of the account menu** at the four DESIGN.md breakpoints has not been
   done — the dropdown drives both the tablet+ control and the mobile hamburger, so it is the one
   new piece of UI whose collapse behaviour still needs eyes on it.
+  → **Closed by the Phase 1 close-out** (2026-07-25): `e2e/nav-responsive.spec.ts`.
+    It immediately found a real defect — every row was 40px against the 44px floor.
 
 **Deferred / follow-ups:**
 - After the first real Google sign-in, flip `is_admin` by hand on that profile (F02's step) to
   make `/admin` reachable; the non-admin redirect is already covered by a spec.
+  → **Done** (2026-07-25): the project has exactly one admin, the developer's Google
+    account. Fixture accounts are granted `is_admin` only temporarily, never left so.
 - `supabase/seed.sql`'s commented "adopt" snippet can now be used to point seeded listings at
   the real profile, filling `/host/listings` before F09.
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside the repo.
 
 ---
 
@@ -421,6 +474,7 @@ before F05 begins, and in doing so turned up one real defect and one config drif
 - **The admin-side render of `/admin`** — unchanged from F04, still belongs to F17 (needs
   a second test user; flipping the shared fixture user's `is_admin` mid-run would race
   the "no Admin entry for a non-admin" spec).
+  → **Closed by the Phase 3 close-out** (2026-07-26) via the second fixture account.
 - **`access_denied` handling** (cancelling at the Google consent screen) — needs a human
   to click Cancel on a real consent screen; cannot be automated.
 - **Whether `disable_signup: true` blocks first-time Google users** — asserted from
@@ -428,6 +482,8 @@ before F05 begins, and in doing so turned up one real defect and one config drif
   project's auth config and risking real onboarding.
 - Mobile search-overlay collapse is still unbuilt, not unverified — the nav's search pill
   is a placeholder until F06, so `<744px` currently has no search affordance by design.
+  → **Closed by F06** (2026-07-25): the SearchBar ships a full-screen overlay below
+    `tablet:` and replaced the nav placeholder on every route.
 
 **Deferred / follow-ups:**
 - If leaked-password protection is wanted, it needs the Pro plan
@@ -435,9 +491,6 @@ before F05 begins, and in doing so turned up one real defect and one config drif
   raise the minimum password length and required character classes on the same screen.
 - A **separate Supabase project for E2E** so production can disable the email provider
   entirely — the real answer to the open-signup finding. Decide during F18/deploy.
-- The stray `~/package-lock.json` (dated 2026-03-11, outside the repo) still triggers
-  Next's multiple-lockfile warning. Cosmetic; left alone deliberately since it lives in
-  the developer's home directory.
 
 ---
 
@@ -541,13 +594,16 @@ dependency, `database.types.ts` untouched. **The first feature that renders real
 **Deferred / follow-ups:**
 - **F09 must add the `public_id ? CldImage : Image` branch** to `ListingCard` when real
   uploads land, and install `next-cloudinary` then.
+  → **Done in F09** (2026-07-25): the branch lives in `components/ui/ListingImage.tsx`,
+    used by both `ListingCard` and `PhotoGallery`.
 - F06 extends `getPublishedListings()` with the filters parameter and the date-based
   availability exclusion; the `MAX_LISTINGS = 48` ceiling becomes real pagination
   pressure only if the catalogue grows past it.
+  → **Done in F06** (2026-07-25), via the `unavailable_listing_ids()` RPC rather than
+    an application-code date check — see F06's finding.
 - F08 adds the saved heart to `ListingCard` (deliberately omitted — a card that cannot
   save anything should not show the control).
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside
-  the repo.
+  → **Done in F08** (2026-07-25).
 
 ---
 
@@ -683,16 +739,18 @@ placeholder replaced; `e2e/fixtures.ts`, `e2e/search.spec.ts` (25),
   F18's accessibility pass owns it.
 - **Only `unavailableRanges = []` has ever run.** The straddle-rejection branch is written
   and typed but unexercised until F12 supplies real ranges.
+  → **Closed by F12** (2026-07-26): `listing_occupied_ranges()` supplies real ranges
+    and the straddle branch is exercised.
 - The seed's dates are frozen at seed time, not recomputed daily, so absolute-date probes
   drift. The specs derive their windows from the database for this reason.
 
 **Deferred / follow-ups:**
 - F07 and F12 must read availability through `unavailable_listing_ids()`, never from
   `bookings`; F12 additionally fills the calendar's `unavailableRanges`.
+  → **Done.** F07 read no availability at all (deliberately — the RPC cannot answer
+    per-listing); F12 added `listing_occupied_ranges()` in migration `0008`.
 - `MAX_LISTINGS = 48` is still a ceiling, not pagination. Filters make it less pressing,
   not resolved.
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside
-  the repo.
 
 ---
 
@@ -868,9 +926,13 @@ should be hidden). **Kill the port before trusting any before/after E2E comparis
   and the Playwright fixture user owns nothing — so no E2E can reach the branch. Same
   structural gap, and the same reason, as `/admin`'s admin-side render deferred to F17.
   F09/F10 will create a listing owned by a real account and close it for free.
+  → **Closed by F09** (2026-07-25): a draft owned by the Playwright fixture account
+    renders it at HTTP 200 while anon still gets a 404.
 - **`next-cloudinary` is still uninstalled and `publicId` is carried but unused.** Every
   photo remains an Unsplash seed row with `public_id = null`; F09 still owns the
   `publicId ? CldImage : Image` branch.
+  → **Closed by F09** (2026-07-25): `next-cloudinary` installed and the
+    `publicId ? CldImage : Image` branch shipped in `ListingImage`.
 - **No keyboard/screen-reader pass.** The page adds regions, an `<hr>` rhythm and a
   scroll-snap strip; the strip is not keyboard-scrollable without focusing it. F18 owns it.
 - **The gallery's fewer-than-5 and more-than-5 photo branches are unexercised** — every
@@ -882,11 +944,10 @@ should be hidden). **Kill the port before trusting any before/after E2E comparis
 **Deferred / follow-ups:**
 - F12 must add the per-listing availability definer function and fill
   `DateRangePicker`'s `unavailableRanges` — still the only honest way to show a calendar.
+  → **Done in F12** (2026-07-26): migration `0008_listing_occupancy_rpc`.
 - No `generateMetadata`, so the browser tab shows the site title rather than the
   listing's. It would cost a second query per render without a shared cache; revisit
   in F18.
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic, outside
-  the repo.
 
 ---
 
@@ -961,6 +1022,9 @@ Triggered by a real failure, not a review: the Supabase GitHub integration repor
   but it means **the rename is a documented-correct fix, not an observed-working one**.
 - The Supabase branch `main` was left at status `MIGRATIONS_FAILED` (since 2026-07-24 19:23).
   It is inert — the production database is unaffected — and disabling the integration retires it.
+  → **Superseded** (2026-07-26): it now reports `FUNCTIONS_DEPLOYED` / `ACTIVE_HEALTHY`.
+    **What changed it was not observed**, so this is still not evidence that the
+    migration rename works — that remains documented-correct and unverified.
 
 **Deferred / follow-ups:**
 - Disabling the GitHub integration is a **dashboard action** (Project Settings → Integrations);
@@ -1108,24 +1172,32 @@ was fully specified in `0001`/`0003`/`0006` and needed nothing.
 - **`toFavoriteCards`' null-listing drop is unit-tested but has never met a real
   null.** It needs a listing that was favorited and *then* unpublished — F10's
   publish/unpublish action is the first thing that can produce one.
+  → **Closed by the Phase 3 close-out** (2026-07-26): host = primary fixture user,
+    viewer = second user, so the unpublished listing is genuinely invisible to the
+    viewer and the embed really is null.
 - **The `/favorites` empty state is rendered but unasserted.** A spec that
   asserts it would have to know no parallel worker has a row in flight for the
   shared user, which is exactly what the isolation rule forbids. A second test
   user would close it — the same answer `/admin`'s admin-side render has been
   waiting on since F04.
+  → **Closed by the Phase 3 close-out** (2026-07-26), using the second fixture account
+    in a `mode: 'serial'` spec that can safely own whole-user state.
 - **No keyboard or screen-reader pass on the heart.** `aria-pressed` and the
   `aria-live` region are written and typed, but the announcement has not been
   heard, and the gallery overlay's focus order has not been walked. F18 owns it.
 - **`DraftNotice` still has never been rendered by a browser** — unchanged from
   F07, and still waiting on F09/F10 creating a listing owned by a real account.
+  → **Closed by F09** (2026-07-25).
 
 **Deferred / follow-ups:**
 - **F09 must add the `publicId ? CldImage : Image` branch** to both `ListingCard`
   and `PhotoGallery` — still outstanding from F05, and now two components.
+  → **Done in F09** (2026-07-25), in the shared `ListingImage` leaf.
 - F10's unpublish is what first exercises the null-embed drop in `getFavorites`;
   worth an assertion there rather than a new fixture here.
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
-  outside the repo.
+  → **Did not happen.** F10 explains why it structurally could not: the fixture user
+    is always the host of anything it unpublishes, and RLS hands a draft back to its
+    owner. Closed instead by the Phase 3 close-out's second account (2026-07-26).
 
 **Pruned from `progress-tracker.md` Key Decisions (F08), preserved verbatim:**
 > - Deployment target is **Render** (Web Service). Redirect URLs live in three
@@ -1301,10 +1373,12 @@ it. `react-hook-form`, `@hookform/resolvers`, `next-cloudinary` installed.
 **Deferred / follow-ups:**
 - F10 inherits the `ui/` primitives and `ListingForm`; the edit page should reuse
   the form rather than fork it.
+  → **Done in F10** (2026-07-26): `/edit` reuses `ListingForm` through a discriminated
+    `mode` prop rather than a second copy.
 - F10's unpublish is still the first thing that can produce a real null embed for
   `toFavoriteCards` (outstanding since F08).
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
-  outside the repo.
+  → **Did not happen** — same reason as F08's copy of this note. Closed by the
+    Phase 3 close-out's second fixture account (2026-07-26).
 
 ### F09 follow-up — the real Cloudinary round trip  *(2026-07-26)*
 
@@ -1564,6 +1638,8 @@ no column grant restricts which listing columns a host may write.
   never null for the one account a spec can drive. A second test user is the only
   thing that closes it, alongside `/favorites`' empty state and `/admin`'s
   admin-side render.
+  → **Closed by the Phase 3 close-out** (2026-07-26): the second fixture account is
+    exactly the missing principal this entry identified.
 - **The `{ ok: false }` branches of `updateListing` and `deleteListing` have
   never run** — the guard refusals are covered; a genuine Supabase error is not.
 - **`deleteListing`'s Cloudinary destroy has only ever run against fabricated
@@ -1585,11 +1661,15 @@ no column grant restricts which listing columns a host may write.
 - F11 adds availability to the listing editor and inherits `/edit`; it should
   reuse `getOwnListing`'s ownership question rather than `getListingById`, for
   the reason F09 recorded.
+  → **Did not happen as predicted.** F11 shipped `/host/listings/[id]/availability` as
+    its own route, a third sibling to `/edit` and `/photos` — `/edit` is one large
+    react-hook-form and a second set of mutations on it would re-render the whole
+    form per block. It did reuse the ownership question, as advised.
 - F11's `blocked_dates` is the next cascade to read before writing a delete.
+  → **Done in F11** (2026-07-26): nothing references `blocked_dates`, so `removeBlock`
+    needs no cascade guard — read before writing, per F10's rule.
 - F17's admin delete is this same cascade with the guard deliberately absent —
   that is the design, and it should say so where it is written.
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
-  outside the repo.
 
 ---
 
@@ -1820,12 +1900,15 @@ anon SELECT, `0006` the anon revokes. **Closes Phase 3.**
   since F06.** What it still owns is the *source* of those ranges for a guest: a
   per-listing `security definer` function, because an anon visitor reads zero
   booking rows. F11's query is host-only and cannot be reused for it.
+  → **Done in F12** (2026-07-26).
 - F12 should reuse `findBlockConflict`/`bookedNightsRange` for its own
   availability re-check rather than writing a third overlap implementation.
+  → **Done in F12** (2026-07-26): `lib/actions/bookings.ts:138` calls
+    `bookedNightsRange` — no third overlap implementation was written.
 - `e2e/calendar.ts` is F12's for free — including the "never `.first()` a day
   cell" trap, which will bite the booking widget's specs identically.
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
-  outside the repo.
+  → **Done in F12** (2026-07-26), including `revealDay`, extracted because a disabled
+    day must never be clicked.
 
 ---
 
@@ -1963,8 +2046,6 @@ untouched.**
   observed, so this is not evidence the migration rename works** — that remains
   documented-correct and unverified. Disabling the GitHub integration is still a
   dashboard action.
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
-  outside the repo.
 
 ---
 
@@ -2178,5 +2259,3 @@ on `loadSeedSnapshot`); `e2e/booking.spec.ts` (10) and
   F12's lesson: the UPDATE policy would refuse a late cancel even with the action's
   check removed, so the spec must target something only the action enforces.
 - F13/F14 should reuse `readBookings`'s widened shape as their oracle.
-- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
-  outside the repo.

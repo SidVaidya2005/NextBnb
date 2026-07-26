@@ -32,7 +32,7 @@ Cloudinary so everything after this has a runtime and a look.
 **Logic:**
 - Initialize Next.js 16 + TypeScript (strict, ≥5.1) + Tailwind v4 on Node ≥20.9; configure the `@/` → `src/*` path alias.
 - Encode DESIGN.md tokens (colors, radii, spacing) and the custom breakpoints (`tablet`/`desktop`/`wide`) in `globals.css` `@theme`.
-- Add `src/lib/supabase/{server,client,middleware}.ts` and `src/middleware.ts` (route protection) per `architecture.md` Key Patterns.
+- Add `src/lib/supabase/{server,client,middleware}.ts` and `src/proxy.ts` (route protection) per `architecture.md` Key Patterns. (Shipped as `src/middleware.ts`; renamed to `src/proxy.ts` in F04 for Next 16.)
 - Add `src/lib/cloudinary.ts` and the `/api/sign-cloudinary` route.
 - Create `.env.example` + `.env.local` with all seven env vars; add `src/lib/constants.ts` and `src/lib/utils.ts` (`ActionResult`, `formatPrice`, `nightsBetween`).
 - Pin the runtime: `.nvmrc` (`20`) + `"engines": { "node": ">=20.9" }`; scaffold Vitest + Playwright configs and the `test` / `test:e2e` scripts.
@@ -179,7 +179,7 @@ Let users save and revisit listings.
 - Heart toggle on cards and the detail page; `/favorites` page listing saved stays; empty state.
 
 **Logic:**
-- `actions/favorites.toggleFavorite` (auth-guarded, upsert/delete on `favorites`); `queries/favorites.getFavorites`; `revalidatePath('/favorites')`.
+- `actions/favorites.setFavorite` (auth-guarded, upsert/delete on `favorites`); `queries/favorites.getFavorites`; `revalidatePath('/favorites')`.
 
 **As built (deviations worth knowing):**
 - **The action is `setFavorite({ listingId, saved })`, not `toggleFavorite(id)`.** A flip
@@ -256,7 +256,7 @@ Let a host maintain their existing listings.
 - `/host/listings` grid of own listings (published + drafts) with edit, publish/unpublish, delete; `/host/listings/[id]/edit` reusing the form.
 
 **Logic:**
-- `queries/listings.getOwnListings`; `actions/listings.updateListing`, `setPublished`, `deleteListing` (also `destroy`s each photo's Cloudinary asset where `public_id` is set); ownership enforced by RLS.
+- `queries/listings.getOwnListings`; `actions/listings.updateListing`, `setListingPublished`, `deleteListing` (also `destroy`s each photo's Cloudinary asset where `public_id` is set); ownership enforced by RLS.
 
 **Planned shape (agreed before build, 2026-07-26):**
 - **Delete refuses while an upcoming confirmed booking exists.** `bookings.listing_id` is

@@ -475,254 +475,104 @@ Missing #1 → Google rejects the sign-in. Missing #2 → Supabase refuses to re
 
 ## Key Patterns
 
-### Supabase server client (`src/lib/supabase/server.ts`)
+Every file named in this section exists in `src/` — **read the file, not a copy of
+it.** What follows records *why* each looks the way it does, because that is the
+part source cannot tell you. Verbatim snippets used to live here and three of them
+had silently drifted from their source by F12; a stale snippet is worse than a
+pointer, because it is confidently wrong and it is what gets read *instead of* the
+real file.
 
-Used in Server Components, server actions, and route handlers. Reads/writes
-session cookies via `next/headers`. The `setAll` try/catch is required because
-Server Components cannot set cookies (only middleware/actions can).
+### Supabase server client — `src/lib/supabase/server.ts`
 
-```ts
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import type { Database } from '@/types/database.types'
+Server Components, server actions, and route handlers. Reads/writes session cookies
+via `next/headers`.
 
-export async function createClient() {
-  const cookieStore = await cookies()
+- **`setAll`'s try/catch is empty on purpose.** Server Components cannot set cookies —
+  only the proxy and server actions can. The proxy refresh writes them, so swallowing
+  the throw here is correct, not a missing error handler.
+- **`setAll`'s parameter needs an explicit `Parameters<SetAllCookies>[0]` annotation**,
+  with `SetAllCookies` imported from `@supabase/ssr`. `createServerClient` has two
+  cookie overloads (`getAll`/`setAll` vs the deprecated `get`/`set`/`remove`) and
+  strict TS cannot infer the param across them — omitting it is 10 implicit-any
+  errors (F01).
+- The two env vars carry non-null assertions; this is one of the sanctioned
+  boundaries in `code-standards.md` → TypeScript.
+- **Both factories are generic over `Database`** (`createServerClient<Database>` /
+  `createBrowserClient<Database>`) from `@/types/database.types`. Drop the generic and
+  every query silently degrades to `never` — F04 lost an afternoon to exactly that,
+  surfacing as one opaque `TS2698` rather than as a type error where the fault was.
 
-  return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options),
-            )
-          } catch {
-            // Called from a Server Component — cookies are read-only here.
-            // The middleware refresh handles writing them; safe to ignore.
-          }
-        },
-      },
-    },
-  )
-}
-```
+### Supabase browser client — `src/lib/supabase/client.ts`
 
-### Supabase browser client (`src/lib/supabase/client.ts`)
+Client Components only (`'use client'`) — realtime subscriptions and client-side
+Cloudinary uploads. No cookie plumbing: `createBrowserClient` handles it.
 
-Used only in Client Components (`'use client'`) — e.g. realtime subscriptions
-and client-side Cloudinary uploads.
+**These two files are the only places a Supabase client may be constructed** (see
+System Boundaries). Match the client to the runtime — importing the server module
+into a client component is a build error, and the reverse silently loses the session.
 
-```ts
-import { createBrowserClient } from '@supabase/ssr'
-import type { Database } from '@/types/database.types'
+### Proxy session refresh — `src/proxy.ts` + `src/lib/supabase/middleware.ts`
 
-export function createClient() {
-  return createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  )
-}
-```
+Next 16 renamed the `middleware` file convention to `proxy` (and the export with it);
+the proxy runtime is Node-only, which is what the Supabase client wants. **It is two
+files:** `src/proxy.ts` holds only the convention — the `proxy` export and the
+`matcher` — and delegates to `updateSession`. All logic lives in
+`src/lib/supabase/middleware.ts`, which keeps its filename because it is a library
+helper rather than a file convention, and because client construction is restricted
+to `src/lib/supabase/`.
 
-### Proxy session refresh (`src/proxy.ts`)
+- **Return the response object the helper builds, unmodified** — it carries the
+  refreshed cookies. Constructing a fresh `NextResponse` instead drops them and
+  silently signs the user out.
+- **Add no logic between client creation and `getUser()`.** That call is what
+  refreshes the token.
+- **It throws when its Supabase env vars are missing.** It is the only thing standing
+  between a signed-out visitor and every protected route, so it must never degrade to
+  a silent no-op — F04 hardened F01's env-skip for exactly this reason.
+- `PROTECTED` is a prefix list; a path matches on exact equality or on `path + '/'`.
 
-Refreshes the auth cookie on every request and redirects unauthenticated users
-away from protected routes. Always return the `supabaseResponse` object so
-refreshed cookies are preserved.
+### Server action with auth guard + validation — `src/lib/actions/*.ts`
 
-Next 16 renamed the `middleware` file convention to `proxy` (and the export with
-it); the proxy runtime is Node-only, which is what the Supabase client wants. The
-thin route file is `src/proxy.ts`; the logic stays in `src/lib/supabase/middleware.ts`,
-which keeps its filename because it is a library helper, not a file convention.
+The canonical mutation shape — validate with Zod → `getUser()` → mutate (RLS
+re-checks ownership) → `revalidatePath` → return `ActionResult` — is specified once,
+with a worked example, in **`code-standards.md` → Boundary Patterns**. Follow it
+there; the same sequence is drawn under Data Flow above.
 
-```ts
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+Two domain rules this project's actions add on top:
 
-const PROTECTED = ['/trips', '/favorites', '/messages', '/host', '/admin']
+- **A Supabase error on a `bookings` insert usually means the overlap exclusion
+  constraint fired** (`23P01`). Surface it as "Those dates are no longer available." —
+  never the raw error.
+- **The action is the only enforcement for any rule spanning two tables.** No
+  constraint can express `min_nights`, the per-listing `max_guests`, past dates, or a
+  booking over `blocked_dates` (F12).
 
-export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request })
+### OAuth callback route — `src/app/auth/callback/route.ts`
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          response = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
-          )
-        },
-      },
-    },
-  )
+- **`next` is attacker-controlled** — it round-trips through the provider — so it
+  passes through `safeNextPath` before use. A bare `startsWith('/')` check still
+  admits the protocol-relative `//evil.com`, which browsers treat as absolute.
+- **Behind Render's load balancer `origin` is the internal address**, so the redirect
+  base is built from `x-forwarded-host` in production and from `origin` in
+  development.
+- **`error=access_denied` redirects home with no error banner** — declining at the
+  consent screen is a choice, not a failure. Any other failure lands on
+  `/?signin=error`.
 
-  // IMPORTANT: getUser() must be called to refresh the token. Do not add
-  // logic between client creation and getUser().
-  const { data: { user } } = await supabase.auth.getUser()
+### Cloudinary config + signature route — `src/lib/cloudinary.ts`, `src/app/api/sign-cloudinary/route.ts`
 
-  const path = request.nextUrl.pathname
-  if (!user && PROTECTED.some((p) => path === p || path.startsWith(p + '/'))) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/'
-    url.searchParams.set('signin', 'required')
-    url.searchParams.set('next', path)
-    return NextResponse.redirect(url)
-  }
+- **`cloudinary.ts` begins with `import 'server-only'`.** That line is what makes
+  "never imported by a client component" a build-time error rather than a convention,
+  and this module holds `CLOUDINARY_API_SECRET`. Do not drop it.
+- **Never blindly sign what the client sends.** The route verifies the user (401),
+  **whitelists** the signable keys — `timestamp`, `folder`, `source`, rejecting
+  `public_id`, `upload_preset`, `eager`, `notification_url` (403) — and confirms the
+  `folder` matches `nextbnb/listings/<uuid>` for a listing the caller hosts (403).
+- **Sign the validated params exactly as received.** Rebuilding a different object
+  makes the signature mismatch the widget's actual upload.
+- The ownership read in that route is the one sanctioned `.from()` outside
+  `lib/queries/` (see `code-standards.md` → Route handler).
 
-  return response
-}
-
-export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
-}
-```
-
-### Server action with auth guard + validation (`src/lib/actions/*.ts`)
-
-The canonical mutation shape. Every server action follows this: validate input
-with Zod, verify the user, mutate (RLS re-checks ownership), revalidate, return
-`ActionResult`.
-
-```ts
-'use server'
-
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
-import { createBookingSchema } from '@/lib/validations/bookings'
-import type { ActionResult } from '@/lib/utils'
-
-export async function createBooking(input: unknown): Promise<ActionResult<{ id: string }>> {
-  const parsed = createBookingSchema.safeParse(input)
-  if (!parsed.success) {
-    return { ok: false, error: 'Please check the booking details.' }
-  }
-
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { ok: false, error: 'You must be signed in to book.' }
-
-  const { data, error } = await supabase
-    .from('bookings')
-    .insert({ ...parsed.data, guest_id: user.id })
-    .select('id')
-    .single()
-
-  if (error) {
-    // Overlap exclusion constraint → dates already taken.
-    console.error('[actions/bookings] createBooking failed:', error.message)
-    return { ok: false, error: 'Those dates are no longer available.' }
-  }
-
-  revalidatePath('/trips')
-  revalidatePath(`/listings/${parsed.data.listing_id}`)
-  return { ok: true, data }
-}
-```
-
-### OAuth callback route (`src/app/auth/callback/route.ts`)
-
-`next` is attacker-controlled (it round-trips through the provider), so it is
-sanitized by `safeNextPath` — a bare `startsWith('/')` check still admits the
-protocol-relative `//evil.com`, which browsers treat as an absolute URL. Behind
-Render's load balancer `origin` is the internal address, so the forwarded host
-is what gets the user back to the URL they actually typed.
-
-```ts
-import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { safeNextPath } from '@/lib/utils'
-
-export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url)
-  const code = searchParams.get('code')
-  const next = safeNextPath(searchParams.get('next'))
-  const oauthError = searchParams.get('error')
-
-  const forwardedHost = request.headers.get('x-forwarded-host')
-  const base =
-    process.env.NODE_ENV === 'development' || !forwardedHost
-      ? origin
-      : `https://${forwardedHost}`
-
-  // Declining at the consent screen is a choice, not a failure.
-  if (oauthError === 'access_denied') return NextResponse.redirect(`${base}/`)
-
-  if (code) {
-    const supabase = await createClient()
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    if (!error) return NextResponse.redirect(`${base}${next}`)
-  }
-
-  return NextResponse.redirect(`${base}/?signin=error`)
-}
-```
-
-### Cloudinary config + signature route
-
-The SDK is configured once (server-only). The signature route lets the browser
-upload directly to Cloudinary without ever holding the API secret.
-
-```ts
-// src/lib/cloudinary.ts  (server-only)
-import { v2 as cloudinary } from 'cloudinary'
-
-cloudinary.config({
-  cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-})
-
-export { cloudinary }
-```
-
-Do **not** blindly sign whatever the client sends. Verify the user, **whitelist**
-the allowed keys, and confirm the `folder` targets a listing the caller owns
-before signing. (Sign the received params as-is once validated — rebuilding a
-different object would make the signature mismatch the widget's actual upload.)
-
-```ts
-// src/app/api/sign-cloudinary/route.ts
-import { cloudinary } from '@/lib/cloudinary'
-import { createClient } from '@/lib/supabase/server'
-
-const ALLOWED_KEYS = new Set(['timestamp', 'folder', 'source'])
-
-export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return new Response('Unauthorized', { status: 401 })
-
-  const { paramsToSign } = (await request.json()) as { paramsToSign: Record<string, unknown> }
-
-  // 1. Whitelist keys — reject public_id, upload_preset, eager, notification_url, etc.
-  if (Object.keys(paramsToSign).some((k) => !ALLOWED_KEYS.has(k))) {
-    return new Response('Forbidden parameter', { status: 403 })
-  }
-  // 2. Folder must be nextbnb/listings/<uuid> for a listing this user owns.
-  const listingId = String(paramsToSign.folder ?? '').match(/^nextbnb\/listings\/([0-9a-f-]{36})$/)?.[1]
-  if (!listingId) return new Response('Bad folder', { status: 403 })
-  const { data: listing } = await supabase
-    .from('listings').select('id').eq('id', listingId).eq('host_id', user.id).single()
-  if (!listing) return new Response('Forbidden', { status: 403 })
-
-  // 3. Sign the validated params exactly as received.
-  const signature = cloudinary.utils.api_sign_request(paramsToSign, process.env.CLOUDINARY_API_SECRET!)
-  return Response.json({ signature })
-}
-```
 
 ---
 
