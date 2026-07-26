@@ -2,6 +2,8 @@ import { differenceInCalendarDays, format, parseISO, subDays } from 'date-fns'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
+import { SERVICE_FEE_PCT } from '@/lib/constants'
+
 // The return-shape contract used across every server-action / boundary.
 export type ActionResult<T = void> =
   | { ok: true; data: T }
@@ -28,6 +30,54 @@ export function formatPrice(cents: number): string {
  */
 export function nightsBetween(checkIn: Date, checkOut: Date): number {
   return differenceInCalendarDays(checkOut, checkIn)
+}
+
+/** What a stay costs, every field an integer number of **cents**. */
+export type PriceBreakdown = {
+  /** `nights × price_per_night`. */
+  subtotal: number
+  /** Echoed from the listing so the four lines the guest reads are one object. */
+  cleaningFee: number
+  /** `round(subtotal × SERVICE_FEE_PCT)`, half-up. */
+  serviceFee: number
+  total: number
+}
+
+/**
+ * The price of a stay, computed once for both the guest and the row.
+ *
+ * **One implementation, two callers** — the booking widget renders this live and
+ * `createBooking` snapshots the same numbers onto the `bookings` row, so the total
+ * a guest agreed to and the total stored cannot disagree. The same arrangement as
+ * `findBlockConflict` and `blocksListingDeletion`, and for the same reason.
+ *
+ * Integer cents throughout (`architecture.md`: never arithmetic on floating-point
+ * currency). `Math.round` is half-up for non-negative values, which is the rounding
+ * rule `architecture.md` → Booking Rules specifies; every input here is
+ * non-negative by DB check constraint, so its round-toward-`+∞` behaviour on
+ * negatives never comes up. It also absorbs the float artifact in the percentage
+ * multiply — `14500 * 0.14` is `2030.0000000000002` — so no decimal library is
+ * needed for a single multiplication into whole cents.
+ *
+ * The result is a **snapshot**: once written it is never recomputed from the
+ * listing, because the host may edit the price afterwards.
+ */
+export function priceBreakdown(stay: {
+  nights: number
+  /** Integer cents. */
+  pricePerNight: number
+  /** Integer cents; zero for the listings that charge none. */
+  cleaningFee: number
+}): PriceBreakdown {
+  const subtotal = stay.nights * stay.pricePerNight
+  const serviceFee = Math.round(subtotal * SERVICE_FEE_PCT)
+
+  return {
+    subtotal,
+    cleaningFee: stay.cleaningFee,
+    serviceFee,
+    total: subtotal + stay.cleaningFee + serviceFee,
+  }
 }
 
 /**

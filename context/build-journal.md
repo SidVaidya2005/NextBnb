@@ -1965,3 +1965,218 @@ untouched.**
   dashboard action.
 - The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
   outside the repo.
+
+---
+
+## Phase 4 · Feature 12 — Instant Book  *(2026-07-26)*
+
+**Scope built (13 files):** migration `0008_listing_occupancy_rpc`
+(`listing_occupied_ranges`); `priceBreakdown` + `PriceBreakdown` in `lib/utils.ts`
+(+5 unit tests); `lib/validations/bookings.ts` (`createBookingSchema`, +12 unit
+tests); `getListingOccupiedRanges` in `lib/queries/listings.ts`;
+`getCurrentUserId` in `lib/queries/profiles.ts` (with `isSignedIn` redefined on
+it); `lib/actions/bookings.ts` (`createBooking`, `bookableListing`);
+`components/listings/BookingWidget.tsx` with local `ReserveControl`,
+`Confirmation`, `Breakdown` and `GuestStepper`; **`ReservationCard.tsx` deleted**;
+`app/listings/[id]/page.tsx` given `searchParams` and rewired; `revealDay`
+extracted in `e2e/calendar.ts`; `readBookings` widened and
+`updateFixtureListing` added in `e2e/fixtures.ts` (plus a fixture-host exclusion
+on `loadSeedSnapshot`); `e2e/booking.spec.ts` (10) and
+`e2e/booking-responsive.spec.ts` (16). One migration, **no new dependency**.
+
+**Decisions:**
+- **One definer function returning inclusive spans, and the trap is sharper than
+  F06's.** `0007` answers "which listings are busy in this range" and returns ids;
+  the widget needs the transpose. `listing_occupied_ranges(p_listing_id)` returns
+  `[start_date, end_date]` spans for one **published** listing, unioning confirmed
+  bookings with host blocks. F06's finding was about *anonymous* visitors; here the
+  `bookings` SELECT policy means **any signed-in guest reads zero rows for a
+  listing they do not host** — so the everything-is-free answer was waiting inside
+  the **write path** too, not only on the calendar. Rejected a second
+  `is_listing_available()` boolean: it would narrow the race window slightly and
+  cost a second definer function, a second hardening block, and another advisor WARN.
+- **The half-open → inclusive conversion happens in SQL.** Returning bookings
+  half-open and blocks inclusive in one result set hands the caller two conventions
+  in the same array, which is exactly how the two models drift. One model crosses
+  the boundary; `bookedNightsRange` converts the *candidate stay* on the way back.
+- **The action reads through the query module — a first for an action here.** Every
+  other action does its own reads via a private helper (`ownPhotos`,
+  `ownOccupancy`). This one imports `getListingOccupiedRanges` because it is the
+  *identical* question the page asks, and a second `.rpc()` call site is how the
+  calendar a guest reads and the rule that refuses them come apart.
+- **The past-date floor is strict, inverting F10 and F11.** Both widened their
+  cutoffs by a day because refusing was the harmless error. Here refusing is *also*
+  harmless and strictness is what refuses: a booking accepted with a past
+  `check_in` can never be cancelled — `bookings_update_cancel_own_or_admin`
+  requires `check_in >= current_date` — so leniency hands the guest a stay they
+  cannot exit. Re-picking costs one click.
+- **`null` is not `[]`.** `getListingOccupiedRanges` returns `null` when the check
+  itself failed, and the widget then disables Reserve and says why while the action
+  refuses outright. Collapsing the two would invite a booking on a calendar nobody
+  verified — F06's rule that unverified availability is worse than none.
+- **The per-listing guest cap was missing from the plan and was added.** The table
+  checks only `guests_count between 1 and 16`; nothing enforced
+  `guests <= listing.max_guests`, though `seed-verification.sql` had asserted it
+  since F03. It is now the action's, and only the action's.
+- **Confirmation is in-page.** `/trips` is F13's placeholder, so a redirect would
+  send a guest who just reserved to a page showing nothing. The panel reports the
+  **stored** total rather than the widget's own arithmetic — they differ only if
+  the host edited the price mid-decision, and in that case the row is the truth.
+- **The mobile bar never books.** It opens a full-screen sheet (`SearchBar`'s
+  pattern) labelled "Reserve" once a stay is selected and "Add dates" before that;
+  the sheet holds the real Reserve. A bottom bar that commits a stay in one tap
+  with the total off screen is the wrong shape for the one irreversible action here.
+- **All three placements live in one component**, keeping F07's reason: they share
+  one range, one guest count and one price, so they cannot disagree about what is
+  being booked or what it costs.
+- **`ReservationCard.tsx` was deleted rather than left beside its replacement.** An
+  inert component whose docstring names its successor is the drift this journal
+  keeps recording.
+- **The block-overlap guard stays in the action, race documented.** No constraint
+  spans `bookings` and `blocked_dates`, so a guest booking in the same instant a
+  host blocks can still land under the block. Benign, and the mirror of F11's
+  accepted race: `unavailable_listing_ids` unions both halves, so search excludes
+  the listing either way and no stay is erased. No trigger — `architecture.md`
+  describes no such mechanism and F17's admin path would inherit it.
+- **`revealDay` extracted from `pickDay`.** F12 asserts days are **disabled**, and a
+  disabled cell must never be clicked: Playwright waits for actionability, so the
+  click hangs for the full timeout instead of failing fast. Anything that only
+  *looks* at a day now goes through the non-clicking half.
+- **`loadSeedSnapshot` now excludes fixture-hosted listings**, like
+  `loadPublishedListings` already did. `min_nights: 30` keeps a published fixture
+  out of the exact-count comparison, but one search spec picks its subject with
+  `find((l) => l.minNights > 1)` — for which a 30-night fixture is a candidate. It
+  would then have asserted against a row another spec was about to delete.
+
+**Gotchas:**
+- **A guard the database also enforces cannot be gated by a test, and the test
+  passes anyway.** The spec proving `createBooking` refuses taken dates was written
+  against a *booking* overlap, and it **passed with the availability check
+  deleted** — `bookings_no_overlap` refused the insert and `23P01` maps to the same
+  sentence the guard produces. It was measuring the constraint. The gate moved to
+  the case no constraint can reach — a booking over a host's `blocked_dates` — and
+  that one fails properly: with the check removed, the booking **succeeds**. Ask
+  which layer would catch the defect if this layer were missing.
+- **The same shape hid in the money assertion.** `createDraftListing`'s $123.00 ×
+  30 nights gives a service fee of exactly 51660 cents whether you round or
+  truncate, so the cents spec **passed against `Math.floor`** while the unit tests
+  failed. The fixture price is now $123.33, where the two answers differ by a cent,
+  and the spec gates the half-up rule end to end. The unit tests caught the
+  regression either way — but the E2E claimed to and did not.
+- **A real defect, found by a click that could not land.** The calendar popover hung
+  below the reservation card at `top-full`, and because the rail is `sticky` the
+  page cannot scroll it into view: "Clear dates" and "Done" sat at y≈810 on a
+  720px-tall viewport, permanently. That is a **user-facing** bug on any short
+  laptop screen, not a test artifact. The panel now opens to the *left*,
+  top-aligned, the way DESIGN.md's reference does. The responsive spec samples
+  desktop at 1128×**720** for exactly this, and asserts by **clicking** the footer
+  controls rather than with `toBeInViewport()`, which depends on where the page
+  happens to be scrolled.
+- **ARIA drops an accessible name on a generic element.** F07's mobile bar was a
+  `<div aria-label="Reservation summary">` — announced by nothing, and matchable by
+  no role-based locator, which is why `getByRole('generic', { name })` found zero
+  elements. It is an `<aside>` now. Two `complementary` landmarks is correct here:
+  only one is ever on screen and each names what it is.
+- **F07's own responsive spec asserted on a button F12 removed.** Four specs failed
+  on `getByRole('button', { name: 'Reserve' })`; signed out the rail's CTA is now
+  "Sign in to book" and the bar's is "Add dates". Updated, and **scoped to its
+  container** — the nav's `SearchBar` carries its own "Add dates" button, which is
+  the ninth instance in this project of a locator coupled to something outside the
+  thing under test.
+- **React separates adjacent text expressions with `<!-- -->`**, so `{guests}{' '}
+  {'guests'}` serialises as `3<!-- --> <!-- -->guests`. A raw-HTML grep for
+  "3 guests" finds nothing on a perfectly correct page. Playwright reads
+  `textContent`, so specs are unaffected — but a curl-and-grep smoke test is not.
+- **`revealDay` had to exist before the disabled-day assertions could.** The
+  calendar opens on the current month and F12's fixtures sit +40 days out, so the
+  cells are one to two months ahead of the opening view; asserting on them without
+  walking the calendar forward fails with "element not found" and reads like a
+  missing feature.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run test` **211/211** (194
+  prior + 17 new); `npm run test:e2e` **295 passed / 3 skipped** (269 prior + 26)
+  from a deleted `e2e/.auth` and a free `:3000`; `npm run build` green with **15
+  routes** (F12 adds none) and `ƒ Proxy (Middleware)` still printing.
+- **Inferred RPC types proved real, not `never`** — a throwaway `const _probe: null
+  = data` made tsc print `{ end_date: string; start_date: string }[] | null`.
+  F04's `@supabase/ssr` incident is why this is checked rather than assumed.
+- **The RPC checked against the raw tables**, not against itself: for the listing
+  with both a booking and a block, its two spans equal `check_in`/`check_out - 1`
+  and `start_date`/`end_date` exactly.
+- **Live REST, anon key:** `GET /bookings` → `[]`, while
+  `POST /rpc/listing_occupied_ranges` returns the real spans; a **draft** id
+  returns `[]` and a null id returns `[]` without erroring. The bypass is the
+  function, not the table.
+- **Bookings checked against the table, never the confirmation panel.** A booked
+  stay stores 30 nights at **12333** cents, cleaning **0**, service **51799**,
+  total **421789**, the right guest id, the right dates, `status = 'confirmed'` —
+  and `total` equals the sum of its own parts in the row.
+- **Half-open proven at the surface a guest touches:** after a booking, its first
+  night and the night before checkout are disabled for an **anonymous** visitor
+  while the **checkout day is enabled**, and a second stay starting on that day
+  books successfully. Blocks are inclusive: both ends disabled, `end + 1` free.
+- The four action-only guards refuse and write nothing: a stay under a
+  mid-decision `min_nights`, more guests than a mid-decision `max_guests`, nights a
+  host blocked mid-decision, and dates another guest took mid-decision. A host
+  viewing their own listing gets the stated reason and a disabled Reserve.
+- Signed out, the rail is a sign-in form whose `next` carries the path **and** the
+  selection, with **zero** live Reserve controls and no booking row.
+- **Responsive measured at 320 / 375 / 744 / 1128 / 1440** — each band's lower
+  boundary, with modest heights. Exactly one of the rail and the bar visible at
+  every width, no horizontal page overflow (including while the popover is open),
+  every reservation control ≥44px on its shorter side, and the phone path driven
+  end to end: bar → sheet → Reserve → confirmed row → the bar reporting "Reserved".
+- **All six gate proofs fire**, each run against the broken build and then
+  reverted: removing the `min_nights` guard, removing the availability check (against
+  the *block* spec), `isOwnListing={false}`, `Math.round` → `Math.floor`, the SQL
+  `check_out - 1` → `check_out`, and restoring the popover to `top-full`. The two
+  that did **not** fire on the first attempt are recorded above.
+- `get_advisors(security)` — **exactly 7 WARNs**, the two new ones being the new
+  function's anon + authenticated EXECUTE. The SQL function was restored after the
+  proof and re-verified: the `- 1` conversion, `prosecdef`, `search_path=""`, and
+  both grants.
+- **`seed-verification.sql` — 46/46 PASS.** Seed intact after a full suite run:
+  26 / 24 / 130 / 17 / 7 / 5 / 0 favorites, `listings` total **26** and `bookings`
+  total **17** (so neither fixture account left a row), **0** photo rows carrying a
+  `public_id`, and exactly **one** admin.
+- **Smoke-tested on a PRODUCTION build**, because `next dev` cannot prove F07's
+  status codes and this feature added a `searchParams` read to that route: `/` 200,
+  published listing 200, **the same listing with date params 200**, draft **404**,
+  malformed id **404**, `/trips` **307**, unauthenticated `/api/sign-cloudinary`
+  **401**, the draft title **0** times in anon HTML, and no errors in the server log.
+- Migration filenames match remote `schema_migrations` **8/8**.
+
+**Not verified — honestly outstanding:**
+- **A guest cannot check *out* on the day another guest checks *in*.**
+  `DateRangePicker.isSelectable` disables every occupied day outright, so although
+  the straddle test explicitly permits an unavailable day as a half-open *end*, the
+  cell cannot be clicked. One bookable night at each boundary is unreachable. The
+  documented invariant (check *in* on another's checkout day) does work and is
+  covered. Left alone rather than widening a `components/ui/` primitive mid-feature.
+- **`createBooking`'s past-date branch has never run** — the calendar never offers a
+  past day, so reaching it needs a forged request.
+- **The `23P01` branch never runs in a normal suite.** The app-side check fires
+  first, so the exclusion constraint's own refusal is reachable only in a true race
+  — or by deleting the check, which is how the gate proof found it.
+- **The `42501` branch (host unpublishes mid-decision) is likewise unexercised.**
+- **A signed-in third-party guest is unreachable.** "These nights are now taken to
+  someone else" is proven against **anon**, the stronger principal (zero booking
+  rows, no session). A signed-in guest who is neither host nor booker needs a third
+  fixture account — F12's host and booker use both.
+- **The `{ ok: false }` Supabase-error branch is still unexercised**, as in every
+  action since F08.
+- **No keyboard or screen-reader pass** on the stepper, the popover or the sheet.
+  The sheet is a `role="dialog"` with `aria-modal` but **no focus trap and no
+  focus restore**, and the calendar still lacks F06's `role="grid"` roving focus.
+  F18 owns it, now seven features running.
+
+**Deferred / follow-ups:**
+- **F13 inherits the confirmation's link to `/trips`** and should make it land on
+  the guest's actual booking. `revalidatePath('/trips')` already fires.
+- **F13's cancel window is the next DB-enforced rule**, so its gate proof needs
+  F12's lesson: the UPDATE policy would refuse a late cancel even with the action's
+  check removed, so the spec must target something only the action enforces.
+- F13/F14 should reuse `readBookings`'s widened shape as their oracle.
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
+  outside the repo.

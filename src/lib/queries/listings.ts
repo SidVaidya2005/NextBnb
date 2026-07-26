@@ -222,8 +222,9 @@ export async function getPublishedListings(
  *
  * Availability is **not** read here, and must not be added: `bookings` has no
  * `anon` policy at all, so a signed-out visitor reads zero booking rows and any
- * app-side date check would report every night as free. F12 adds a
- * `security definer` function for it, the way F06 did for search.
+ * app-side date check would report every night as free. It is read separately,
+ * through `getListingOccupiedRanges` below, which goes via the `0008`
+ * `security definer` function — the way F06 did for search.
  */
 export async function getListingById(
   id: string,
@@ -286,6 +287,50 @@ export async function getListingById(
     isFavorited: favorites.length > 0,
     isOwnerView: !listing.is_published,
   }
+}
+
+/**
+ * The nights a published listing is already taken — inclusive spans, in the model
+ * a calendar renders — or `null` when the check itself could not be made.
+ *
+ * **This has to be an RPC, and the reason is sharper than F06's.** There, the
+ * problem was anonymous visitors. Here it is *everyone who might book*: the
+ * `bookings` SELECT policy admits the guest, the listing's host and admins, so a
+ * signed-in guest looking at someone else's listing reads **zero** booking rows
+ * too. A nested select would return `[]` for both of them and the calendar would
+ * offer nights that are already sold — silently, and with no error to notice.
+ * `listing_occupied_ranges` (migration `0008`) is the bypass.
+ *
+ * **`null` is not `[]`, and the distinction is load-bearing.** An empty array
+ * means "verified: every night is free"; `null` means "the availability check
+ * failed". Collapsing them would render a calendar that invites a guest to book
+ * dates nobody checked — F06's rule, that showing unverified availability is
+ * worse than showing none. Callers fail closed on `null`.
+ *
+ * The half-open → inclusive conversion happens in SQL (`check_out - 1`), so both
+ * halves of the union arrive in one range model. See the migration's header.
+ */
+export async function getListingOccupiedRanges(
+  listingId: string,
+): Promise<InclusiveRange[] | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase.rpc('listing_occupied_ranges', {
+    p_listing_id: listingId,
+  })
+
+  if (error) {
+    console.error(
+      '[queries/listings] listing_occupied_ranges failed:',
+      error.message,
+    )
+    return null
+  }
+
+  return (data ?? []).map((range) => ({
+    start: range.start_date,
+    end: range.end_date,
+  }))
 }
 
 /** A photo as the host's editor renders it — ordered, and identifiable. */

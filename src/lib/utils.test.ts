@@ -15,6 +15,7 @@ import {
   nextPhotoPosition,
   nightsBetween,
   orderedPhotos,
+  priceBreakdown,
   rangesOverlap,
   reorderedPositions,
   safeNextPath,
@@ -732,5 +733,58 @@ describe('formatInclusiveRange', () => {
     expect(formatInclusiveRange({ start: '2026-12-30', end: '2027-01-02' })).toBe(
       'Dec 30 – Jan 2',
     )
+  })
+})
+
+describe('priceBreakdown', () => {
+  it('computes a real stay in whole cents', () => {
+    // Seed listing 1: $145.00/night, $35.00 cleaning, 5 nights.
+    expect(priceBreakdown({ nights: 5, pricePerNight: 14_500, cleaningFee: 3_500 })).toEqual({
+      subtotal: 72_500,
+      cleaningFee: 3_500,
+      serviceFee: 10_150,
+      total: 86_150,
+    })
+  })
+
+  it('rounds the service fee half-UP, not down', () => {
+    // 25 cents of subtotal puts the fee at exactly 3.5 cents. Half-down or a
+    // truncation would return 3, which is the whole point of asserting it —
+    // architecture.md specifies half-up.
+    expect(priceBreakdown({ nights: 1, pricePerNight: 25, cleaningFee: 0 })).toMatchObject({
+      serviceFee: 4,
+      total: 29,
+    })
+  })
+
+  it('rounds a fractional fee up rather than truncating it', () => {
+    // 99999 x 0.14 = 13999.86. Truncation gives 13999 and would leave the guest
+    // charged a cent less than the fee they were quoted.
+    expect(
+      priceBreakdown({ nights: 3, pricePerNight: 33_333, cleaningFee: 1_200 }),
+    ).toMatchObject({ serviceFee: 14_000, total: 115_199 })
+  })
+
+  it('handles a listing that charges no cleaning fee', () => {
+    // Two of the seeded listings have cleaning_fee = 0, so this is real data.
+    expect(priceBreakdown({ nights: 2, pricePerNight: 4_500, cleaningFee: 0 })).toEqual({
+      subtotal: 9_000,
+      cleaningFee: 0,
+      serviceFee: 1_260,
+      total: 10_260,
+    })
+  })
+
+  it('always reports a total that is the sum of its own parts', () => {
+    // The breakdown is rendered as four lines; if the total were computed any
+    // other way the guest could read a list that does not add up.
+    for (const nights of [1, 2, 3, 7, 30]) {
+      for (const pricePerNight of [4_500, 12_300, 14_500, 33_333, 62_000]) {
+        const parts = priceBreakdown({ nights, pricePerNight, cleaningFee: 3_500 })
+        expect(parts.total).toBe(parts.subtotal + parts.cleaningFee + parts.serviceFee)
+        expect(Number.isInteger(parts.serviceFee)).toBe(true)
+        expect(Number.isInteger(parts.total)).toBe(true)
+      }
+    }
   })
 })

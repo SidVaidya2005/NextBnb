@@ -52,11 +52,26 @@ function serviceClient() {
   })
 }
 
+/**
+ * The seed's availability state, as an independent expectation for `search.spec.ts`.
+ *
+ * **Fixture-hosted listings are excluded, for the reason `loadPublishedListings`
+ * gives.** `min_nights: 30` already keeps a published fixture out of both sides of
+ * the exact-count comparison, but one spec picks its subject with
+ * `listings.find((l) => l.minNights > 1)` — and a 30-night fixture is a candidate
+ * for that. It would then assert against a row another spec is about to delete.
+ * Scoping this to the seed makes it impossible rather than unlikely.
+ */
 export async function loadSeedSnapshot(): Promise<SeedSnapshot> {
   const supabase = serviceClient()
+  const fixtureHosts = await fixtureUserIds()
 
   const [listings, bookings, blocks] = await Promise.all([
-    supabase.from('listings').select('id, title, min_nights').eq('is_published', true),
+    supabase
+      .from('listings')
+      .select('id, title, min_nights')
+      .eq('is_published', true)
+      .not('host_id', 'in', `(${fixtureHosts.join(',')})`),
     supabase.from('bookings').select('listing_id, check_in, check_out').eq('status', 'confirmed'),
     supabase.from('blocked_dates').select('listing_id, start_date, end_date'),
   ])
@@ -762,14 +777,12 @@ export async function createBookingRow(
  * A listing's bookings, straight from the table — the oracle for "the guard
  * refused, and the reservation is still there".
  */
-export async function readBookings(
-  listingId: string,
-): Promise<{ id: string; status: string; checkOut: string }[]> {
+export async function readBookings(listingId: string): Promise<BookingRow[]> {
   const supabase = serviceClient()
 
   const { data, error } = await supabase
     .from('bookings')
-    .select('id, status, check_out')
+    .select('*')
     .eq('listing_id', listingId)
 
   if (error) {
@@ -778,9 +791,70 @@ export async function readBookings(
 
   return (data ?? []).map((row) => ({
     id: row.id,
+    guestId: row.guest_id,
     status: row.status,
+    checkIn: row.check_in,
     checkOut: row.check_out,
+    guestsCount: row.guests_count,
+    nights: row.nights,
+    pricePerNightCents: row.price_per_night,
+    cleaningFeeCents: row.cleaning_fee,
+    serviceFeeCents: row.service_fee,
+    totalCents: row.total,
   }))
+}
+
+/**
+ * A booking as the table holds it — every money column included, because F12's
+ * whole claim is that the five snapshot fields are written correctly in **cents**.
+ * A page that renders "$420.66" can still have stored the wrong integer.
+ */
+export type BookingRow = {
+  id: string
+  guestId: string
+  status: string
+  checkIn: string
+  checkOut: string
+  guestsCount: number
+  nights: number
+  pricePerNightCents: number
+  cleaningFeeCents: number
+  serviceFeeCents: number
+  totalCents: number
+}
+
+/**
+ * Changes a fixture listing's columns directly, mid-spec.
+ *
+ * Setup only, and for one spec shape: `createBooking`'s `min_nights` and
+ * per-listing `max_guests` guards are unreachable through the UI, because the
+ * calendar and the stepper are both built from those same numbers. Moving the
+ * limit while the guest is deciding is the only honest way to reach the server
+ * check — the technique F10 used for its delete guard and F11 for its overlap
+ * guard, and it is also the genuine race (a host editing a listing mid-booking).
+ */
+export async function updateFixtureListing(
+  listingId: string,
+  patch: { minNights?: number; maxGuests?: number; pricePerNightCents?: number },
+): Promise<void> {
+  const supabase = serviceClient()
+
+  const { error } = await supabase
+    .from('listings')
+    .update({
+      ...(patch.minNights !== undefined ? { min_nights: patch.minNights } : {}),
+      ...(patch.maxGuests !== undefined ? { max_guests: patch.maxGuests } : {}),
+      ...(patch.pricePerNightCents !== undefined
+        ? { price_per_night: patch.pricePerNightCents }
+        : {}),
+    })
+    .eq('id', listingId)
+
+  if (error) {
+    throw new Error(
+      `[e2e/fixtures] could not update listing ${listingId}: ${error.message}`,
+    )
+  }
 }
 
 /**

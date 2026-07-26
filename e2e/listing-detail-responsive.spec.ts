@@ -49,18 +49,28 @@ for (const bp of BREAKPOINTS) {
       await expect(bar).toBeVisible({ visible: !bp.rail })
     })
 
-    test('the visible Reserve control clears the 44px tap-target floor', async ({
+    test('the visible reservation CTA clears the 44px tap-target floor', async ({
       page,
     }) => {
       await page.goto(LISTING)
       await page.getByRole('heading', { level: 1 }).waitFor()
 
-      const reserve = page
-        .getByRole('button', { name: 'Reserve' })
-        .filter({ visible: true })
-      await expect(reserve).toHaveCount(1)
+      // F12 replaced F07's inert "Reserve" button, so the name changed with it.
+      // Signed out — which this project is by default — the rail's CTA is the
+      // sign-in form's submit, and the bar's is the control that opens the sheet.
+      // **Scoped to its container deliberately:** the nav's SearchBar carries its
+      // own "Add dates" button, and an unscoped name would match that instead.
+      const container = page.getByLabel(
+        bp.rail ? 'Reservation' : 'Reservation summary',
+        { exact: true },
+      )
+      const cta = container.getByRole('button', {
+        name: bp.rail ? 'Sign in to book' : 'Add dates',
+        exact: true,
+      })
+      await expect(cta).toHaveCount(1)
 
-      const box = await reserve.boundingBox()
+      const box = await cta.boundingBox()
       expect(box).not.toBeNull()
       expect(box!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET)
     })

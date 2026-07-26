@@ -2,20 +2,22 @@ import { notFound } from 'next/navigation'
 import { Star } from 'lucide-react'
 
 import { AmenityList } from '@/components/listings/AmenityList'
+import { BookingWidget } from '@/components/listings/BookingWidget'
 import { DraftNotice } from '@/components/listings/DraftNotice'
 import { HostCard } from '@/components/listings/HostCard'
 import { PhotoGallery } from '@/components/listings/PhotoGallery'
-import { ReservationCard } from '@/components/listings/ReservationCard'
 import { ReviewsSection } from '@/components/listings/ReviewsSection'
 import { SaveButton } from '@/components/listings/SaveButton'
-import { getListingById } from '@/lib/queries/listings'
-import { isSignedIn } from '@/lib/queries/profiles'
+import { getListingById, getListingOccupiedRanges } from '@/lib/queries/listings'
+import { getCurrentUserId } from '@/lib/queries/profiles'
 import { formatCapacity, formatTimeOfDay, humanizeToken } from '@/lib/utils'
-import { listingIdSchema } from '@/lib/validations/listings'
+import { listingIdSchema, parseListingFilters } from '@/lib/validations/listings'
+import type { RawSearchParams } from '@/lib/validations/listings'
 
-// Next 16: params is async and must be awaited.
+// Next 16: params and searchParams are async and must be awaited.
 type Props = {
   params: Promise<{ id: string }>
+  searchParams: Promise<RawSearchParams>
 }
 
 /**
@@ -35,17 +37,35 @@ type Props = {
  * `getListingById` applies no `is_published` filter, so the `listings` SELECT
  * policy is what returns a draft to its host and nothing to anyone else.
  */
-export default async function ListingDetailPage({ params }: Props) {
+export default async function ListingDetailPage({ params, searchParams }: Props) {
   const { id } = await params
 
   // Rejected before the query, so a bad link costs a 404 rather than a logged
   // Postgres `22P02`.
   if (!listingIdSchema.safeParse(id).success) notFound()
 
-  // In parallel — the auth check is its own round trip and the listing query
-  // does not depend on it.
-  const [listing, signedIn] = await Promise.all([getListingById(id), isSignedIn()])
+  // In parallel — none of the three depends on another. `viewerId` rather than a
+  // boolean because the booking widget needs to know whether the viewer is this
+  // listing's host, and occupancy goes through the `0008` definer function
+  // because RLS shows `bookings` to neither anon nor a guest who is not the host.
+  const [listing, viewerId, occupiedRanges] = await Promise.all([
+    getListingById(id),
+    getCurrentUserId(),
+    getListingOccupiedRanges(id),
+  ])
   if (!listing) notFound()
+
+  // The search URL's dates and party size carry into the widget, so search →
+  // listing → book is continuous. `parseListingFilters` already drops a past or
+  // inverted range, so a stale link prefills nothing rather than something
+  // unbookable. A prefill that conflicts with this listing's own occupancy is
+  // deliberately left to be refused by the widget and the action, rather than
+  // re-checked here — a third availability call site is how they drift.
+  const filters = parseListingFilters(await searchParams)
+  const initialGuests = Math.min(
+    Math.max(filters.guests ?? 1, 1),
+    listing.max_guests,
+  )
 
   // Nulls are dropped rather than rendered — 12 of the 24 published listings
   // have no `state`, and a naive join would leave a stray comma on each.
@@ -96,7 +116,7 @@ export default async function ListingDetailPage({ params }: Props) {
             <SaveButton
               listingId={listing.id}
               isFavorited={listing.isFavorited}
-              isSignedIn={signedIn}
+              isSignedIn={viewerId !== null}
               label={listing.title}
             />
           }
@@ -185,11 +205,23 @@ export default async function ListingDetailPage({ params }: Props) {
           )}
         </div>
 
-        <ReservationCard
+        <BookingWidget
+          listingId={listing.id}
+          title={listing.title}
           pricePerNight={listing.price_per_night}
           cleaningFee={listing.cleaning_fee}
           minNights={listing.min_nights}
           maxGuests={listing.max_guests}
+          unavailableRanges={occupiedRanges}
+          isPublished={listing.is_published}
+          isOwnListing={viewerId !== null && viewerId === listing.host_id}
+          isSignedIn={viewerId !== null}
+          initialRange={
+            filters.stay
+              ? { start: filters.stay.checkIn, end: filters.stay.checkOut }
+              : null
+          }
+          initialGuests={initialGuests}
         />
       </div>
 

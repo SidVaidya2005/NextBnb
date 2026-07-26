@@ -460,6 +460,13 @@ export type Database = {
         }[]
       }
       is_admin: { Args: never; Returns: boolean }
+      listing_occupied_ranges: {
+        Args: { p_listing_id: string }
+        Returns: {
+          end_date: string
+          start_date: string
+        }[]
+      }
       unavailable_listing_ids: {
         Args: { p_check_in: string; p_check_out: string }
         Returns: string[]

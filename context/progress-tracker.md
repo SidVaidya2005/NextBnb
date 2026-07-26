@@ -11,9 +11,59 @@ immediately know what is done, what is in progress, and what is next.
 
 ## Current Status
 
-**Phase:** Phase 3 — Hosting **(complete)**
-**Last completed:** 11 Availability management, then a Phase 3 close-out pass
-**Next:** 12 Instant Book — the first feature of Phase 4
+**Phase:** Phase 4 — Booking (in progress)
+**Last completed:** 12 Instant Book
+**Next:** 13 Trips (guest reservations)
+
+**F12 is live: a guest can book a stay.** The reservation card is no longer a
+shell — pick dates on a calendar that greys out what is taken, step the guest
+count, watch the breakdown build, and Reserve writes a `confirmed` booking whose
+nights are then gone for everyone else. Confirmation is **in-page** (a link to
+Trips, which F13 will make real) rather than a redirect to a placeholder. Below
+`tablet:` the bottom bar opens a full-screen sheet and **never books** — the
+sheet holds the real Reserve, so the total is on screen before anything is
+committed. Gates: `tsc` clean, `lint` clean, **211/211** unit, **295 passed / 3
+skipped** E2E, `npm run build` green, **15 routes** (F12 adds none).
+`seed-verification.sql` **46/46**, seed back to 26/24/130/17/7/5/0 favorites with
+**0 listings and 0 bookings** left by either fixture account.
+
+**Migration `0008` is the feature.** `unavailable_listing_ids()` answers "which
+listings are busy in this range"; the widget needed the transpose, so
+`listing_occupied_ranges(p_listing_id)` returns **inclusive** occupied spans for
+one published listing, with the half-open conversion (`check_out - 1`) done in
+SQL so no caller ever gets two range models in one array. **The trap is sharper
+than F06's:** not only anon but *any signed-in guest* reads zero `bookings` rows
+for a listing they do not host — so the everything-is-free answer was waiting
+inside the **write path** as well as the calendar. Proven live: anon
+`GET /bookings` still returns `[]` while the RPC returns the real spans, and a
+draft id returns `[]`.
+
+**The action is the only thing enforcing four of its seven rules.** The database
+covers self-booking, `is_published`, and booking-vs-booking overlap. It covers
+**nothing** for `min_nights`, the per-listing `max_guests`, past dates, or a
+booking over a host's `blocked_dates` — no constraint spans two tables. The guest
+cap was **missing from `build-plan.md`'s F12 line** and has been added; the seed
+had been asserting it since F03.
+
+**The past-date floor is strict, and that inverts F10 and F11 on purpose.** Those
+widened their cutoffs by a day because refusing was the harmless error. Here
+refusing is also harmless and *strictness* is what refuses: a stay accepted with a
+past `check_in` can never be cancelled, because the UPDATE policy requires
+`check_in >= current_date`. Leniency would hand a guest a reservation they cannot
+get out of.
+
+**A real defect was found by a click that could not land.** The calendar popover
+hung below the `sticky` reservation rail, which put "Clear dates" and "Done" at
+~810px — and because the rail is pinned, **no amount of scrolling brings them
+back**. Unreachable for a real user on a 720px-tall laptop screen, not just for
+Playwright. The panel now opens to the *left* of the card, top-aligned, the way
+DESIGN.md's reference does it. `booking-responsive.spec.ts` samples desktop at
+1128×**720** because that is the pair that catches it.
+
+**The advisor baseline is now 7 WARNs**, up from 5: anon and authenticated may
+both execute `listing_occupied_ranges`. That is the design — occupancy is public
+in this product and the function returns dates for published listings only. An
+**eighth is a finding.**
 
 **A Phase 3 close-out ran before F12** (2026-07-26). Phase 3 was already green on
 every gate — this pass re-verified that and then closed the **second-test-user**
@@ -314,6 +364,24 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 `/listings/[id]`.
 
 **Remaining loose ends (small):**
+- **A guest cannot check *out* on the day another guest checks *in*.**
+  `DateRangePicker.isSelectable` disables every occupied day outright, so although
+  the range model permits an unavailable day as a half-open *end* (its straddle
+  test says so explicitly), the cell cannot be clicked. One bookable night at each
+  boundary is unreachable. The documented invariant — check *in* on another's
+  checkout day — does work, and is covered by a spec. Left alone rather than
+  widening a `components/ui/` primitive mid-feature.
+- **`createBooking`'s past-date branch ships reasoned, not exercised.** The
+  calendar never offers a past day, so reaching it needs a forged request. The
+  strict floor is unit-reasoned and the message is written.
+- **The `23P01` (exclusion constraint) branch never runs in a normal suite.** The
+  app-side availability check fires first, so the constraint's own refusal is only
+  reachable in a true race — or, as the gate proof showed, by deleting the check.
+- **A signed-in third-party guest is unreachable.** F12's "these nights are now
+  taken to someone else" is proven against **anon**, which is the stronger
+  principal (zero booking rows, no session at all). Proving it for a *signed-in*
+  guest who is neither host nor booker needs a third fixture account, since F12's
+  listing host and its booker use both.
 - **The block-over-booking race has been guarded but never actually *landed*.**
   The spec inserts a booking while the host is deciding and proves `addBlock`
   refuses; what has never been produced is the outcome when the booking arrives
@@ -369,16 +437,19 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
   asserting on a dashboard once there is one.
 - Cancelling at the Google consent screen (`access_denied` → home, no error
   banner) has not been exercised — it needs a human to click Cancel.
-- **The security advisor baseline is 5 WARNs.** Three are inherited: `authenticated`
+- **The security advisor baseline is 7 WARNs** (5 before F12). Three are inherited: `authenticated`
   must hold EXECUTE on `is_admin()` and `admin_list_users()` (both load-bearing),
   and leaked-password protection is disabled because it is **Pro-plan-only** — it
   appeared when F04 enabled email/password auth for the Playwright fixture, which
   also leaves email registration reachable via the Auth API (`disable_signup: false`)
   despite the app offering Google only. Low severity, no privilege path; the fix is
-  a separate Supabase project for E2E in F18. **F06 added the other two**: anon and
+  a separate Supabase project for E2E in F18. **F06 added two**: anon and
   authenticated can both execute the `unavailable_listing_ids()` definer function.
   That is the design — anon search must filter by dates — and the function is
-  narrowed to published listing ids. **A sixth WARN is a finding, not a baseline.**
+  narrowed to published listing ids. **F12 added the last two**, the same pair for
+  `listing_occupied_ranges()`: a guest's calendar must render occupancy, and RLS
+  shows `bookings` to neither anon nor a non-host guest. It too is narrowed to
+  dates on published listings. **An eighth WARN is a finding, not a baseline.**
 
 ---
 
@@ -402,7 +473,7 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 - [x] 11 Availability management
 
 ### Phase 4 — Booking
-- [ ] 12 Instant Book
+- [x] 12 Instant Book
 - [ ] 13 Trips (guest reservations)
 - [ ] 14 Host reservations
 
@@ -418,7 +489,6 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 
 ## Key Decisions
 
-- Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
 - **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
 - **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waits in F12's booking widget.
 - **F08** — **a green assertion is not a gating assertion; run every new spec against a deliberately broken build.** `toHaveURL('/')` passes instantly when the page is already at `/`, so the spec guarding "the heart must not navigate" passed against the exact markup it existed to reject. Two further F08 traps rhyme with it: postgrest-js types a to-one embed on a NOT NULL FK as never-null while RLS returns null at runtime (the `toFavoriteCards` filter is load-bearing and TS would never demand it), and a spec that snapshots whole-user state races the parallel workers sharing that user. **Generalises: prove the test fails before trusting that it passes** — and F12/F15's write paths get the same treatment.
@@ -431,7 +501,18 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 
 ---
 
+- **F12** — **a guard the database also enforces cannot be gated by a test, and the test will pass anyway.** The spec proving `createBooking` refuses taken dates was written against a *booking* overlap — and it **passed with the availability check deleted**, because `bookings_no_overlap` refused the insert and `23P01` maps to the same sentence the guard produces. The gate had to move to the case no constraint can reach: a booking over a host's `blocked_dates`, where nothing in Postgres expresses a rule spanning two tables. **Generalises: when writing a gate proof, first ask which layer would catch the defect if this layer were missing** — if a lower one would, the spec is measuring that instead. The same reasoning re-priced F12's fixture listing: at $123.00 the service fee is 51660 cents whether you round or truncate, so the cents assertion passed against `Math.floor`; at $123.33 the two answers differ and the spec gates the rounding rule end to end. F13's cancel window (also DB-enforced, via the UPDATE policy) is the next place this applies.
+
+---
+
 ## Pruned from Key Decisions (kept for the record)
+
+> - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`,
+>   `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a
+>   per-table matrix in `architecture.md`. *(Pruned in F12 at the ~10-bullet cap — a
+>   standing rule rather than a pending decision, and specified in far more detail in
+>   `architecture.md` → Availability Rules, Booking Rules and the RLS matrix. F12 is
+>   the feature that finally exercised all of it end to end.)*
 
 > - Fully responsive is a hard requirement — custom Tailwind breakpoints
 >   (`tablet:744` / `desktop:1128` / `wide:1440`) map phone/iPad/laptop/desktop;

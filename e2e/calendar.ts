@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { format, parseISO } from 'date-fns'
 
 import { waitForHydration } from './hydration'
@@ -23,14 +23,20 @@ export const dayCell = (page: Page, iso: string) =>
   page.getByRole('button', { name: dayLabel(iso), exact: true })
 
 /**
- * Click a day, walking the calendar forward until it is on screen.
+ * Walk the calendar forward until a day is rendered, and return its cell —
+ * without clicking it.
  *
- * Forward only: a range's end is never before its start and the calendar opens
- * on the current month, so every caller moves in one direction. How many months
- * are visible at once depends on the viewport (one below `desktop:`, two above),
- * which is exactly why this loops rather than assuming.
+ * Separate from `pickDay` because F12 asserts that days are **disabled**, and a
+ * disabled cell must never be clicked: Playwright waits for actionability, so the
+ * click does not fail fast, it hangs for the full timeout and reports nothing
+ * about why. Anything that only needs to *look* at a day comes through here.
+ *
+ * Forward only: a range's end is never before its start and the calendar opens on
+ * the current month, so every caller moves in one direction. How many months are
+ * visible at once depends on the viewport (one below `desktop:`, two above), which
+ * is exactly why this loops rather than assuming.
  */
-export async function pickDay(page: Page, iso: string) {
+export async function revealDay(page: Page, iso: string): Promise<Locator> {
   const cell = dayCell(page, iso)
   const nextMonth = page.getByRole('button', { name: 'Next month', exact: true })
 
@@ -43,5 +49,11 @@ export async function pickDay(page: Page, iso: string) {
   }
 
   await expect(cell, `${iso} never became reachable in the calendar`).toHaveCount(1)
+  return cell
+}
+
+/** Click a day, walking the calendar forward until it is on screen. */
+export async function pickDay(page: Page, iso: string) {
+  const cell = await revealDay(page, iso)
   await cell.click()
 }

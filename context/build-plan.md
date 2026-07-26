@@ -360,6 +360,54 @@ The core booking flow: pick dates, see the price, reserve.
 **Logic:**
 - `createBookingSchema` (Zod); `actions/bookings.createBooking` rejects self-booking, re-checks availability (bookings ∪ blocks, half-open), enforces `min_nights` and no past dates, computes snapshot totals in cents with half-up fee rounding (`SERVICE_FEE_PCT`), inserts a `confirmed` booking (exclusion constraint is the final guard), revalidates listing + `/trips`. See `architecture.md` → Booking Rules.
 
+**As built (deviations worth knowing):**
+- **Migration `0008` — `listing_occupied_ranges(p_listing_id)`.** `0007` answers "which
+  listings are busy in this range"; the widget needs the transpose. One definer function
+  returning **inclusive** spans, with the half-open → inclusive conversion (`check_out - 1`)
+  done **in SQL**, so no caller ever receives two range models in one array. Published
+  listings only. The trap here is sharper than F06's: not only anon but **any signed-in
+  guest** reads zero `bookings` rows for a listing they do not host, so the same
+  everything-is-free answer arrives inside the *write* path too.
+- **The action is the only enforcement for four of its seven rules.** The database
+  independently covers self-booking, `is_published`, and booking-vs-booking overlap. It
+  covers **nothing** for `min_nights`, the per-listing `max_guests`, past dates, or a
+  booking over `blocked_dates` — no constraint spans two tables. **The guest cap was not in
+  this plan's F12 logic line and has been added**; `seed-verification.sql` had been
+  asserting it since F03.
+- **The past-date floor is strict, inverting F10/F11 deliberately.** Those widened their
+  cutoffs by a day because refusing was the harmless error. Here refusing is *also*
+  harmless and strictness is what refuses: a booking accepted with a past `check_in` can
+  never be cancelled (`bookings_update_cancel_own_or_admin` requires
+  `check_in >= current_date`), so leniency would hand the guest a stay they cannot exit.
+- **A failed availability read fails closed.** `getListingOccupiedRanges` returns
+  `InclusiveRange[] | null`, where `null` means "the check failed" — distinct from `[]`,
+  "verified free". The widget then disables Reserve and says why, and the action refuses.
+  F06's rule: showing unverified availability is worse than showing none.
+- **Confirmation is in-page, not a redirect.** `/trips` is F13's placeholder, so the widget
+  swaps to a success panel reporting the **stored** total (which differs from the widget's
+  own arithmetic only if the host edited the price mid-decision).
+- **The mobile bar opens a full-screen sheet and never books.** The sheet holds the real
+  Reserve, so the total is on screen before anything is committed. `SearchBar`'s overlay
+  pattern.
+- **The calendar popover opens to the LEFT of the card, and that fixed a real defect.**
+  Hanging it below a `sticky` rail put "Clear dates" and "Done" at ~810px with no way to
+  scroll them into view — unreachable for a real user on a 720px-tall screen. Found by a
+  Playwright click that could not land.
+- **The widget prefills from `?checkIn/checkOut/guests`** through the existing
+  `parseListingFilters`, and signed-out Reserve is a sign-in form carrying that selection
+  (F08's heart). `getCurrentUserId` is new in `queries/profiles.ts` — the page needs the
+  *identity* to spot self-booking — and `isSignedIn` is redefined on it.
+- **`ReservationCard.tsx` was deleted**, not left inert beside its replacement. The mobile
+  bar became an `<aside>` on the way: ARIA drops an accessible name on a generic element,
+  so F07's `<div aria-label="Reservation summary">` was announced by nothing and matchable
+  by nothing.
+- **Known limitation, recorded rather than fixed:** a guest can check *in* on another
+  stay's checkout day (the documented invariant, and what the SQL `- 1` delivers) but
+  cannot check *out* on another stay's check-in day, because `DateRangePicker.isSelectable`
+  disables every occupied day outright. One bookable night at each boundary is unreachable.
+- **Advisor baseline moves 5 → 7 WARNs** (anon + authenticated EXECUTE on the new definer
+  function). An eighth is still a finding.
+
 ### 13 Trips (guest reservations)
 
 Where a guest sees and manages their bookings.
