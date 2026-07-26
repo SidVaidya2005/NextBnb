@@ -12,6 +12,7 @@ import {
   formatMonthYear,
   formatPrice,
   formatTimeOfDay,
+  hostEarnings,
   humanizeToken,
   nextPhotoPosition,
   nightsBetween,
@@ -880,5 +881,51 @@ describe('priceBreakdown', () => {
         expect(Number.isInteger(parts.total)).toBe(true)
       }
     }
+  })
+})
+
+describe('hostEarnings', () => {
+  it('takes the service fee off the guest total', () => {
+    // Seed listing 1 again: $145.00/night, $35.00 cleaning, 5 nights. The guest
+    // pays $861.50; $101.50 of that is the platform's, so the host keeps $760.00.
+    expect(hostEarnings({ total: 86_150, serviceFee: 10_150 })).toBe(76_000)
+  })
+
+  it('is exactly subtotal + cleaning fee, whatever the numbers', () => {
+    // The load-bearing property: the host keeps the nights and the cleaning fee
+    // and nothing else. Asserted against priceBreakdown rather than restated, so
+    // the two can never drift into disagreeing about what the fee is taken from.
+    for (const nights of [1, 2, 3, 7, 30]) {
+      for (const pricePerNight of [4_500, 12_300, 14_500, 33_333, 62_000]) {
+        for (const cleaningFee of [0, 1_200, 3_500]) {
+          const parts = priceBreakdown({ nights, pricePerNight, cleaningFee })
+          expect(hostEarnings({ total: parts.total, serviceFee: parts.serviceFee })).toBe(
+            parts.subtotal + parts.cleaningFee,
+          )
+        }
+      }
+    }
+  })
+
+  it('keeps the whole total when the listing charges no service fee', () => {
+    // Not reachable through createBooking (SERVICE_FEE_PCT is fixed at 14%), but
+    // service_fee is its own stored column and a zero there must not be special.
+    expect(hostEarnings({ total: 9_000, serviceFee: 0 })).toBe(9_000)
+  })
+
+  it('includes a cleaning fee the guest paid on top of the nights', () => {
+    const withCleaning = priceBreakdown({ nights: 2, pricePerNight: 4_500, cleaningFee: 3_500 })
+    const withoutCleaning = priceBreakdown({ nights: 2, pricePerNight: 4_500, cleaningFee: 0 })
+
+    expect(
+      hostEarnings({ total: withCleaning.total, serviceFee: withCleaning.serviceFee }) -
+        hostEarnings({ total: withoutCleaning.total, serviceFee: withoutCleaning.serviceFee }),
+    ).toBe(3_500)
+  })
+
+  it('returns whole cents', () => {
+    // No division anywhere in this helper, so this can only fail if a caller ever
+    // hands it a non-integer — which the DB's int columns make impossible today.
+    expect(Number.isInteger(hostEarnings({ total: 86_150, serviceFee: 10_150 }))).toBe(true)
   })
 })

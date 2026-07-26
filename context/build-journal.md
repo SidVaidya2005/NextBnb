@@ -2413,12 +2413,173 @@ on `loadSeedSnapshot`); `e2e/booking.spec.ts` (10) and
 
 **Deferred / follow-ups:**
 - **F14 must prune a Key Decision** before adding its own; the list is back at the cap.
+  → **Closed by F14** (2026-07-26): pruned F07's `loading.tsx`-vs-404 bullet, which had
+  become a hard rule in `code-standards.md` rather than a pending decision.
 - **F14 inherits the `guest_id` lesson directly.** `getHostReservations` asks the
   mirror-image question, and the same SELECT policy admits all three principals — so it
   needs its own explicit scoping and its own "not mine" gate proof.
+  → **Closed by F14** (2026-07-26): scoped with `.in('listing_id', <own listing ids>)` and
+  gate-proved by the inverse spec — a stay where the fixture user is the *guest* must not
+  appear among their reservations. Deleting the filter fails it; RLS does not.
 - **F17's admin cancel, unpublish and delete all inherit the zero-row guard.** Each is an
   RLS-scoped write whose refusal arrives as success; `cancelBooking` is the pattern to
   copy, not re-derive.
 - **The developer's own Google account now holds a real upcoming booking** (Jul 27–30, a
   seeded listing). Harmless — every seed assertion is prefix-scoped — but a whole-table
   `bookings` count is no longer 17, and F14's fixtures should not assume it is.
+  → **Closed by F14** (2026-07-26): no F14 fixture or spec counts whole-table rows — every
+  card is located by its own listing's title. Re-confirmed at close: 18 bookings, and the
+  extra one is still that stay.
+
+---
+
+## Phase 4 · Feature 14 — Host reservations  *(2026-07-26)*
+
+**Scope built (7 files, 2 new):** `/host/reservations` replaces its F04 placeholder with
+the real page; new `getHostReservations()` in `lib/queries/bookings.ts`; new
+`hostEarnings()` in `lib/utils.ts`; new `components/host/ReservationCard.tsx`; both
+booking actions gained `revalidatePath('/host/reservations')`; `createBookingRow` gained
+an optional `cleaningFee`; two new specs. **No migration, no new route, no client
+component, `database.types.ts` untouched.**
+
+### Decisions
+
+- **Two flat chronological sections, not a group per listing.** The build plan's UI line
+  says "grouped by listing (upcoming/past)". Agreed with the developer before build to
+  deviate: a host holding one or two stays across several places would have "what is next"
+  scattered over as many headings, and the question a host arrives with — *who is coming* —
+  has exactly one ordering. The listing title moved onto the row. `/trips`' section shape
+  is reused wholesale, including its two-level empty-state model.
+
+- **`tripSection` was reused verbatim, and that was checked rather than assumed.** It takes
+  only `{status, check_out}` — no guest, no host — so "still going to happen" means the
+  same thing from either side of a booking. `canCancelBooking` deliberately was **not**
+  reused: it mirrors a policy branch that names the guest, and a host has no cancel at all.
+
+- **Read-only turned out to be a schema fact, not a scope choice.** The plan called F14
+  read-only because the build plan does. Reading `bookings_update_cancel_own_or_admin`
+  before building showed something stronger: its USING clause admits only `is_admin()` or
+  `guest_id = auth.uid()`, and its WITH CHECK would reject a host-authored row regardless.
+  **A host has no write path to `bookings` at all.** So "add a decline button later" is a
+  migration, not a component — recorded in `progress-tracker.md` → Outstanding actions,
+  because "read-only in this build" reads like a UI decision and is not one.
+
+- **Two queries rather than an embedded filter.** The scope is a condition on the *joined*
+  table. `listings!inner(...)` + `.eq('listings.host_id', …)` would express it in one round
+  trip, but PostgREST embedded-column filtering appears nowhere else in this project, so
+  the scope — the one line the whole feature's correctness rests on — would have been its
+  only instance. Instead: read own listing ids, then `.in('listing_id', ids)`, using the
+  ordinary filters every other query in the module uses. The id read is **deliberately
+  unlimited** (a ceiling on the *scope* silently drops whole listings' reservations rather
+  than truncating a list), and zero ids short-circuits before the `.in()` because
+  `.in('listing_id', [])` renders as `in.()` — the syntax error `library-docs.md` already
+  records for the availability `.not(...)`.
+
+- **`MAX_RESERVATIONS` forced the sort direction at the database.** `.limit(200)` with
+  `check_in` **ascending** keeps the 200 *oldest* bookings — for a busy host, years of
+  history and none of the arrivals the page exists for. Ordering descending makes the
+  ceiling truncate the deep past instead; the two sections are then sorted in JS the way
+  `getGuestBookings` does. A limit and an order are not independent choices, and this is
+  the first query in the project where getting it backwards would have been silent.
+
+- **Money shows two figures.** Raised with the developer as a concern before building: the
+  stored `total` is the *guest's* number and includes the 14% service fee, so printing it
+  bare on a host surface reads as a payout. The developer chose the fuller option — guest
+  paid, service fee deducted, host earnings — over a labelled single figure. Implemented as
+  a pure `hostEarnings({ total, serviceFee })` over the existing snapshot columns, so the
+  page invents no payout concept and NextBnb still moves no money.
+
+- **Cancelled rows suppress the earnings line, which was not in the plan.** Fell out of the
+  money decision while writing the card: a cancelled stay earns nothing, so "Your earnings
+  $660.00" under a "Cancelled" pill is a figure that is never arriving. Those rows show
+  what had been paid and say plainly that nothing was earned.
+
+- **An `Unpublished` pill was added beyond the plan.** Reservations on unpublished listings
+  render (the SELECT policy's host branch has no `is_published` condition, and a host who
+  unpublishes still owes the stays already booked). Rendering them unmarked would let the
+  row be read as evidence the listing is still bookable, so it reuses `HostListingCard`'s
+  "Draft" pill styling. One `<span>`; judged inside the spirit of "these rows render".
+
+- **Two empty states, told apart by `hostsNothing`.** "You host nothing" wants *List your
+  place*; "your places have no bookings" wants reassurance the page works. The **failed-read
+  path deliberately reports `hostsNothing: false`** — a broken query must not invite a host
+  with live reservations to go create their first listing.
+
+### Gotchas
+
+- **`.in('listing_id', ids)` is load-bearing and does not fail closed — this is F13's leak
+  arriving from the other direction.** `bookings_select_participant_or_admin` is
+  `guest OR host OR is_admin()`, so deleting the filter does not error or empty the page;
+  it *adds* the user's own trips to it. **Gate-proved:** with the line removed, the spec
+  failed with `Expected: 0, Received: 1` on a booking where the fixture user is the guest
+  on the second account's listing — while the positive control on the line above still
+  passed, so the failure could only be the scoping. RLS would never have caught it.
+
+- **The money assertion was blind at `cleaning_fee = 0`, which is what `createBookingRow`
+  hardcoded.** Earnings are `total - service_fee`, which is `subtotal + cleaning_fee` —
+  and at a zero fee that collapses onto `nights × price_per_night`. So an implementation
+  that ignored the cleaning fee entirely, or one that read the subtotal straight off the
+  listing, would render the *identical* number and the spec would have passed against both.
+  Fixed by adding an optional `cleaningFee` to the fixture (default 0, so F10/F13 call
+  sites are untouched) and booking with $45.00 of it: guest paid $746.10, service fee
+  $86.10, earnings $660.00 — three numbers no wrong implementation produces together.
+  Exactly F12's `$123.00 → $123.33` re-pricing, in a different dimension.
+
+- **The `profiles` embed needs its FK named.** `bookings` has two FKs into `profiles`-ish
+  territory, so the embed is `guest:profiles!bookings_guest_id_fkey(...)` — the aliased
+  form `getListingById` already uses for `host:profiles!listings_host_id_fkey`. The alias
+  is worth having: the returned key is `guest`, not `profiles`.
+
+- **A null guest falls back to a label; a null listing drops the row.** Opposite treatments
+  on purpose. `profiles` is publicly readable so the guest embed genuinely cannot be
+  RLS-filtered, but F08's trap says postgrest types it never-null regardless — so it is
+  hand-typed `| null` and renders "Guest", because losing the *name* must not lose the
+  *reservation*. The listing embed is also unreachable-null (every id came from a listing
+  the caller hosts) but is dropped **with a `console.error`**, because if it ever fires,
+  the scoping set and the policy have stopped agreeing and that is a defect, not a display
+  problem.
+
+- **`createBooking` and `cancelBooking` were both stale for this page.** Neither
+  revalidated `/host/reservations` — `cancelBooking` already revalidated `/host/listings`
+  (for `canDelete`) but not the screen showing the cancellation itself. Both fixed. Worth
+  noting the shape: a new *reader* of existing data means auditing every existing *writer*,
+  and nothing in the type system asks.
+
+### Verified
+
+- `npx tsc --noEmit` clean; `npm run lint` clean.
+- `npm run test` — **235/235** (was 230; +5 `hostEarnings` cases).
+- `npm run test:e2e` — **330 passed / 3 skipped** (was 313; +17, matching 7 functional +
+  10 responsive).
+- `npm run build` — green, **15 routes**, `ƒ Proxy (Middleware)` printing.
+- `seed-verification.sql` — **46/46**, no failures.
+- Security advisors — **7 WARNs**, the same intentional set; no eighth. Migrations **8/8**.
+- Post-run database state: **0 fixture-owned listings, 0 fixture-guest bookings, exactly
+  one admin**, 18 bookings, 26 listings. The 18th is the developer's real stay (F13's note).
+- Gate proof executed and reverted: `.in('listing_id', listingIds)` deleted → the
+  "I am the GUEST" spec fails; restored → passes.
+- Responsive verified at 320 / 375 / 744 / 1128 / 1440 by spec, asserting no horizontal
+  scroll, the money block inside its card's right edge, and the photo stacking above the
+  detail below `tablet:` / beside it from `tablet:` up — by geometry, not class names.
+
+**Not verified:**
+- The two Supabase-error branches of `getHostReservations`, and the `hostsNothing: false`
+  they return. Same shape as every other action's error branch (`progress-tracker.md`).
+- The `toReservation` null-listing branch — unreachable by construction, as above.
+- The `MAX_RESERVATIONS = 200` ceiling. Reaching it needs 200 bookings on one host.
+- The **guest-name fallback** ("Guest"): `profiles` is public and `full_name` is non-null
+  on all five seeded users, so no fixture can produce it.
+
+**Deferred / follow-ups:**
+- **F15 must prune a Key Decision** before adding its own; F14 pruned F07 (now a hard rule
+  in `code-standards.md`, with zero `loading.tsx` files in the project) and the list is
+  back at the cap.
+- **F17 inherits both halves of F14's lesson, and harder.** An admin satisfies *every*
+  branch of every policy, so admin queries have nothing but intent to scope them — and
+  `bookings_update_cancel_own_or_admin` is the one policy that does name `is_admin()`, so
+  F17's cancel is the first legitimate non-guest write to `bookings`.
+- **F15's "leave a review" belongs on `/trips`, not here.** Reviews are the guest's; this
+  page is deliberately read-only and should stay that way.
+- **A host-side notion of "arriving today" is not built.** An in-progress stay sits in
+  Upcoming with nothing distinguishing it, which is `tripSection`'s definition working as
+  designed — but a host would plausibly want it called out. Out of scope; F18 if anywhere.

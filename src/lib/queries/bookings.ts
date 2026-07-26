@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
-import { canCancelBooking, coverPhotoOf, tripSection } from '@/lib/utils'
+import { canCancelBooking, coverPhotoOf, hostEarnings, tripSection } from '@/lib/utils'
 import type { Database } from '@/types/database.types'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
@@ -181,5 +181,239 @@ function toTrip(row: TripRow, today: Date): TripData {
         }
       : null,
     canCancel: canCancelBooking(row, today),
+  }
+}
+
+/** The listing a reservation is on, from the host's side. Never null — see below. */
+export type ReservationListing = {
+  id: string
+  title: string
+  city: string
+  country: string
+  coverUrl: string | null
+  /** Cloudinary id of the cover, or null for an external (seed) photo. */
+  coverPublicId: string | null
+  /**
+   * A host may unpublish a listing that already has reservations, and those
+   * reservations stand. The row says so rather than hiding it: the `bookings`
+   * SELECT policy's host branch carries no `is_published` condition, so these are
+   * exactly as readable as any other — and a stay the host still owes is the last
+   * thing to drop off their screen.
+   */
+  isPublished: boolean
+}
+
+/** Who booked, as a host sees them. */
+export type ReservationGuest = {
+  /** Falls back to a neutral label rather than rendering an empty line. */
+  name: string
+  avatarUrl: string | null
+}
+
+/** One reservation as `/host/reservations` renders it. */
+export type HostReservationData = {
+  id: string
+  checkIn: string
+  checkOut: string
+  guestsCount: number
+  nights: number
+  /** Integer **cents** — what the guest paid, snapshot at booking time. */
+  total: number
+  /** Integer **cents** — the platform's cut, deducted from `total`. */
+  serviceFee: number
+  /** Integer **cents** — `total - serviceFee`; what this stay earns the host. */
+  earnings: number
+  status: BookingStatus
+  listing: ReservationListing
+  guest: ReservationGuest
+}
+
+export type HostReservations = {
+  /** Confirmed and not yet finished, soonest first. */
+  upcoming: HostReservationData[]
+  /** Everything else — finished stays and every cancellation — most recent first. */
+  past: HostReservationData[]
+  /**
+   * True when this user hosts no listings at all, as opposed to hosting listings
+   * that simply have no bookings yet. Both render empty, and they are not the same
+   * problem — one wants "list your place", the other wants "nothing booked yet".
+   */
+  hostsNothing: boolean
+}
+
+// A defensive ceiling, not pagination — the same posture as `MAX_TRIPS`.
+// TODO: paginate host reservations once a single host can plausibly exceed this.
+const MAX_RESERVATIONS = 200
+
+const NO_RESERVATIONS: HostReservations = { upcoming: [], past: [], hostsNothing: true }
+
+/**
+ * Every reservation across the listings the current user **hosts**.
+ *
+ * **The `listing_id` scoping is load-bearing, and deleting it does not fail
+ * closed.** The `bookings` SELECT policy is
+ *
+ *     guest_id = auth.uid() OR <the listing's host> OR is_admin()
+ *
+ * so an unscoped read here returns this user's own *trips* as well — F13's leak
+ * arriving from the other direction — plus the entire table for an admin. Nothing
+ * errors; the page just answers a different question. `getGuestBookings` filters
+ * `guest_id` for the mirror-image reason, and the two filters together are what
+ * keep F13's screen and this one distinct. RLS is the backstop underneath both.
+ *
+ * **Two queries, deliberately.** The scope is "bookings whose *listing* I host",
+ * which is a condition on the joined table. Reading own listing ids first and
+ * filtering `.in('listing_id', …)` expresses that with the ordinary filters used
+ * everywhere else in this module, rather than PostgREST embedded-column filtering
+ * (`listings!inner(...)` + `.eq('listings.host_id', …)`) that appears nowhere else
+ * in the project. The id read is deliberately **unlimited**: it defines the scope,
+ * so a ceiling there would silently drop whole listings' reservations rather than
+ * merely truncating a list.
+ *
+ * Cancelled reservations are **not** filtered out — a host needs the record that
+ * explains why dates freed, and `tripSection` files them under past regardless of
+ * their dates.
+ */
+export async function getHostReservations(): Promise<HostReservations> {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  // `src/proxy.ts` guards /host/**, so this is belt-and-braces — but a query that
+  // would otherwise be unscoped must not depend on the proxy being correct.
+  if (!user) return NO_RESERVATIONS
+
+  const { data: owned, error: ownedError } = await supabase
+    .from('listings')
+    .select('id')
+    .eq('host_id', user.id)
+
+  if (ownedError) {
+    console.error('[queries/bookings] getHostReservations listings failed:', ownedError.message)
+    // Not `hostsNothing` — we failed to find out. Claiming the host owns nothing
+    // would invite them to list their first place while holding live bookings.
+    return { upcoming: [], past: [], hostsNothing: false }
+  }
+
+  const listingIds = (owned ?? []).map((listing) => listing.id)
+  // Short-circuit rather than filter on an empty set: postgrest renders
+  // `.in('listing_id', [])` as `in.()`, which is a SQL syntax error — the same
+  // trap `library-docs.md` records for the availability `.not(...)` call.
+  if (listingIds.length === 0) return NO_RESERVATIONS
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .select(
+      'id, check_in, check_out, guests_count, nights, total, service_fee, status, listings(id, title, city, country, is_published, listing_photos(url, public_id, is_cover, position)), guest:profiles!bookings_guest_id_fkey(full_name, avatar_url)',
+    )
+    .in('listing_id', listingIds)
+    // Newest check-in first, so `MAX_RESERVATIONS` truncates the deep past rather
+    // than the future. Ordering ascending here would make the ceiling drop the
+    // arrivals a host actually needs while keeping years of history.
+    .order('check_in', { ascending: false })
+    .limit(MAX_RESERVATIONS)
+
+  if (error) {
+    console.error('[queries/bookings] getHostReservations failed:', error.message)
+    return { upcoming: [], past: [], hostsNothing: false }
+  }
+
+  const upcoming: HostReservationData[] = []
+  const past: HostReservationData[] = []
+
+  // "Today" is decided once, here on the server — F11's note on
+  // `getOwnListingAvailability`, for the same hydration-mismatch reason.
+  const today = new Date()
+
+  for (const row of data ?? []) {
+    const reservation = toReservation(row)
+    // Unreachable: every id came from a listing this user hosts, so the embed
+    // cannot be RLS-filtered. Logged rather than silently skipped, because if it
+    // ever fires the scoping set and the policy have stopped agreeing.
+    if (!reservation) {
+      console.error('[queries/bookings] getHostReservations: booking with no readable listing')
+      continue
+    }
+
+    if (tripSection(row, today) === 'upcoming') {
+      upcoming.push(reservation)
+    } else {
+      past.push(reservation)
+    }
+  }
+
+  return {
+    // Soonest arrival first — the next guest through the door.
+    upcoming: upcoming.sort((a, b) => a.checkIn.localeCompare(b.checkIn)),
+    past: past.sort((a, b) => b.checkIn.localeCompare(a.checkIn)),
+    hostsNothing: false,
+  }
+}
+
+/** The row shape `getHostReservations` selects, reduced to one reservation. */
+type ReservationRow = {
+  id: string
+  check_in: string
+  check_out: string
+  guests_count: number
+  nights: number
+  total: number
+  service_fee: number
+  status: BookingStatus
+  listings: {
+    id: string
+    title: string
+    city: string
+    country: string
+    is_published: boolean
+    listing_photos: {
+      url: string
+      public_id: string | null
+      is_cover: boolean
+      position: number
+    }[]
+  } | null
+  /**
+   * Hand-written `| null` for F08's reason — postgrest-js types a to-one embed on
+   * a NOT NULL FK as never-null and TypeScript will never ask — even though this
+   * one genuinely cannot be null: `profiles` is publicly readable, so no policy
+   * can filter it away.
+   */
+  guest: { full_name: string | null; avatar_url: string | null } | null
+}
+
+/** One booking row → one reservation, or `null` if its listing is unreadable. */
+function toReservation(row: ReservationRow): HostReservationData | null {
+  if (!row.listings) return null
+
+  const cover = coverPhotoOf(row.listings.listing_photos)
+
+  return {
+    id: row.id,
+    checkIn: row.check_in,
+    checkOut: row.check_out,
+    guestsCount: row.guests_count,
+    nights: row.nights,
+    total: row.total,
+    serviceFee: row.service_fee,
+    earnings: hostEarnings({ total: row.total, serviceFee: row.service_fee }),
+    status: row.status,
+    listing: {
+      id: row.listings.id,
+      title: row.listings.title,
+      city: row.listings.city,
+      country: row.listings.country,
+      coverUrl: cover?.url ?? null,
+      coverPublicId: cover?.public_id ?? null,
+      isPublished: row.listings.is_published,
+    },
+    // A missing name loses the guest's identity, not the reservation — the stay
+    // is the thing the host has to honour. F13's posture on a null listing embed,
+    // applied to the other end of the row.
+    guest: {
+      name: row.guest?.full_name?.trim() || 'Guest',
+      avatarUrl: row.guest?.avatar_url ?? null,
+    },
   }
 }

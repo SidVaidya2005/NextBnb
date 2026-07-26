@@ -462,6 +462,59 @@ Where a host sees bookings on their listings.
 **Logic:**
 - `queries/bookings.getHostReservations` (bookings where the listing's `host_id = current user`); read-only for the host in this build.
 
+**As built (deviations worth knowing):**
+- **Not grouped by listing — two flat chronological sections, `/trips`' shape,** with the
+  listing named on each row. The UI line above says "grouped by listing", but a host holding
+  one or two stays across several places would have "what is next" scattered over as many
+  headings; a host arriving here is asking *who is coming*, which is one ordering, not N.
+  Agreed with the developer before build.
+- **Read-only is a schema fact, not a scope decision, and that was checked rather than
+  assumed.** `bookings_update_cancel_own_or_admin`'s USING clause admits only `is_admin()`
+  or `guest_id = auth.uid()`, and its WITH CHECK would reject a host-authored row anyway —
+  a host has **no write path to `bookings` at all**. F17's admin cancel works only because
+  an admin is named in that policy; a *host* cancel or decline needs a migration. A spec
+  asserts the page renders zero buttons, rather than leaving read-only to the absence of one.
+- **Money shows two figures, because the stored `total` is the guest's.** It includes the
+  14% service fee, which is the platform's — printing it bare on a host surface reads as a
+  payout. The card renders "Guest paid / Service fee / Your earnings" off a new pure
+  `hostEarnings({ total, serviceFee })`. Presentational arithmetic over the existing
+  snapshot only; NextBnb still moves no money. **Cancelled rows suppress the earnings
+  line** — a cancelled stay earns nothing, and a figure under a "Cancelled" pill is money
+  never arriving.
+- **Two queries, not an embedded filter.** The scope is a condition on the *joined* table,
+  so own listing ids are read first and bookings filtered `.in('listing_id', ids)` — the
+  ordinary filters used everywhere else — rather than PostgREST embedded-column filtering
+  (`listings!inner(...)` + `.eq('listings.host_id', …)`), which appears nowhere in this
+  project. The id read is **deliberately unlimited**: it defines the scope, so a ceiling
+  there would drop whole listings' reservations rather than truncate a list. Zero ids
+  short-circuits, because `.in('listing_id', [])` renders as `in.()` — the syntax error
+  `library-docs.md` already records for the availability `.not(...)`.
+- **`MAX_RESERVATIONS` orders `check_in` DESCENDING at the database.** Ascending would make
+  the ceiling keep the oldest history and drop the arrivals the page exists for; the
+  sections are then sorted in JS, upcoming ascending and past descending, as `/trips` does.
+- **Reservations on unpublished listings render, marked.** The `bookings` SELECT policy's
+  host branch carries no `is_published` condition, so a host who unpublishes a place still
+  sees the stays they owe on it — F13's posture from the other side. A second
+  `Unpublished` pill (the existing `HostListingCard` "Draft" pill style) states it, so the
+  row is not read as evidence the listing is still bookable.
+- **Listings with no reservations do not render at all**, otherwise the page becomes a
+  partial duplicate of `/host/listings`. The two empty states are told apart by a
+  `hostsNothing` flag, and the **failed-read path reports `hostsNothing: false`** — a
+  broken query says "nothing booked yet" rather than inviting a host with live
+  reservations to list their first place.
+- **No migration, no new route, and no client component.** `/host/reservations` was
+  already a placeholder and already in the proxy's `PROTECTED` prefix list and
+  `AccountMenu`, so the build stays at **15 routes**; `database.types.ts` untouched;
+  advisors still 7 WARNs. Nothing on the page mutates, so unlike `/trips` there is no
+  client leaf except `ListingImage`.
+- **`createBooking` and `cancelBooking` both gained `revalidatePath('/host/reservations')`.**
+  Neither touched it, so a new booking or a guest's cancellation left the host's page stale.
+- **`createBookingRow` gained an optional `cleaningFee`** (default 0, so F10/F13 call sites
+  are unchanged). At a zero fee, earnings (`total - service_fee`) collapse onto
+  `nights × price_per_night`, so the money assertion would have passed against an
+  implementation that ignored the cleaning fee entirely — F12's rule about asking what a
+  green assertion would *still* pass against.
+
 ---
 
 ## Phase 5 — Engagement

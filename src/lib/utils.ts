@@ -81,6 +81,30 @@ export function priceBreakdown(stay: {
 }
 
 /**
+ * What the host keeps from a reservation: the guest's total less the service fee.
+ *
+ * The service fee is the **platform's** cut, not the host's, so the stored `total`
+ * — which is what `/trips` shows the guest — is the wrong number to print on a host
+ * surface without saying whose it is. `total - service_fee` is `subtotal +
+ * cleaning_fee`, and F14 shows both figures so neither reads as the other.
+ *
+ * Derived from the booking's stored **snapshot**, never from the listing: a host who
+ * edits their nightly price afterwards must not retroactively change what an
+ * existing reservation earned. Integer cents in, integer cents out.
+ *
+ * This computes a **display** figure. NextBnb moves no money (`project-overview.md`
+ * → out of scope), so there is no payout this is the authority for.
+ */
+export function hostEarnings(booking: {
+  /** Integer cents — `bookings.total`. */
+  total: number
+  /** Integer cents — `bookings.service_fee`. */
+  serviceFee: number
+}): number {
+  return booking.total - booking.serviceFee
+}
+
+/**
  * A calendar date as `YYYY-MM-DD`, the format every `date` column and every
  * search param uses. Lexicographic order on this format is chronological order,
  * which is why the filters compare dates as plain strings.

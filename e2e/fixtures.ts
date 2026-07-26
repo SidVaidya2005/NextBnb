@@ -752,12 +752,24 @@ export async function createBookingRow(
     status?: 'confirmed' | 'cancelled'
     /** Defaults to the seeded guest. Pass a fixture id for guest-side specs. */
     guestId?: string
+    /**
+     * Integer cents, default 0.
+     *
+     * **F14's host-earnings assertion is blind without a non-zero value here.**
+     * Earnings are `total - service_fee`, which equals `subtotal + cleaning_fee`
+     * — and at `cleaning_fee = 0` that collapses onto `nights x price_per_night`,
+     * so three different wrong implementations all render the same number. Any
+     * non-zero fee separates them. F12's rule: ask what the assertion would still
+     * pass against before trusting it.
+     */
+    cleaningFee?: number
   },
 ): Promise<{ id: string }> {
   const supabase = serviceClient()
 
   const nights = nightsBetween(options.checkIn, options.checkOut)
   const pricePerNight = 12_300
+  const cleaningFee = options.cleaningFee ?? 0
   const subtotal = nights * pricePerNight
   // 0.14 is SERVICE_FEE_PCT, duplicated on purpose exactly as seed.sql does:
   // a booking's prices are snapshots that must not track a later rate change.
@@ -773,9 +785,9 @@ export async function createBookingRow(
       guests_count: 2,
       nights,
       price_per_night: pricePerNight,
-      cleaning_fee: 0,
+      cleaning_fee: cleaningFee,
       service_fee: serviceFee,
-      total: subtotal + serviceFee,
+      total: subtotal + cleaningFee + serviceFee,
       status: options.status ?? 'confirmed',
     })
     .select('id')

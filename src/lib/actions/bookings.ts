@@ -186,6 +186,8 @@ export async function createBooking(
   revalidatePath('/trips')
   // Those nights are now taken, so the listing's own calendar has changed.
   revalidatePath(`/listings/${listingId}`)
+  // The other side of the same booking: this reservation is the host's to see.
+  revalidatePath('/host/reservations')
 
   // The **stored** total goes back, not the one the widget computed. They agree
   // unless the host edited the price mid-decision, and in that case what the
@@ -266,6 +268,9 @@ export async function cancelBooking(input: unknown): Promise<ActionResult> {
   // `getOwnListings` derives `canDelete` from `blocksListingDeletion`, so this
   // cancellation may have just unblocked the host's delete control.
   revalidatePath('/host/listings')
+  // The host's copy of this reservation moves to Past and loses its earnings
+  // figure — a cancellation they would otherwise never see.
+  revalidatePath('/host/reservations')
 
   return { ok: true, data: undefined }
 }
