@@ -9,6 +9,7 @@ import {
   type PropertyType,
 } from '@/lib/constants'
 import { nightsBetween, todayISO } from '@/lib/utils'
+import type { Database } from '@/types/database.types'
 
 /** `searchParams` as Next hands them over: repeated keys arrive as an array. */
 export type RawSearchParams = Record<string, string | string[] | undefined>
@@ -192,6 +193,16 @@ export function dollarsToCents(dollars: number): number {
   return Math.round(dollars * 100)
 }
 
+/**
+ * Integer cents → the dollars a form field holds. The inverse of
+ * `dollarsToCents`, used when an existing listing is loaded back into the edit
+ * form: a round trip through both must return the stored cents unchanged, or
+ * merely opening the editor and saving would move a price.
+ */
+export function centsToDollars(cents: number): number {
+  return cents / 100
+}
+
 function toCents(dollars: number | undefined): number | undefined {
   return dollars === undefined ? undefined : dollarsToCents(dollars)
 }
@@ -246,6 +257,11 @@ const MAX_MIN_NIGHTS = 365
  *  the only thing standing between it and a value `formatTimeOfDay` renders as
  *  nothing. Deliberately stricter than that reader, which tolerates `9:00`. */
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+/** House defaults for the two nullable time columns, shared by the form's blank
+ *  state and by an edit loading a listing that has none. */
+export const DEFAULT_CHECK_IN_TIME = '15:00'
+export const DEFAULT_CHECK_OUT_TIME = '11:00'
 
 const requiredText = (max: number, message: string) =>
   z.string().trim().min(1, message).max(max, `Keep this under ${max} characters.`)
@@ -392,6 +408,115 @@ export const movePhotoSchema = photoActionSchema.extend({
   direction: z.enum(['earlier', 'later']),
 })
 
-export const publishListingSchema = z.object({
+// -----------------------------------------------------------------------------
+// Feature 10 — managing an existing listing
+// -----------------------------------------------------------------------------
+
+/** Names one listing. Publish/unpublish and delete both start here. */
+export const listingActionSchema = z.object({
   listingId: z.uuid(),
 })
+
+/**
+ * Publish state as a value, not an instruction to flip — the shape F08 settled
+ * on for `setFavorite`, and for the same reason: a toggle has to read the
+ * current row and invert it, so two clicks in flight both resolve against the
+ * same "before" and can land opposite to what the button showed. Sending the
+ * state you want makes the write idempotent and converge.
+ */
+export const setPublishedSchema = listingActionSchema.extend({
+  published: z.boolean(),
+})
+
+export const deleteListingSchema = listingActionSchema
+
+/**
+ * An edit: every field the create form collects, plus which listing.
+ *
+ * Extending `createListingSchema` rather than restating it is what keeps the
+ * two forms honest — a rule added to creation cannot be forgotten on edit. It
+ * also inherits `optionalText`'s `.nullish()`, which matters here for the same
+ * reason it mattered in F09: this schema validates on the client, and the
+ * client posts its *result* to an action that validates again with it. It has
+ * to accept its own output.
+ */
+export const updateListingSchema = createListingSchema.extend({
+  listingId: z.uuid(),
+})
+
+export type UpdateListingInput = z.output<typeof updateListingSchema>
+
+/** The listing columns the edit form reads back. */
+type ListingFormSource = Pick<
+  Database['public']['Tables']['listings']['Row'],
+  | 'title'
+  | 'description'
+  | 'property_type'
+  | 'city'
+  | 'state'
+  | 'country'
+  | 'neighborhood'
+  | 'max_guests'
+  | 'bedrooms'
+  | 'beds'
+  | 'bathrooms'
+  | 'price_per_night'
+  | 'cleaning_fee'
+  | 'amenities'
+  | 'house_rules'
+  | 'check_in_time'
+  | 'check_out_time'
+  | 'min_nights'
+>
+
+/**
+ * A stored listing → the values the edit form starts from.
+ *
+ * **Mapping null to `''` is load-bearing, and TypeScript will not ask for it.**
+ * `ListingFormValues` is `z.input<typeof createListingSchema>` and
+ * `optionalText` is `.nullish()`, so a `null` description type-checks perfectly
+ * well as a default value — and then React sees `value={null}`, warns, and
+ * silently hands the field back to the DOM as uncontrolled. The column is
+ * nullable, the input is not; this is the seam between them.
+ *
+ * The two time columns are nullable too, and the form requires them, so a
+ * listing stored without one opens on the house default rather than on a value
+ * its own schema would reject. Anything not matching `TIME_PATTERN` gets the
+ * same treatment — `check_in_time` is plain `text`, so nothing at the database
+ * level guarantees its shape.
+ */
+export function toListingFormValues(
+  listing: ListingFormSource,
+): ListingFormValues {
+  return {
+    title: listing.title,
+    description: listing.description ?? '',
+    propertyType: listing.property_type,
+    city: listing.city,
+    state: listing.state ?? '',
+    country: listing.country,
+    neighborhood: listing.neighborhood ?? '',
+    maxGuests: listing.max_guests,
+    bedrooms: listing.bedrooms,
+    beds: listing.beds,
+    bathrooms: listing.bathrooms,
+    pricePerNight: centsToDollars(listing.price_per_night),
+    cleaningFee: centsToDollars(listing.cleaning_fee),
+    // The column is `text[]`; the form's checkboxes are keyed on AMENITIES. A
+    // retired amenity is dropped rather than rendered as a checkbox nothing
+    // matches — the same leniency `parseAmenities` applies to a stale URL.
+    amenities: listing.amenities.filter(isKnownAmenity),
+    houseRules: listing.house_rules ?? '',
+    checkInTime: timeOrDefault(listing.check_in_time, DEFAULT_CHECK_IN_TIME),
+    checkOutTime: timeOrDefault(listing.check_out_time, DEFAULT_CHECK_OUT_TIME),
+    minNights: listing.min_nights,
+  }
+}
+
+function isKnownAmenity(value: string): value is Amenity {
+  return amenitySchema.safeParse(value).success
+}
+
+function timeOrDefault(value: string | null, fallback: string): string {
+  return value && TIME_PATTERN.test(value) ? value : fallback
+}

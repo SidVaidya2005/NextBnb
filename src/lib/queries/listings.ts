@@ -2,8 +2,18 @@ import 'server-only'
 
 import { AMENITIES, type Amenity } from '@/lib/constants'
 import { createClient } from '@/lib/supabase/server'
-import { averageRating, coverPhotoOf, orderedPhotos } from '@/lib/utils'
-import type { ListingFilters, Stay } from '@/lib/validations/listings'
+import {
+  averageRating,
+  blocksListingDeletion,
+  coverPhotoOf,
+  orderedPhotos,
+} from '@/lib/utils'
+import { toListingFormValues } from '@/lib/validations/listings'
+import type {
+  ListingFilters,
+  ListingFormValues,
+  Stay,
+} from '@/lib/validations/listings'
 import type { Database } from '@/types/database.types'
 
 type Listing = Database['public']['Tables']['listings']['Row']
@@ -339,6 +349,135 @@ export async function getOwnListing(id: string): Promise<OwnListingData | null> 
       position: photo.position,
       isCover: photo.is_cover,
     })),
+  }
+}
+
+/** One row of the host's own listings screen. */
+export type HostListingData = {
+  id: string
+  title: string
+  city: string
+  country: string
+  /** Integer **cents**, like every money value in the app. */
+  pricePerNight: number
+  coverUrl: string | null
+  coverPublicId: string | null
+  isPublished: boolean
+  photoCount: number
+  /**
+   * False while a confirmed stay has yet to finish. Deleting the listing would
+   * not cancel that booking — the FK cascade would erase it — so the control is
+   * disabled and the reason stated. `deleteListing` re-checks the same rule;
+   * this is what lets the page say so before the host clicks.
+   */
+  canDelete: boolean
+}
+
+/**
+ * Every listing the current user hosts, drafts included, newest first.
+ *
+ * **Reading `bookings` here is safe, and that was checked rather than assumed.**
+ * The `bookings` SELECT policy admits the listing's host, and `host_id` scopes
+ * this query to listings this user hosts — so the reader is always privileged
+ * for exactly the rows being counted.
+ *
+ * This is deliberately *not* F06's trap, and the difference is the useful part:
+ * there, missing booking rows inferred a **permission** ("every listing is
+ * available") and arrived as a success. Here a non-host reads no listings at
+ * all, so there is no row set left to draw a wrong conclusion from.
+ */
+export async function getOwnListings(): Promise<HostListingData[]> {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data, error } = await supabase
+    .from('listings')
+    .select(
+      'id, title, city, country, price_per_night, is_published, created_at, listing_photos(url, public_id, is_cover, position), bookings(status, check_out)',
+    )
+    .eq('host_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(MAX_LISTINGS)
+
+  if (error) {
+    console.error('[queries/listings] getOwnListings failed:', error.message)
+    return []
+  }
+
+  return (data ?? []).map((listing) => {
+    const cover = coverPhotoOf(listing.listing_photos)
+
+    return {
+      id: listing.id,
+      title: listing.title,
+      city: listing.city,
+      country: listing.country,
+      pricePerNight: listing.price_per_night,
+      coverUrl: cover?.url ?? null,
+      coverPublicId: cover?.public_id ?? null,
+      isPublished: listing.is_published,
+      photoCount: listing.listing_photos.length,
+      canDelete: !blocksListingDeletion(listing.bookings),
+    }
+  })
+}
+
+/** A listing loaded back into the edit form. */
+export type OwnListingEditData = {
+  id: string
+  title: string
+  isPublished: boolean
+  /** Form-ready: cents already dollars, nulls already blank strings. */
+  values: ListingFormValues
+}
+
+/**
+ * A listing this user **hosts**, shaped for the edit form — or `null`, which the
+ * caller turns into a 404.
+ *
+ * Scoped on `host_id` for the same reason as `getOwnListing`: the SELECT policy
+ * would also hand a draft to any admin, and the write policies would then reject
+ * the save. A page that renders an editor whose submit cannot succeed is worse
+ * than a 404.
+ *
+ * Kept separate from `getOwnListing` rather than widening it — that one feeds the
+ * photo editor, which has no use for eighteen form fields, and the two callers
+ * want genuinely different shapes.
+ */
+export async function getOwnListingForEdit(
+  id: string,
+): Promise<OwnListingEditData | null> {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data, error } = await supabase
+    .from('listings')
+    .select('*')
+    .eq('id', id)
+    .eq('host_id', user.id)
+    .single()
+
+  if (error) {
+    // PGRST116 is "no rows" — someone else's listing, or none. An ordinary 404.
+    if (error.code !== 'PGRST116') {
+      console.error('[queries/listings] getOwnListingForEdit failed:', error.message)
+    }
+    return null
+  }
+
+  return {
+    id: data.id,
+    title: data.title,
+    isPublished: data.is_published,
+    values: toListingFormValues(data),
   }
 }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   averageRating,
+  blocksListingDeletion,
   coverPhotoOf,
   formatCapacity,
   formatDateRange,
@@ -455,5 +456,74 @@ describe('reorderedPositions', () => {
     reorderedPositions(strip, 'd', 'front')
 
     expect(strip).toEqual(original)
+  })
+})
+
+describe('blocksListingDeletion', () => {
+  // Fixed so the assertions describe the rule rather than the day they run.
+  const TODAY = new Date('2026-07-26T12:00:00')
+
+  const booking = (status: string, check_out: string) => ({ status, check_out })
+
+  it('does not block a listing nobody has booked', () => {
+    expect(blocksListingDeletion([], TODAY)).toBe(false)
+  })
+
+  it('blocks a confirmed stay that has not happened yet', () => {
+    expect(blocksListingDeletion([booking('confirmed', '2026-08-10')], TODAY)).toBe(
+      true,
+    )
+  })
+
+  it('does not block a stay that finished long ago', () => {
+    expect(blocksListingDeletion([booking('confirmed', '2026-06-01')], TODAY)).toBe(
+      false,
+    )
+  })
+
+  it('does not block a cancelled stay, however far in the future', () => {
+    // A cancelled booking frees its dates and holds nobody's plans — the same
+    // rule the exclusion constraint applies.
+    expect(blocksListingDeletion([booking('cancelled', '2026-12-25')], TODAY)).toBe(
+      false,
+    )
+  })
+
+  it('still blocks a stay that checked out yesterday', () => {
+    // The deliberate one-day widening: the comparison happens in JS against a
+    // `date` column, so around midnight "today" can sit either side of the
+    // database's current_date. Erring here refuses a delete; erring the other
+    // way erases a stay that is still in progress.
+    expect(blocksListingDeletion([booking('confirmed', '2026-07-25')], TODAY)).toBe(
+      true,
+    )
+  })
+
+  it('stops blocking two days out', () => {
+    expect(blocksListingDeletion([booking('confirmed', '2026-07-24')], TODAY)).toBe(
+      false,
+    )
+  })
+
+  it('blocks on any one upcoming stay among many that do not', () => {
+    expect(
+      blocksListingDeletion(
+        [
+          booking('confirmed', '2026-01-05'),
+          booking('cancelled', '2026-09-09'),
+          booking('confirmed', '2026-08-30'),
+        ],
+        TODAY,
+      ),
+    ).toBe(true)
+  })
+
+  it('does not block when every stay is past or cancelled', () => {
+    expect(
+      blocksListingDeletion(
+        [booking('confirmed', '2026-01-05'), booking('cancelled', '2026-09-09')],
+        TODAY,
+      ),
+    ).toBe(false)
   })
 })

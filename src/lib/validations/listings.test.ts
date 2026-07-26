@@ -4,11 +4,16 @@ import { describe, it, expect } from 'vitest'
 import { toISODate } from '@/lib/utils'
 import {
   addListingPhotoSchema,
+  centsToDollars,
   createListingSchema,
+  dollarsToCents,
   hasActiveFilters,
   listingPhotoFolder,
   movePhotoSchema,
   parseListingFilters,
+  setPublishedSchema,
+  toListingFormValues,
+  updateListingSchema,
   type RawSearchParams,
 } from '@/lib/validations/listings'
 
@@ -386,6 +391,217 @@ describe('movePhotoSchema', () => {
         photoId: OTHER_LISTING_ID,
         direction: 3,
       }).success,
+    ).toBe(false)
+  })
+})
+
+// -----------------------------------------------------------------------------
+// Feature 10 — managing an existing listing
+// -----------------------------------------------------------------------------
+
+describe('centsToDollars', () => {
+  it.each([24900, 3500, 0, 4599, 1, 62000])(
+    'round-trips %i cents back to itself through dollarsToCents',
+    (cents) => {
+      // The edit form loads dollars and saves cents. If this drifted, opening
+      // the editor and saving without touching anything would move the price.
+      expect(dollarsToCents(centsToDollars(cents))).toBe(cents)
+    },
+  )
+
+  it('renders cents as the dollars a form field holds', () => {
+    expect(centsToDollars(24900)).toBe(249)
+    expect(centsToDollars(4599)).toBe(45.99)
+    expect(centsToDollars(0)).toBe(0)
+  })
+})
+
+// Typed from the function itself, so the nullable columns stay nullable — a
+// plain literal would infer `description: string` and the null cases below
+// would not compile.
+const STORED_LISTING: Parameters<typeof toListingFormValues>[0] = {
+  title: 'Cliffside Cabin',
+  description: 'A cabin.',
+  property_type: 'cabin',
+  city: 'Reykjavík',
+  state: 'Suðurland',
+  country: 'Iceland',
+  neighborhood: 'Hvolsvöllur',
+  max_guests: 4,
+  bedrooms: 2,
+  beds: 3,
+  bathrooms: 1.5,
+  price_per_night: 24900,
+  cleaning_fee: 3500,
+  amenities: ['wifi', 'kitchen'],
+  house_rules: 'No parties.',
+  check_in_time: '15:00',
+  check_out_time: '11:00',
+  min_nights: 2,
+}
+
+const stored = (overrides: Partial<typeof STORED_LISTING> = {}) =>
+  toListingFormValues({ ...STORED_LISTING, ...overrides })
+
+describe('toListingFormValues', () => {
+  it('maps a stored listing onto the fields the form holds', () => {
+    const values = stored()
+
+    expect(values.title).toBe('Cliffside Cabin')
+    expect(values.propertyType).toBe('cabin')
+    expect(values.maxGuests).toBe(4)
+    expect(values.bathrooms).toBe(1.5)
+    expect(values.minNights).toBe(2)
+  })
+
+  it('converts stored cents to the dollars the price fields show', () => {
+    const values = stored()
+
+    expect(values.pricePerNight).toBe(249)
+    expect(values.cleaningFee).toBe(35)
+  })
+
+  it('turns every nullable column into an empty string, never null', () => {
+    // Load-bearing, and the type system will not ask for it: optionalText is
+    // .nullish(), so `null` type-checks as a valid default — and then React
+    // warns on value={null} and hands the field back to the DOM uncontrolled.
+    const values = stored({
+      description: null,
+      state: null,
+      neighborhood: null,
+      house_rules: null,
+    })
+
+    expect(values.description).toBe('')
+    expect(values.state).toBe('')
+    expect(values.neighborhood).toBe('')
+    expect(values.houseRules).toBe('')
+  })
+
+  it('falls back to the house times when the columns are null', () => {
+    const values = stored({ check_in_time: null, check_out_time: null })
+
+    expect(values.checkInTime).toBe('15:00')
+    expect(values.checkOutTime).toBe('11:00')
+  })
+
+  it('falls back when a time column holds something the form would reject', () => {
+    // They are `text` columns — nothing at the database level guarantees HH:MM,
+    // and seeding the form with garbage would fail validation on a field the
+    // host never touched.
+    const values = stored({ check_in_time: 'afternoon', check_out_time: '25:00' })
+
+    expect(values.checkInTime).toBe('15:00')
+    expect(values.checkOutTime).toBe('11:00')
+  })
+
+  it('drops an amenity the app no longer offers', () => {
+    const values = stored({ amenities: ['wifi', 'helipad', 'kitchen'] })
+
+    expect(values.amenities).toEqual(['wifi', 'kitchen'])
+  })
+
+  it('produces values createListingSchema accepts', () => {
+    // The whole point of the mapper: what it emits goes straight into the form,
+    // and the form's resolver is this schema.
+    expect(createListingSchema.safeParse(stored()).success).toBe(true)
+    expect(
+      createListingSchema.safeParse(
+        stored({ description: null, state: null, check_in_time: null }),
+      ).success,
+    ).toBe(true)
+  })
+})
+
+const update = (overrides: Record<string, unknown> = {}) =>
+  updateListingSchema.safeParse({
+    listingId: LISTING_ID,
+    ...VALID_LISTING,
+    ...overrides,
+  })
+
+describe('updateListingSchema', () => {
+  it('accepts a complete edit', () => {
+    const result = update()
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.listingId).toBe(LISTING_ID)
+      expect(result.data.title).toBe('Cliffside Cabin')
+    }
+  })
+
+  it('accepts its own output — the F09 trap, and edit shares the schema too', () => {
+    // The form validates with this schema and posts the RESULT to the action,
+    // which validates again with the same schema. parse(parse(x)) has to work,
+    // and it only fails on the fields that transform.
+    const once = update()
+    expect(once.success).toBe(true)
+    if (!once.success) return
+
+    const twice = updateListingSchema.safeParse(once.data)
+    expect(twice.success).toBe(true)
+    if (twice.success) expect(twice.data).toEqual(once.data)
+  })
+
+  it('survives a second parse with every optional field blanked to null', () => {
+    const once = update({
+      description: '',
+      state: '',
+      neighborhood: '',
+      houseRules: '',
+    })
+    expect(once.success).toBe(true)
+    if (!once.success) return
+
+    expect(once.data.description).toBeNull()
+    expect(updateListingSchema.safeParse(once.data).success).toBe(true)
+  })
+
+  it.each([
+    ['no listing id', { listingId: undefined }],
+    ['a listing id that is not a uuid', { listingId: 'not-a-uuid' }],
+    ['an empty listing id', { listingId: '' }],
+  ])('rejects %s', (_label, overrides) => {
+    expect(update(overrides).success).toBe(false)
+  })
+
+  it.each([
+    ['a blank title', { title: '  ' }],
+    ['a free listing', { pricePerNight: 0 }],
+    ['more guests than the DB allows', { maxGuests: 17 }],
+  ])('still enforces the create rules — rejects %s', (_label, overrides) => {
+    // Extending rather than restating is what keeps these in step: a rule added
+    // to creation cannot be forgotten on edit.
+    expect(update(overrides).success).toBe(false)
+  })
+})
+
+describe('setPublishedSchema', () => {
+  it('accepts an explicit publish state in both directions', () => {
+    expect(
+      setPublishedSchema.safeParse({ listingId: LISTING_ID, published: true }).success,
+    ).toBe(true)
+    expect(
+      setPublishedSchema.safeParse({ listingId: LISTING_ID, published: false }).success,
+    ).toBe(true)
+  })
+
+  it('rejects a missing state rather than defaulting to one', () => {
+    // The action is idempotent precisely because the caller names the state it
+    // wants; a default would reintroduce the toggle race it exists to avoid.
+    expect(setPublishedSchema.safeParse({ listingId: LISTING_ID }).success).toBe(false)
+  })
+
+  it('rejects a non-boolean state', () => {
+    expect(
+      setPublishedSchema.safeParse({ listingId: LISTING_ID, published: 'yes' }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a bad listing id', () => {
+    expect(
+      setPublishedSchema.safeParse({ listingId: 'nope', published: true }).success,
     ).toBe(false)
   })
 })

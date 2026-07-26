@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, format, parseISO } from 'date-fns'
+import { differenceInCalendarDays, format, parseISO, subDays } from 'date-fns'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
@@ -186,6 +186,35 @@ export function toFavoriteCards<L, C>(
     .map((row) => row.listings)
     .filter((listing): listing is L => listing !== null)
     .map(toCard)
+}
+
+/**
+ * Whether a listing still owes a guest a stay, and so must not be deleted.
+ *
+ * `bookings.listing_id` is `on delete cascade`, so deleting a listing does not
+ * cancel its reservations — it **erases** them: no `cancelled_at`, no row, and
+ * nothing left in the guest's Trips. This is the one rule that stops that, and
+ * it lives here so the query that disables the button and the action that
+ * refuses the write cannot drift apart.
+ *
+ * **The cutoff is deliberately a day wide.** The comparison happens in JS while
+ * the stay is stored as a `date`, and `todayISO` can sit either side of the
+ * database's `current_date` near midnight (see its own note). One of those
+ * sides deletes a stay the database still considers in progress; the other
+ * merely refuses a delete that could have gone ahead. Yesterday's date picks
+ * the harmless one.
+ *
+ * A cancelled booking frees its dates and holds nobody's plans, so it does not
+ * block — the same rule the exclusion constraint applies.
+ */
+export function blocksListingDeletion(
+  bookings: readonly { status: string; check_out: string }[],
+  today: Date = new Date(),
+): boolean {
+  const cutoff = toISODate(subDays(today, 1))
+  return bookings.some(
+    (booking) => booking.status === 'confirmed' && booking.check_out >= cutoff,
+  )
 }
 
 /**

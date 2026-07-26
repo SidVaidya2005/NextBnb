@@ -11,8 +11,8 @@ import {
   addListingPhoto,
   deleteListingPhoto,
   movePhoto,
-  publishListing,
   setCoverPhoto,
+  setListingPublished,
 } from '@/lib/actions/listings'
 import { MAX_PHOTOS_PER_LISTING } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -86,7 +86,7 @@ export function PhotoManager({
   function onPublish() {
     setError(null)
     startTransition(async () => {
-      const result = await publishListing({ listingId })
+      const result = await setListingPublished({ listingId, published: true })
       if (!result.ok) {
         setError(result.error)
         return
