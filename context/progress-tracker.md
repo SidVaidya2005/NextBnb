@@ -12,10 +12,44 @@ immediately know what is done, what is in progress, and what is next.
 ## Current Status
 
 **Phase:** Phase 3 — Hosting
-**Last completed:** 09 Create listing
-**Next:** 10 Manage listings
+**Last completed:** 10 Manage listings
+**Next:** 11 Availability management
 
-**F09 is live: anyone can list a place.** `/host/listings/new` collects the
+**F10 is live: a host can maintain what they own.** `/host/listings` lists every
+listing they host — published and drafts, newest first — with Edit, Photos,
+Publish/Unpublish and Delete on each row, and
+`/host/listings/[id]/edit` reuses `ListingForm` through a discriminated `mode`
+prop rather than a second copy. `publishListing` was **replaced** by the
+idempotent `setListingPublished({ listingId, published })` (F08's `setFavorite`
+shape) instead of being joined by a second writer of `is_published`. **No
+migration** — `0001`/`0003`/`0006` already permitted host update and delete.
+Gates: `tsc` clean, `lint` clean, **157/157** unit, **237 passed / 3 skipped**
+E2E, `npm run build` green, 14 routes. Advisor baseline unchanged at 5 WARNs;
+seed back to 26/24/130/17/7/5 with **0** listings owned by the fixture user.
+
+**Delete refuses while a stay is still coming.** `bookings.listing_id` is
+`on delete cascade`, so deleting a listing does not cancel its reservations — it
+**erases** them: no `cancelled` status, no `cancelled_at`, no row, nothing left
+in the guest's Trips. `deleteListing` refuses while any confirmed booking has yet
+to check out and steers to unpublish; the row disables the control **and states
+why**. Said plainly: this is a UX guard, not an authorization one —
+`listings_delete_own_or_admin` still permits it, deliberately, because F17's
+admin moderation needs a hard delete for spam. The cutoff is widened by a day so
+the JS/`current_date` boundary can only ever refuse a delete, never erase a stay
+still in progress.
+
+**Two false results were caught before they could be trusted, both by the
+database oracle.** `getByRole` matches an accessible name as a **substring**, so
+`{ name: 'Publish <title>' }` matched the *Unpublish* button still on screen and
+resolved instantly against the pre-click state — the spec passed while the
+listing was still published, and only `readListing()` disagreed. And clicking
+before React hydrates does nothing at all, while a value typed into a field React
+is about to re-assert from `defaultValues` is silently reverted — clearing the
+title and submitting *saved the original and navigated away*, which read exactly
+like "the editor accepts a blank title". Specs now wait on React's own
+`__reactProps$` hydration marker rather than on a sleep.
+
+**F09 remains green: anyone can list a place.** `/host/listings/new` collects the
 details and creates a **draft**, then `/host/listings/[id]/photos` takes uploads,
 reordering, cover selection and publish. Two steps, not one, because
 `/api/sign-cloudinary` signs only for a listing the caller **already owns** — the
@@ -198,17 +232,34 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 - **F08's failure path has never run.** `SaveButton`'s revert-and-announce branch
   needs `setFavorite` to return `{ ok: false }`, which needs an induced Supabase
   error. Same shape as F05's never-triggered `error.tsx`.
-- **`toFavoriteCards`' null-listing drop has never met a real null.** It needs a
-  listing favorited and *then* unpublished — F10's publish/unpublish action is
-  the first thing that can produce one.
+- **`toFavoriteCards`' null-listing drop still has never met a real null, and
+  F10 explains why it cannot yet.** F08 expected unpublish to produce one. It
+  does — but only for a viewer who is *not* the host, and the Playwright fixture
+  user is the only account that can sign in, so it is always the host of anything
+  it unpublishes. RLS hands a draft straight back to its owner, so the embed is
+  never null for the one account a spec can drive. **A second test user is the
+  only thing that closes this** — the same answer `/favorites`' empty state and
+  `/admin`'s admin-side render have been waiting on since F04.
 - **The `/favorites` empty state renders but is unasserted.** Asserting it would
   require knowing no parallel worker has a row in flight for the shared fixture
   user, which the isolation rule forbids. A second test user closes this and
   `/admin`'s admin-side render together.
-- **`DraftNotice` has never been rendered by a browser.** RLS returns drafts to
-  their owner (proven by SQL impersonation), but both seed drafts belong to fake
-  users who cannot sign in and the Playwright fixture user owns nothing. F09/F10
-  close it for free by creating a listing owned by a real account.
+- **`updateListing`'s and `deleteListing`'s failure paths have never run** — the
+  `{ ok: false }` branches after a genuine Supabase error, as opposed to the
+  guard refusals, which are covered. Same shape as F08's `setFavorite` revert and
+  F05's untriggered `error.tsx`.
+- **`deleteListing`'s Cloudinary `destroy` has only ever run against fabricated
+  public_ids.** The suite never uploads (`code-standards.md`), so every fixture
+  photo row points at an asset that does not exist — the destroy is called, fails,
+  and is logged exactly as designed, but a *successful* multi-asset destroy on a
+  listing delete has only been reasoned about. The same fabricated ids also make
+  `CldImage` log "Resource not found" through the host grid during E2E runs; it is
+  test-data noise, not a defect, and it appeared only because F09's follow-up gave
+  the project real Cloudinary credentials.
+- **Editing before hydration loses the edit, for a real user too.** Clearing a
+  field and submitting inside the hydration window saves the server-rendered
+  default instead — inherent to an SSR'd RHF form seeded from `defaultValues`,
+  narrow enough to leave alone, and worth knowing before it is reported as a bug.
 - **Disable the GitHub integration** in the Supabase dashboard (Project Settings
   → Integrations) — a dashboard action, no MCP tool for it. The Supabase branch
   `main` is parked at `MIGRATIONS_FAILED`; it is inert and the production
@@ -247,7 +298,7 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 
 ### Phase 3 — Hosting
 - [x] 09 Create listing
-- [ ] 10 Manage listings
+- [x] 10 Manage listings
 - [ ] 11 Availability management
 
 ### Phase 4 — Booking
@@ -269,7 +320,6 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 
 - Visual design system is fixed by `context/DESIGN.md` (Airbnb-style: Rausch `#ff385c` on white, `#222222` ink, Inter as the Cereal VF substitute, soft radii, one shadow tier). Tokens live in `globals.css @theme`.
 - Fully responsive is a hard requirement — custom Tailwind breakpoints (`tablet:744` / `desktop:1128` / `wide:1440`) map phone/iPad/laptop/desktop; mobile-first, grids drop columns.
-- Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only when its tests pass. E2E runs against the seeded DB with a seed-verification step.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
 - **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
 - **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waits in F12's booking widget.
@@ -277,6 +327,7 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 - **F07** — **a route `loading.tsx` and a real HTTP 404 cannot coexist.** The implicit `<Suspense>` it creates makes the response stream, and the status commits to **200 before `notFound()` runs** (Next: "a 404 status for non-streamed responses and a 200 for streamed"). Drafts would have been indexable as live pages. `loading.tsx` was dropped; the specs gate against restoring it. **Applies to every future route that can 404** — F13 `/trips`, F14, F17 — so choose the status over the skeleton unless the route can never 404.
 - **F09** — **a library that throws on missing config turns a misconfiguration into a 500.** `CldImage` throws without a cloud name and `CldUploadWidget` throws without a *browser-visible* api_key — both during render, so one unset env var took down `/listings/[id]` and `/host/listings/[id]/photos` entirely rather than degrading to a broken image or a dead button. Both are now guarded and fall back. It also surfaced that the Cloudinary **api_key is public** (it rides along with every browser upload) while the **secret** authorises — `NEXT_PUBLIC_CLOUDINARY_API_KEY` is therefore correct and `architecture.md`'s invariant, which names only the secret, still holds. **Generalises: before trusting an integration, render it once with the config absent** — F16's Realtime and F18's deploy have the same shape.
 - **F09** — **a validation schema used on both sides of a boundary must accept its own output.** The form validates with `createListingSchema`, posts the *result* to the server action, and the action re-validates with the same schema — so `parse(parse(x))` has to succeed. It did not: the optional-text fields emitted `null` but accepted only `string | undefined`, and every listing with a blank description passed on the client then failed on the server with a message naming no field. **Generalises: whenever one schema guards both a form and the action behind it, test it against its own output** — the two directions are each correct in isolation, which is exactly why nothing else catches it. F12's booking widget shares a schema the same way.
+- **F10** — **an FK cascade is a destructive path with no error, no test and no type pointing at it.** `bookings.listing_id` is `on delete cascade`, so a host deleting a listing does not *cancel* its reservations — it erases them, leaving the guest nothing in `/trips` and no record a stay ever existed. Nothing surfaces it: the delete succeeds, RLS permits it, and no assertion covered a table the feature never mentions. It is now guarded in the action (refuse while a confirmed stay is still coming, steer to unpublish), stated in the UI rather than only disabled, and the cutoff is widened by a day so the JS/`current_date` boundary can only ever err toward refusing. **Generalises: before shipping a delete, read the FK actions on every table that references the row — the blast radius is in the schema, not in the feature.** F17's admin delete is the same cascade with the guard deliberately absent, and F11's `blocked_dates` is next.
 
 ---
 
@@ -286,6 +337,11 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 >   `params`/`cookies`/`headers` are async-only. *(Pruned in F09 at the ~10-bullet
 >   cap — now stable and fully documented in `architecture.md` → Stack and
 >   `CLAUDE.md` → Runtime & Commands.)*
+> - Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only
+>   when its tests pass. E2E runs against the seeded DB with a seed-verification
+>   step. *(Pruned in F10 at the ~10-bullet cap — a standing rule, not a pending
+>   decision, and `code-standards.md` → Testing specifies it in far more detail,
+>   down to which logic is unit-tested and which flows are E2E.)*
 > - Images use **Cloudinary** (signed uploads + `CldImage` responsive delivery),
 >   **not** Supabase Storage; `listing_photos` stores `url` + `public_id`.
 >   *(Pruned in the F09 follow-up — no longer a pending decision: it is built,

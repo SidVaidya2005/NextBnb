@@ -432,6 +432,16 @@ export type DraftListingInput = {
   title?: string
   city?: string
   isPublished?: boolean
+  /**
+   * Raise this before publishing a fixture listing. `search.spec.ts` asserts an
+   * **exact** count for a 5-night availability window, and any published
+   * listing inflates the app's side of it — `loadSeedSnapshot` reads whatever
+   * is published, so the expectation and the page disagree by one and the spec
+   * fails in a parallel worker for reasons nothing in it explains. A minimum
+   * stay longer than any window a spec queries keeps a published fixture out of
+   * both sides of that comparison.
+   */
+  minNights?: number
 }
 
 /**
@@ -464,7 +474,7 @@ export async function createDraftListing(
       price_per_night: 12_300,
       cleaning_fee: 0,
       amenities: [],
-      min_nights: 1,
+      min_nights: input.minNights ?? 1,
       is_published: input.isPublished ?? false,
     })
     .select('id, title')
@@ -615,4 +625,113 @@ export async function listingsOwnedByFixtureUser(): Promise<string[]> {
   }
 
   return (data ?? []).map((row) => row.id)
+}
+
+// -----------------------------------------------------------------------------
+// Host management (F10)
+// -----------------------------------------------------------------------------
+
+/**
+ * A confirmed booking on a fixture listing, for proving the delete guard.
+ *
+ * **Always attach these to a DRAFT fixture listing.** A published one would move
+ * the count `home.spec.ts` asserts, and the booking cascades away with the
+ * listing so `global-teardown.ts` already covers it. (A booking on a draft is a
+ * state `seed-verification.sql` would flag — it runs by hand, never inside the
+ * suite, and by then the fixture rows are gone.)
+ *
+ * The guest is a seeded one, never the fixture user: the host is the fixture
+ * user, and a host booking their own listing is exactly what the INSERT policy
+ * and the seed's integrity checks forbid.
+ */
+export async function createBookingRow(
+  listingId: string,
+  options: {
+    checkIn: string
+    checkOut: string
+    status?: 'confirmed' | 'cancelled'
+  },
+): Promise<{ id: string }> {
+  const supabase = serviceClient()
+
+  const nights = nightsBetween(options.checkIn, options.checkOut)
+  const pricePerNight = 12_300
+  const subtotal = nights * pricePerNight
+  // 0.14 is SERVICE_FEE_PCT, duplicated on purpose exactly as seed.sql does:
+  // a booking's prices are snapshots that must not track a later rate change.
+  const serviceFee = Math.round(subtotal * 0.14)
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .insert({
+      listing_id: listingId,
+      guest_id: OTHER_USER_ID,
+      check_in: options.checkIn,
+      check_out: options.checkOut,
+      guests_count: 2,
+      nights,
+      price_per_night: pricePerNight,
+      cleaning_fee: 0,
+      service_fee: serviceFee,
+      total: subtotal + serviceFee,
+      status: options.status ?? 'confirmed',
+    })
+    .select('id')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`[e2e/fixtures] could not create a booking: ${error?.message}`)
+  }
+
+  return data
+}
+
+/**
+ * A listing's bookings, straight from the table — the oracle for "the guard
+ * refused, and the reservation is still there".
+ */
+export async function readBookings(
+  listingId: string,
+): Promise<{ id: string; status: string; checkOut: string }[]> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('id, status, check_out')
+    .eq('listing_id', listingId)
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read bookings: ${error.message}`)
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    status: row.status,
+    checkOut: row.check_out,
+  }))
+}
+
+/**
+ * Flips a fixture listing's publish state directly.
+ *
+ * Setup only — never an assertion. Specs that mean to test publishing drive the
+ * real button; this is for the ones that need a *live* listing before they can
+ * test something else.
+ */
+export async function publishFixtureListing(
+  listingId: string,
+  published: boolean,
+): Promise<void> {
+  const supabase = serviceClient()
+
+  const { error } = await supabase
+    .from('listings')
+    .update({ is_published: published })
+    .eq('id', listingId)
+
+  if (error) {
+    throw new Error(
+      `[e2e/fixtures] could not set publish state on ${listingId}: ${error.message}`,
+    )
+  }
 }

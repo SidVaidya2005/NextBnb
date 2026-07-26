@@ -1384,3 +1384,209 @@ but F10's delete path should assume an orphan is possible.
   shape our schema expects is the one it returns.
 - `MAX_PHOTOS_PER_LISTING`, the `addListingPhoto` failure path, and the
   `destroy()` failure branch remain unexercised.
+
+---
+
+## Phase 3 · Feature 10 — Manage listings  *(2026-07-26)*
+
+**Scope built (12 files):** `blocksListingDeletion` in `lib/utils.ts`;
+`centsToDollars`, `toListingFormValues`, `updateListingSchema`,
+`listingActionSchema`/`setPublishedSchema`/`deleteListingSchema` and the
+`DEFAULT_CHECK_IN_TIME`/`DEFAULT_CHECK_OUT_TIME` constants in
+`lib/validations/listings.ts`; `getOwnListings` + `getOwnListingForEdit` in
+`lib/queries/listings.ts`; `updateListing`, `setListingPublished` (replacing
+`publishListing`) and `deleteListing` in `lib/actions/listings.ts`, plus a shared
+`destroyAsset` helper; `components/host/{HostListingCard,ListingActions,
+hostControlStyles}`; `/host/listings` replacing its placeholder;
+`/host/listings/[id]/edit`; `ListingForm` given a discriminated `mode` prop;
+`e2e/host-manage.spec.ts` (18) and `e2e/host-manage-responsive.spec.ts` (15);
++35 unit tests. **No migration, no new dependency, `database.types.ts`
+untouched** — `0001`/`0003`/`0006` already permitted host update and delete, and
+no column grant restricts which listing columns a host may write.
+
+**Decisions:**
+- **Delete refuses while a confirmed stay is still coming.** `bookings.listing_id`
+  is `on delete cascade`, so deleting a listing does not *cancel* its
+  reservations — it erases them: no `cancelled` status, no `cancelled_at`, no
+  row, and nothing left in the guest's Trips to explain where their stay went.
+  The action refuses and steers to unpublish, which takes the listing out of
+  search and leaves every booking intact.
+- **Stated plainly in the code: that guard is UX, not authorization.**
+  `listings_delete_own_or_admin` still permits the delete, deliberately — F17's
+  admin moderation needs a hard delete for spam and abuse, and a database trigger
+  would block admins too. Accepted consequence: a listing whose bookings are all
+  *past* still deletes, and the cascade takes its reviews with it. That is
+  inherent to hard delete, which `build-plan.md` reserves for exactly that case.
+- **The cutoff is a day wide, on purpose.** The comparison happens in JS against
+  a `date` column, and `todayISO` can sit either side of the database's
+  `current_date` near midnight (its own docstring says so). One side deletes a
+  stay the database still considers in progress; the other merely refuses a
+  delete that could have gone ahead. `subDays(today, 1)` picks the harmless one.
+- **`publishListing` was replaced, not joined.** `setListingPublished({
+  listingId, published })` is idempotent — F08's `setFavorite` shape, and for the
+  same reason: a toggle reads the current row and inverts it, so two clicks in
+  flight resolve against the same "before" and can land opposite to the button.
+  Two actions writing one column is the drift this journal keeps recording, so
+  the old one is gone and `PhotoManager` is the single repointed call site.
+- **Reading `bookings` here is safe, and it was checked rather than assumed.**
+  The `bookings` SELECT policy admits the listing's host, and `host_id` scopes
+  the query to listings this user hosts. **Not F06's trap, and the difference is
+  the useful part:** there, missing rows inferred a *permission* ("everything is
+  available") and arrived as a success; here a non-host reads no listings at all,
+  so there is no row set left to draw a wrong conclusion from.
+- **`getOwnListingForEdit` is a second query, not a widened `getOwnListing`.**
+  That one feeds the photo editor and has no use for eighteen form fields; this
+  one returns a form-ready shape (cents already dollars, nulls already blank)
+  through a pure `toListingFormValues`, so the mapping is unit-testable without a
+  database — F05's precedent.
+- **`ListingForm` takes a discriminated union, not optional props.** `listingId`
+  and the loaded values are meaningless in create mode and mandatory in edit
+  mode; the union makes forgetting one a type error. Both modes resolve with
+  `createListingSchema` — `updateListingSchema` extends it — so a rule added to
+  creation is enforced on edit for free.
+- **Two-step inline delete, not `window.confirm` or a new modal.** No dependency,
+  keyboard-accessible for free, no `page.on('dialog')` plumbing in every spec,
+  and DESIGN.md specs no dialog beyond the scrim token.
+- **`HostListingCard` is new rather than a reuse of `ListingCard`.** That one
+  links the whole tile to the public page, carries a `SaveButton` and renders a
+  rating — none of which belong on a management surface, and the heart would drag
+  a client component in for nothing. What they genuinely share is `ListingImage`.
+- **Every control names its listing** (`Delete <title>`, `Publish <title>`). One
+  row per listing means a bare "Delete" matches N times; naming them is both the
+  only workable locator and the correct accessibility answer.
+- **`hostControlStyles.ts` is directive-free on purpose.** The links live in a
+  Server Component and the buttons in a Client one, so neither can import a
+  shared const from the other without dragging its module into the wrong graph.
+  Same arrangement as `ui/fieldStyles.ts`.
+- **44px controls (`h-11`), not DESIGN.md's 48px `button-primary`.** Four
+  controls share one row and 48px does not fit at 320px; the `code-standards.md`
+  floor is the part that is non-negotiable.
+
+**Gotchas:**
+- **`getByRole` matches the accessible name as a SUBSTRING, and that made a spec
+  assert nothing.** After clicking Unpublish, `getByRole('button', { name:
+  'Publish <title>' })` matched the **Unpublish** button still on screen and
+  resolved instantly against the pre-click state. The spec passed while the
+  listing was still published, and the only thing that disagreed was
+  `readListing()` on the next line. Fixed with `exact: true`. **This is F08's
+  trap in a new costume** (`toHaveURL('/')` passing instantly on a page already
+  at `/`) and the fourth time the project has been saved by making the database,
+  not the page, the oracle.
+- **Clicking before React hydrates is a false result twice over, and both look
+  like app bugs.** A `type="button"` click lands on server HTML with no handler
+  attached and simply does nothing — the delete-guard spec sat there for 30s
+  waiting for a confirm step that was never going to appear. Worse, a value typed
+  into a field React is about to re-assert from `defaultValues` is silently
+  reverted: clearing the title and submitting **saved the original title and
+  navigated away**, which reads exactly like "the editor accepts a blank title".
+  Proven by instrumenting the run (URL after submit was `/host/listings`, and the
+  form was gone), then confirmed by inserting a wait before the fill. Specs now
+  poll React's own `__reactProps$…` hydration marker — an internal, but the
+  direct signal, and infinitely better than sleeping and hoping.
+- **A published fixture listing breaks `search.spec.ts` from another worker.**
+  Its availability spec compares an **exact** count against an independently
+  computed expectation, and `loadSeedSnapshot` reads *every* published listing —
+  so a fixture listing bookable for those dates makes the page and the
+  expectation disagree by one, in a spec that mentions nothing about hosting.
+  `createDraftListing` now takes `minNights`, and F10's published fixtures use 30
+  nights so they fall out of both sides. F09 shipped the same hazard and narrowed
+  it by deleting inside the spec body; this is the actual fix.
+- **`getByText('Draft')` matched the fixture titles.** They read `E2E draft
+  <hex>`, and `getByText` is a case-insensitive *substring* match. `exact: true`.
+  Sixth instance of a locator coupled to something outside the thing under test
+  (F05's `getByText('0.0')` matching prices, F07's `circle-user-round` counting
+  the nav, F08's `input[name="next"]` matching hearts, F09's `getByLabel(
+  'Guests')` matching the SearchBar).
+- **Re-enabling a disabled React button from the DOM does not work, and the
+  attempt hangs.** The first version of the server-guard spec set
+  `button.disabled = false` via `evaluate` and clicked. React owns that attribute
+  and restores it on its next render, so Playwright waited out the full timeout
+  on a control it could never click. Replaced with something both simpler and
+  more honest: delete with no bookings, let the host reach the confirm step, then
+  insert the booking *while they are deciding*. That reaches the action with a
+  stale `canDelete` through the real UI, and it is also the genuine race — a
+  guest reserving between the render and the click.
+- **An UPDATE that matches no row returns success with no data.** `updateListing`
+  therefore checks the returned row and reports "not found" rather than a save
+  that never happened — the same silent-success failure mode `0006` exists to
+  eliminate for revoked privileges.
+- **`Partial<typeof LITERAL>` infers the literal's own types**, so a test fixture
+  built as a plain object could not be overridden with `null` on its nullable
+  columns. Typed from the function instead: `Parameters<typeof
+  toListingFormValues>[0]`, which needs no new export.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run test` **157/157**
+  (122 prior + 35 new); `npm run test:e2e` **237 passed / 3 skipped** (204 prior
+  + 33 new) from a deleted `e2e/.auth` and a free :3000; `npm run build` green
+  with **14 routes**, `/host/listings/[id]/edit` present and `ƒ Proxy
+  (Middleware)` still printing.
+- **Edits checked against the database, not the page that made them.** A form
+  save writes the new title, `$249` as **24900** cents, the description, and
+  `min_nights = 3`. Opening the editor and saving *without touching anything*
+  leaves `price_per_night` at exactly 12300 — the cents/dollars crossing happens
+  twice there and must not move a value.
+- The editor opens on the stored values with every nullable column rendered as
+  `''`, and a blank title is refused client-side with nothing written.
+- **Only the host's own listings appear**; a seeded listing hosted by someone
+  else never does. `/host/listings/[id]/edit` returns a real **404** for a
+  non-owner and for a malformed id, and both routes 307 a signed-out visitor with
+  `?signin=required`.
+- Publishing from the grid without a photo is refused **and says why**, with
+  `is_published` unchanged in the table. Publishing drops the Draft badge;
+  unpublishing takes the listing out of a city-scoped search and back.
+- Deleting a bookings-free listing removes the row and its photo rows; the first
+  click only asks, and cancelling deletes nothing. A **cancelled** future stay
+  does not block. A **confirmed** future stay disables the control with the reason
+  on screen, and the action refuses even when the page thinks it may proceed —
+  with the booking still in the table afterwards.
+- **All three gate proofs fire.** Removing the booking guard fails the
+  action-refusal spec on the missing message; dropping `host_id` from
+  `getOwnListings` fails the own-listings spec with the seeded title present
+  (`Expected: 0, Received: 1`); breaking the `>= 1 photo` guard fails the grid
+  publish spec. Each was run against the broken build and then reverted.
+- **Responsive measured at 320 / 375 / 744 / 1128 / 1440** — each band's lower
+  boundary. No horizontal overflow on either route, every control inside the
+  viewport, every control ≥44px, and the **confirm step measured too**, since
+  swapping Delete for Confirm + Cancel is the widest this row ever gets.
+- `get_advisors(security)` — **still 5 WARNs**, the documented baseline. F10 adds
+  no function and no policy.
+- **Seed intact after a full suite run**: 26 listings / 24 published / 130 photos
+  / 17 bookings / 7 reviews / 5 blocks / 0 favorites, and **0 listings owned by
+  the fixture user**.
+
+**Not verified — honestly outstanding:**
+- **F08's `toFavoriteCards` null-embed gap did NOT close here, and F10 explains
+  why it cannot yet.** F08 expected unpublish to produce a real null. It does —
+  but only for a viewer who is not the host, and the Playwright fixture user is
+  the only account that can sign in, so it is always the host of anything it
+  unpublishes. RLS hands a draft straight back to its owner, so the embed is
+  never null for the one account a spec can drive. A second test user is the only
+  thing that closes it, alongside `/favorites`' empty state and `/admin`'s
+  admin-side render.
+- **The `{ ok: false }` branches of `updateListing` and `deleteListing` have
+  never run** — the guard refusals are covered; a genuine Supabase error is not.
+- **`deleteListing`'s Cloudinary destroy has only ever run against fabricated
+  public_ids.** The suite never uploads, so every fixture photo points at an
+  asset that does not exist: the destroy is called, fails, and is logged exactly
+  as designed, but a *successful* multi-asset destroy has only been reasoned
+  about. Those same fabricated ids make `CldImage` log "Resource not found"
+  through the host grid during E2E — test-data noise, visible only because F09's
+  follow-up gave the project real credentials.
+- **Editing inside the hydration window loses the edit for a real user too**, not
+  just for Playwright: the server-rendered default wins. Inherent to an SSR'd
+  react-hook-form seeded from `defaultValues`, narrow enough to leave alone, and
+  worth knowing before someone reports it as a bug.
+- **No keyboard or screen-reader pass** on the two-step delete. `role="alert"` is
+  written but has not been heard, and the focus behaviour when Delete is replaced
+  by Confirm has not been walked. F18 owns it.
+
+**Deferred / follow-ups:**
+- F11 adds availability to the listing editor and inherits `/edit`; it should
+  reuse `getOwnListing`'s ownership question rather than `getListingById`, for
+  the reason F09 recorded.
+- F11's `blocked_dates` is the next cascade to read before writing a delete.
+- F17's admin delete is this same cascade with the guard deliberately absent —
+  that is the design, and it should say so where it is written.
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
+  outside the repo.

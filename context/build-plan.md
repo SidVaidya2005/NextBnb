@@ -258,6 +258,37 @@ Let a host maintain their existing listings.
 **Logic:**
 - `queries/listings.getOwnListings`; `actions/listings.updateListing`, `setPublished`, `deleteListing` (also `destroy`s each photo's Cloudinary asset where `public_id` is set); ownership enforced by RLS.
 
+**Planned shape (agreed before build, 2026-07-26):**
+- **Delete refuses while an upcoming confirmed booking exists.** `bookings.listing_id` is
+  `on delete cascade`, so an unguarded delete silently erases a guest's stay — no
+  cancellation, no `cancelled_at`, nothing left in `/trips`. The action refuses and steers
+  to unpublish, which is already this plan's stated preference for F17. **It is a UX guard,
+  not a database one:** `listings_delete_own_or_admin` still permits the delete, deliberately,
+  so F17's admin delete keeps its escape hatch for spam. Accepted consequence: a listing whose
+  bookings are all past still deletes, and that cascade takes its reviews with it.
+- **The delete cutoff is widened by one day.** The comparison happens in JS, and `todayISO()`
+  can sit either side of the DB's `current_date` near midnight — where the wrong side deletes
+  a stay the database still considers in progress. `subDays(today, 1)` makes the guard err
+  only toward refusing.
+- **`publishListing` is replaced by `setListingPublished({ listingId, published })`**, not
+  joined by a second `unpublishListing`. Idempotent like F08's `setFavorite`, so two clicks
+  converge; the `>= 1 photo` guard moves onto the publish branch. `PhotoManager` is the one
+  call site to repoint.
+- **`/edit` and `/photos` stay separate routes.** F09's photo surface is verified end to end
+  against the live Cloudinary account; `/edit` links across rather than absorbing it.
+- **Delete confirms inline in two steps**, not via `window.confirm` or a new modal primitive —
+  no dependency, keyboard-accessible for free, and DESIGN.md specs no dialog.
+- **`getOwnListingForEdit` is a second query, not a widened `getOwnListing`.** It returns a
+  form-ready shape via a pure `toListingFormValues` helper — cents to dollars, **nulls to `''`**.
+  That last mapping is load-bearing and TypeScript will not ask for it: `optionalText` is
+  `.nullish()`, so `null` type-checks as a valid default and then goes uncontrolled in React.
+- **Reading `bookings` here is safe, and it was checked.** The `bookings` SELECT policy admits
+  the listing's host, and every reader of this page is that host by construction. **Not F06's
+  trap** — there, missing rows inferred a *permission*; here they cannot, because a non-host
+  never reaches the query.
+- **No migration.** `0001`/`0003`/`0006` already permit host update and delete, and no column
+  grant restricts which listing columns a host may write.
+
 ### 11 Availability management
 
 Let a host block dates their listing isn't available.
