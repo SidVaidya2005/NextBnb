@@ -182,8 +182,18 @@ function orderedPriceBounds(
   return [min, max]
 }
 
+/**
+ * Dollars as a human types them → the integer cents everything else uses.
+ *
+ * The one crossing point between the two representations, shared by the search
+ * URL (which carries dollars) and the create-listing form (which collects them).
+ */
+export function dollarsToCents(dollars: number): number {
+  return Math.round(dollars * 100)
+}
+
 function toCents(dollars: number | undefined): number | undefined {
-  return dollars === undefined ? undefined : Math.round(dollars * 100)
+  return dollars === undefined ? undefined : dollarsToCents(dollars)
 }
 
 /**
@@ -205,3 +215,183 @@ function parseAmenities(raw: string | string[] | undefined): Amenity[] {
 
   return [...new Set(valid)]
 }
+
+// -----------------------------------------------------------------------------
+// Feature 09 — creating a listing
+//
+// These schemas mirror the DB constraints in migration `0001` field for field.
+// The database is the real guard; validating here is what turns a constraint
+// violation into a message on the right input instead of a 500.
+//
+// Money is collected in DOLLARS and converted by `dollarsToCents` at the call
+// site, exactly as `parseListingFilters` does for the search URL — the schema
+// validates, the surrounding function converts. Keeping the schema's input and
+// output identical is also what lets react-hook-form bind to it without a
+// separate transformed-values type.
+// -----------------------------------------------------------------------------
+
+// Bounds that exist only to keep a hostile or fat-fingered payload sane. The DB
+// caps `max_guests` at 16 and `bathrooms` at numeric(3,1); the rest are product
+// judgements, kept local to this file like MAX_PRICE_DOLLARS above.
+const MAX_TITLE = 120
+const MAX_DESCRIPTION = 2_000
+const MAX_HOUSE_RULES = 1_000
+const MAX_PLACE_NAME = 120
+const MAX_BEDROOMS = 20
+const MAX_BEDS = 30
+const MAX_BATHROOMS = 20
+const MAX_MIN_NIGHTS = 365
+
+/** Strict 24-hour `HH:MM`. `check_in_time` is a plain text column, so this is
+ *  the only thing standing between it and a value `formatTimeOfDay` renders as
+ *  nothing. Deliberately stricter than that reader, which tolerates `9:00`. */
+const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+const requiredText = (max: number, message: string) =>
+  z.string().trim().min(1, message).max(max, `Keep this under ${max} characters.`)
+
+/**
+ * A nullable text column: the form posts `''` for "left blank", the DB wants null.
+ *
+ * **`.nullish()` is what makes this schema idempotent, and that is load-bearing.**
+ * The client validates with this schema and then sends the *result* to the server
+ * action, which validates again with the same schema — so the schema must accept
+ * its own output. Without `null` in the input set, every listing with a blank
+ * optional field passed on the client and was rejected on the server with
+ * "Please check the highlighted fields", pointing at no field in particular.
+ */
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, `Keep this under ${max} characters.`)
+    .nullish()
+    .transform((value) => (value === undefined || value === null || value === '' ? null : value))
+
+export const createListingSchema = z.object({
+  title: requiredText(MAX_TITLE, 'Give your place a title.'),
+  description: optionalText(MAX_DESCRIPTION),
+  propertyType: z.enum(PROPERTY_TYPES, { message: 'Choose a property type.' }),
+
+  city: requiredText(MAX_PLACE_NAME, 'Add the city.'),
+  state: optionalText(MAX_PLACE_NAME),
+  country: requiredText(MAX_PLACE_NAME, 'Add the country.'),
+  neighborhood: optionalText(MAX_PLACE_NAME),
+
+  maxGuests: z
+    .number({ message: 'How many guests can stay?' })
+    .int('Use a whole number.')
+    .min(1, 'At least one guest.')
+    .max(MAX_GUESTS, `At most ${MAX_GUESTS} guests.`),
+  bedrooms: z
+    .number({ message: 'How many bedrooms?' })
+    .int('Use a whole number.')
+    .min(0, 'Cannot be negative.')
+    .max(MAX_BEDROOMS, `At most ${MAX_BEDROOMS} bedrooms.`),
+  beds: z
+    .number({ message: 'How many beds?' })
+    .int('Use a whole number.')
+    .min(1, 'At least one bed.')
+    .max(MAX_BEDS, `At most ${MAX_BEDS} beds.`),
+  // numeric(3,1) in the DB, so halves are real and 1.25 is not storable.
+  bathrooms: z
+    .number({ message: 'How many bathrooms?' })
+    .min(0, 'Cannot be negative.')
+    .max(MAX_BATHROOMS, `At most ${MAX_BATHROOMS} bathrooms.`)
+    .multipleOf(0.5, 'Use whole or half bathrooms.'),
+
+  // Dollars. `price_per_night` is `check (price_per_night > 0)`, so 0 is not a
+  // free listing — it is a rejected insert.
+  pricePerNight: z
+    .number({ message: 'Set a nightly price.' })
+    .positive('Set a price above zero.')
+    .max(MAX_PRICE_DOLLARS, 'That price is too high.'),
+  cleaningFee: z
+    .number({ message: 'Set a cleaning fee, or 0 for none.' })
+    .nonnegative('Cannot be negative.')
+    .max(MAX_PRICE_DOLLARS, 'That fee is too high.'),
+
+  amenities: z.array(amenitySchema).max(AMENITIES.length),
+  houseRules: optionalText(MAX_HOUSE_RULES),
+
+  checkInTime: z.string().regex(TIME_PATTERN, 'Use a 24-hour time like 15:00.'),
+  checkOutTime: z.string().regex(TIME_PATTERN, 'Use a 24-hour time like 11:00.'),
+  minNights: z
+    .number({ message: 'Set a minimum stay.' })
+    .int('Use a whole number of nights.')
+    .min(1, 'At least one night.')
+    .max(MAX_MIN_NIGHTS, `At most ${MAX_MIN_NIGHTS} nights.`),
+})
+
+/**
+ * What the **form** holds. Optional text fields are plain strings here, blank
+ * when empty, because that is what an `<input>` produces.
+ */
+export type ListingFormValues = z.input<typeof createListingSchema>
+
+/**
+ * What the **action** receives once parsed: blanks normalised to `null`, ready
+ * for the nullable columns. Distinct from `ListingFormValues` because the
+ * optional-text fields transform.
+ */
+export type CreateListingInput = z.output<typeof createListingSchema>
+
+/**
+ * The Cloudinary folder a listing's photos live in.
+ *
+ * Defined once because three places must agree on it exactly: the upload
+ * widget's `options.folder`, the ownership regex in `/api/sign-cloudinary`, and
+ * the `publicId` check below. If they drift, uploads fail signature validation
+ * with nothing useful in the message.
+ */
+export function listingPhotoFolder(listingId: string): string {
+  return `nextbnb/listings/${listingId}`
+}
+
+/** Cloudinary's delivery host — the only one `next.config.ts` whitelists. */
+const CLOUDINARY_URL_PREFIX = 'https://res.cloudinary.com/'
+
+/**
+ * A photo the client claims Cloudinary just returned.
+ *
+ * **Both fields are attacker-controlled** — this is a server action, and nothing
+ * stops a caller posting whatever they like instead of the widget's response.
+ * The `publicId` check is the security-critical one: `deleteListingPhoto` passes
+ * it straight to `cloudinary.uploader.destroy()`, so an unconstrained value
+ * would let someone record a row pointing at **another host's asset** and then
+ * destroy it by deleting their own photo. Pinning it under this listing's own
+ * folder is what makes that impossible.
+ *
+ * The URL is checked by prefix rather than with `z.url()`, which in Zod 4
+ * validates URL *syntax* only — it accepts `javascript:alert(1)` quite happily.
+ */
+export const addListingPhotoSchema = z
+  .object({
+    listingId: z.uuid(),
+    url: z
+      .string()
+      .trim()
+      .startsWith(CLOUDINARY_URL_PREFIX, 'That is not a Cloudinary URL.')
+      .max(2_000),
+    publicId: z.string().trim().min(1).max(500),
+  })
+  .refine(
+    (photo) => photo.publicId.startsWith(`${listingPhotoFolder(photo.listingId)}/`),
+    { message: 'That photo does not belong to this listing.', path: ['publicId'] },
+  )
+
+/** Identifies one photo of one listing — used by delete and set-cover. */
+export const photoActionSchema = z.object({
+  listingId: z.uuid(),
+  photoId: z.uuid(),
+})
+
+/** Reorder is relative, never an absolute index: two clicks in flight then
+ *  compose instead of both writing the same stale position. */
+export const movePhotoSchema = photoActionSchema.extend({
+  direction: z.enum(['earlier', 'later']),
+})
+
+export const publishListingSchema = z.object({
+  listingId: z.uuid(),
+})

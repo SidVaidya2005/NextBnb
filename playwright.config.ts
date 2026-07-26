@@ -5,6 +5,9 @@ export default defineConfig({
   // Fails fast with a named cause if the database has not been seeded
   // (supabase/seed.sql), rather than letting every data-backed spec fail.
   globalSetup: './e2e/global-setup.ts',
+  // Sweeps up listings left behind when a spec is killed by a timeout, before
+  // its own `finally` cleanup could run (see e2e/global-teardown.ts).
+  globalTeardown: './e2e/global-teardown.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

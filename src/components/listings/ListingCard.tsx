@@ -1,8 +1,8 @@
-import Image from 'next/image'
 import Link from 'next/link'
 import { House, Star } from 'lucide-react'
 
 import { SaveButton } from '@/components/listings/SaveButton'
+import { ListingImage } from '@/components/ui/ListingImage'
 import { formatPrice } from '@/lib/utils'
 import type { ListingCardData } from '@/lib/queries/listings'
 
@@ -29,19 +29,18 @@ type Props = {
  * `after:absolute after:inset-0`; the heart sits above that overlay on `z-10`,
  * so each control does exactly one thing.
  *
- * Seed photos are external Unsplash URLs (`public_id = null`), so they render
- * through `next/image`; the Cloudinary `CldImage` path arrives in F09 with the
- * first real upload.
+ * Photos render through `ListingImage`, which picks `CldImage` for uploaded
+ * Cloudinary assets and `next/image` for the external Unsplash seed rows.
  */
 export function ListingCard({ listing, isSignedIn, priority = false }: Props) {
   return (
     <div className="group relative">
       <div className="relative aspect-square overflow-hidden rounded-md bg-surface-soft">
         {listing.coverUrl ? (
-          <Image
-            src={listing.coverUrl}
+          <ListingImage
+            publicId={listing.coverPublicId}
+            url={listing.coverUrl}
             alt={listing.title}
-            fill
             // Matches the grid below: 1-up on mobile, 2-up on tablet, 4-up from
             // desktop — so the optimizer never ships a 4-up-sized file to a phone.
             sizes="(max-width: 744px) 100vw, (max-width: 1128px) 50vw, 25vw"

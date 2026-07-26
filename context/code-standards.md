@@ -257,9 +257,20 @@ Every feature ships with tests — "verifiable" means automated, not just clicka
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only seed/migration scripts only — bypasses RLS; **never in a request path** (incl. the admin dashboard, which uses `admin_list_users()`) | **Yes — never expose** |
 | `NEXT_PUBLIC_SITE_URL` | OAuth `redirectTo` base for callbacks (localhost in dev, Render URL in prod) | No (public) |
 | `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Cloudinary config + `CldImage` delivery | No (public) |
-| `CLOUDINARY_API_KEY` | Cloudinary SDK config (`src/lib/cloudinary.ts`) | Sensitive |
+| `CLOUDINARY_API_KEY` | Cloudinary SDK config (`src/lib/cloudinary.ts`) | No — a public identifier (see below) |
+| `NEXT_PUBLIC_CLOUDINARY_API_KEY` | `CldUploadWidget` — sent with a **signed** browser upload so Cloudinary knows which account the signature belongs to | No (public) |
 | `CLOUDINARY_API_SECRET` | Signing uploads in `/api/sign-cloudinary` (server-only) | **Yes — never expose** |
 
+- **The Cloudinary `api_key` is public; the `api_secret` is not.** `CldUploadWidget`
+  performs the upload from the browser and must send the key with it, so the same
+  value is duplicated as `NEXT_PUBLIC_CLOUDINARY_API_KEY` (found in F09: without
+  it the widget throws *"A Cloudinary API Key is required for signed requests"*
+  and the whole route 500s). This does **not** weaken the upload path — the key
+  identifies the account, the **signature** authorises the upload, and that is
+  minted only by `/api/sign-cloudinary` after verifying the session, whitelisting
+  the signable params, and confirming the target folder belongs to a listing the
+  caller hosts. `architecture.md`'s invariant is worded for exactly this: it
+  names `CLOUDINARY_API_SECRET`, never the key.
 - Never hardcode keys, URLs, or secrets — read them from `process.env`.
 - `SUPABASE_SERVICE_ROLE_KEY` and `CLOUDINARY_API_SECRET` may be used only server-side and never imported into any client component or `NEXT_PUBLIC_*` value. The service-role key is further restricted to **standalone seed/migration scripts** — never a request path (route handler, server action, or RSC); privileged reads in a request path go through a `security definer` function like `admin_list_users()`.
 - The same variables must be set locally in `.env.local` and in the **Render dashboard** for production.

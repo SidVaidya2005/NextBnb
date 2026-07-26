@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
-import Image from 'next/image'
 import { House } from 'lucide-react'
 
+import { ListingImage } from '@/components/ui/ListingImage'
 import { cn } from '@/lib/utils'
 import type { ListingPhoto } from '@/lib/queries/listings'
 
@@ -36,9 +36,8 @@ type Props = {
  * of dots that never moves is worse than none. The next photo peeking past the
  * right edge is the affordance instead.
  *
- * Seed photos are external Unsplash URLs (`public_id = null`) so they render
- * through `next/image`; F09 adds the `publicId ? CldImage : Image` branch with
- * the first real upload.
+ * Photos render through `ListingImage`, which picks `CldImage` for uploaded
+ * Cloudinary assets and `next/image` for the external Unsplash seed rows.
  */
 export function PhotoGallery({ photos, title, action }: Props) {
   const onlyPhoto = photos.length === 1
@@ -70,10 +69,10 @@ export function PhotoGallery({ photos, title, action }: Props) {
                 index >= MOSAIC_CAPACITY && 'tablet:hidden',
               )}
             >
-              <Image
-                src={photo.url}
+              <ListingImage
+                publicId={photo.publicId}
+                url={photo.url}
                 alt={index === 0 ? title : `${title} — photo ${index + 1}`}
-                fill
                 // The cover occupies half the 1080px content column at desktop and
                 // the full viewport on a phone; the small tiles a quarter.
                 sizes={

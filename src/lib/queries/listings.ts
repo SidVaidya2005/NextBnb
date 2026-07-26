@@ -17,6 +17,8 @@ export type ListingCardData = Pick<Listing, 'id' | 'title' | 'city' | 'country'>
   /** Integer **cents**, like every money value in the app. */
   pricePerNight: number
   coverUrl: string | null
+  /** Cloudinary id of the cover, or null for an external (seed) photo. */
+  coverPublicId: string | null
   /** Mean review rating, or null when the listing has no reviews yet ("New"). */
   rating: number | null
   reviewCount: number
@@ -29,7 +31,12 @@ type ListingCardRow = Pick<
   Listing,
   'id' | 'title' | 'city' | 'country' | 'price_per_night'
 > & {
-  listing_photos: { url: string; is_cover: boolean; position: number }[]
+  listing_photos: {
+    url: string
+    public_id: string | null
+    is_cover: boolean
+    position: number
+  }[]
   reviews: { rating: number }[]
 }
 
@@ -41,13 +48,16 @@ export function toListingCard(
   listing: ListingCardRow,
   isFavorited: boolean,
 ): ListingCardData {
+  const cover = coverPhotoOf(listing.listing_photos)
+
   return {
     id: listing.id,
     title: listing.title,
     city: listing.city,
     country: listing.country,
     pricePerNight: listing.price_per_night,
-    coverUrl: coverPhotoOf(listing.listing_photos)?.url ?? null,
+    coverUrl: cover?.url ?? null,
+    coverPublicId: cover?.public_id ?? null,
     rating: averageRating(listing.reviews.map((review) => review.rating)),
     reviewCount: listing.reviews.length,
     isFavorited,
@@ -122,7 +132,7 @@ export async function getPublishedListings(
   let query = supabase
     .from('listings')
     .select(
-      'id, title, city, country, price_per_night, created_at, listing_photos(url, is_cover, position), reviews(rating), favorites(user_id)',
+      'id, title, city, country, price_per_night, created_at, listing_photos(url, public_id, is_cover, position), reviews(rating), favorites(user_id)',
     )
     .eq('is_published', true)
 
@@ -262,6 +272,73 @@ export async function getListingById(
     // RLS scopes this to the viewer's own rows (see getPublishedListings).
     isFavorited: favorites.length > 0,
     isOwnerView: !listing.is_published,
+  }
+}
+
+/** A photo as the host's editor renders it — ordered, and identifiable. */
+export type OwnListingPhoto = {
+  id: string
+  url: string
+  publicId: string | null
+  position: number
+  isCover: boolean
+}
+
+export type OwnListingData = {
+  id: string
+  title: string
+  isPublished: boolean
+  /** Gallery order: cover first, then ascending position. */
+  photos: OwnListingPhoto[]
+}
+
+/**
+ * A listing the current user **hosts**, with its photos — or `null`, which the
+ * caller turns into a 404.
+ *
+ * Deliberately *not* `getListingById`. That one leans on the SELECT policy,
+ * which also returns a draft to any **admin**, and its `isOwnerView` flag is
+ * really "this listing is unpublished". The photo editor writes, so it has to
+ * ask the narrower question — is this listing mine? — and `host_id` is the only
+ * thing that answers it. The write policies would reject an admin's edit anyway;
+ * this is what stops the page rendering an editor that cannot save.
+ */
+export async function getOwnListing(id: string): Promise<OwnListingData | null> {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data, error } = await supabase
+    .from('listings')
+    .select(
+      'id, title, is_published, listing_photos(id, url, public_id, position, is_cover)',
+    )
+    .eq('id', id)
+    .eq('host_id', user.id)
+    .single()
+
+  if (error) {
+    // PGRST116 is "no rows" — someone else's listing, or none. An ordinary 404.
+    if (error.code !== 'PGRST116') {
+      console.error('[queries/listings] getOwnListing failed:', error.message)
+    }
+    return null
+  }
+
+  return {
+    id: data.id,
+    title: data.title,
+    isPublished: data.is_published,
+    photos: orderedPhotos(data.listing_photos).map((photo) => ({
+      id: photo.id,
+      url: photo.url,
+      publicId: photo.public_id,
+      position: photo.position,
+      isCover: photo.is_cover,
+    })),
   }
 }
 

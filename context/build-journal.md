@@ -1131,3 +1131,256 @@ was fully specified in `0001`/`0003`/`0006` and needed nothing.
 > - Deployment target is **Render** (Web Service). Redirect URLs live in three
 >   places: Google console → Supabase `/auth/v1/callback`; Supabase → Render
 >   `/auth/callback`; `NEXT_PUBLIC_SITE_URL` = Render URL.
+
+---
+
+## Phase 3 · Feature 09 — Create listing  *(2026-07-25)*
+
+**Scope built (18 files):** `createListingSchema` + `addListingPhotoSchema` /
+`photoActionSchema` / `movePhotoSchema` / `publishListingSchema` and
+`listingPhotoFolder` / `dollarsToCents` in `lib/validations/listings.ts`;
+`nextPhotoPosition` + `reorderedPositions` in `lib/utils.ts`;
+`lib/actions/listings.ts` (`createListing`, `addListingPhoto`,
+`deleteListingPhoto`, `movePhoto`, `setCoverPhoto`, `publishListing`);
+`getOwnListing` in `lib/queries/listings.ts`; five `components/ui` primitives
+(`Button`, `Field`, `TextInput`, `Textarea`, `Select`) + `fieldStyles.ts` +
+`ListingImage`; `components/host/{ListingForm,PhotoManager}.tsx`;
+`/host/listings/new` and `/host/listings/[id]/photos`; `AMENITY_META` exported;
+`ListingCard`/`PhotoGallery` moved onto `ListingImage`; `e2e/global-teardown.ts`;
+`e2e/host-listings.spec.ts` (16) and `e2e/host-listings-responsive.spec.ts` (21);
++35 unit tests. **No migration** — `0001`/`0003`/`0006` already permitted all of
+it. `react-hook-form`, `@hookform/resolvers`, `next-cloudinary` installed.
+
+**Decisions:**
+- **Two steps, both owned by F09**, forced by the sign route rather than chosen:
+  `/api/sign-cloudinary` signs only for a listing the caller **already owns**, so
+  the row must exist before any upload. `/host/listings/new` creates a draft and
+  redirects to `/host/listings/[id]/photos`. F10's `/edit` is untouched.
+- **One schema for draft and publish.** Every DB-NOT NULL column is required
+  either way, so a "lenient draft" was never actually possible. Publish
+  additionally requires ≥1 photo — that is what finally makes "exactly one cover"
+  true, which `coverPhotoOf`/`orderedPhotos` have documented as F09's job since F05.
+- **`addListingPhoto` never sets `is_cover`.** The widget fires it once per file
+  concurrently, so every call would read "no photos yet" before any had inserted
+  and they would collide on `listing_photos_one_cover_idx`. Leaving it unset is
+  race-free and free: `coverPhotoOf` already falls back to the lowest `position`,
+  and `publishListing` promotes an explicit cover before the listing is public.
+- **"Make cover" also moves the photo to the front.** `orderedPhotos` sorts
+  cover-first, so a cover left mid-strip would show the host one order and
+  visitors another. Position and cover move together or not at all.
+- **Reorder renumbers the whole set, and writes only the rows that changed.**
+  Positions drift (a delete leaves a gap; nothing forbids duplicates), so a swap
+  built on `position - 1` compounds the drift while a full renumber heals it.
+- **Move buttons, not drag-and-drop** — no new dependency, keyboard-accessible
+  for free, works on touch, and every control clears the 44px floor.
+- **The row goes before the Cloudinary asset in delete.** The other order risks
+  destroying the image and then failing to delete the row, which leaves a listing
+  rendering a broken photo — worse, and harder to notice, than the orphaned asset
+  this order can leave.
+- **`getOwnListing`, not `getListingById`.** The latter leans on the SELECT
+  policy, which also hands drafts to **admins**, and its `isOwnerView` really
+  means "unpublished". An editor that writes has to ask the narrower question.
+- **Landing on `/listings/[id]`**, which closes F07's gap for free (below).
+
+**Gotchas:**
+- **`@hookform/resolvers@5.4.1–5.4.3` cannot be installed at all.** They declare
+  25 optional validator peers, and `@typeschema/main` drags in `valibot@^0.39`
+  against the package's own `valibot@^1.0` — a self-contradictory graph npm
+  refuses. Neither library is used here. Rather than reach for `--force` or
+  `--legacy-peer-deps` (which weaken every future install), dry-ran each version:
+  5.4.0 is the newest that resolves, and it is **pinned exactly**, because a
+  caret would drift straight back into the broken range.
+- **Zod 4's `z.url()` accepts `javascript:alert(1)`.** It validates URL *syntax*,
+  not scheme. Probed before relying on it, so the photo URL is checked by
+  `https://res.cloudinary.com/` prefix instead.
+- **A validation schema used on both sides must accept its own output.** The
+  client validates and posts the *result* to the action, which re-validates with
+  the same schema — but `optionalText` emitted `null` while accepting only
+  `string | undefined`. Every listing with a blank description passed on the
+  client and was refused by the server with "Please check the highlighted
+  fields", naming no field. Fixed with `.nullish()`; two unit tests now assert
+  `parse(parse(x)) === parse(x)`. **The client and server sharing one schema is
+  the thing that makes this a trap** — the schema was correct in each direction
+  separately.
+- **`CldImage` calls `useState`, so it is a Client Component**, and importing it
+  into `PhotoGallery` (a Server Component) 500s `/listings/[id]` with *"useState
+  only works in Client Components"*. `'use client'` sits on `ListingImage`, the
+  smallest leaf, so the cards, the gallery and the pages above stay server-rendered.
+- **And `CldImage` *throws* when `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` is unset** —
+  so one missing env var turns every listing holding an uploaded photo into a
+  500, not a broken image. `ListingImage` now falls back to `next/image` with the
+  stored `secure_url`, which is a valid delivery URL on the already-whitelisted
+  host: the cost is `f_auto`/`q_auto`, not the page.
+- **`getByLabel('Guests')` matched the nav's SearchBar as well as the form.**
+  Fourth instance of this project's recurring trap — a locator coupled to
+  something outside the thing under test (F05's `getByText('0.0')` matching
+  prices, F07's `circle-user-round` counting the nav, F08's `input[name="next"]`
+  matching hearts). The form now carries `aria-label="List your place"` and every
+  spec locator is scoped to it, which is also a real accessibility improvement.
+- **The amenity label is "Wi-Fi", not "Wifi"** — my spec was wrong and the app
+  was right. Exactly why F07 hand-wrote `AMENITY_META` instead of deriving labels,
+  and why F09 exported it rather than writing a second copy.
+- **Polling the database proves the write, not the repaint.** The reorder spec
+  polled until `position` changed, then clicked "Make photo 2 the cover" — but
+  the controls are labelled by *index* and `router.refresh()` had not necessarily
+  repainted, so "photo 2" still meant the old photo. The spec now reloads between
+  the two interactions.
+- **A timed-out spec does not run its `finally`.** Three draft listings survived
+  the first (failing) suite and pushed the catalogue from 26 rows to 29 — which
+  `seed-verification.sql`'s exact counts would have failed on, and which the
+  fixture-user exclusions exist precisely to prevent. `e2e/global-teardown.ts`
+  now sweeps any listing left owned by the fixture user; it reported and removed
+  exactly those 3 on the next run.
+- **The first suite run after adding routes flakes on cold compile.** Six specs
+  failed on `page.goto` timeouts in an 8.8-minute run, then all passed in 1.8
+  minutes on the second. Playwright's `webServer` runs `next dev`, so the two new
+  routes compile on first hit while other workers wait on `/`. CI's `retries: 2`
+  covers it; worth knowing before chasing a phantom regression.
+
+**Two pre-existing hazards fixed on the way in:**
+1. **`loadPublishedListings()` was a latent flake.** It orders by `id` and F08's
+   specs claim index `[n]`; ids are `gen_random_uuid()`, so any listing F09
+   publishes sorts to an arbitrary point and shifts a sibling worker's claim
+   mid-assertion. Both it and `loadDraftListings()` now exclude the fixture
+   user's rows, making the ordering immune to anything F09/F10 create.
+2. **The photo grid overflowed the viewport by 24px at 320px** — two columns
+   cannot hold four 44px controls. Found by sampling each band's *lower*
+   boundary, the technique F07 adopted after the middle-of-band sampling missed
+   two nav defects for a whole feature. Fixed by dropping to one column below
+   `tablet:` (DESIGN.md: grids drop columns) and adding `shrink-0` so the buttons
+   can never trade an overflow for a sub-44px target.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run test` **122/122**
+  (87 prior + 35 new); `npm run test:e2e` **204 passed / 3 skipped** from a
+  deleted `e2e/.auth` and a free :3000; `npm run build` green with all 13 routes
+  and `ƒ Proxy (Middleware)` still printing.
+- **Created listings checked against the database, not the page that made them.**
+  A form submission produces a row with `host_id` = the fixture user,
+  `is_published = false`, and title/city/state/type/guests/bedrooms/beds/
+  bathrooms/min-nights/amenities/house-rules all matching what was typed — with
+  `$249` and `$35` stored as **24900** and **3500** cents.
+- Blank optional fields land as **null**, not `''` (state, house rules,
+  neighbourhood), so the detail page omits those rows rather than rendering empty
+  ones.
+- Blank title, `price = 0` and `guests = 17` are each refused with the right
+  message and create nothing.
+- `/host/listings/[id]/photos` returns **404** for a signed-in non-owner and for
+  a malformed id, and redirects a signed-out visitor with `?signin=required`.
+- Publish with zero photos is refused **and says why**; with photos it sets
+  `is_published = true`, leaves **exactly one** `is_cover` row at position 0, and
+  the listing then appears in a live search for its city.
+- **`DraftNotice` has now been rendered by a browser** — open since F07, because
+  both seed drafts belong to fake users who cannot sign in. A draft owned by the
+  fixture account renders it at HTTP 200 while anon still gets a 404.
+- Deleting a photo removes the row; moving renumbers positions; "Make cover"
+  moves the photo to the front and leaves exactly one cover.
+- **Responsive measured at 320 / 375 / 744 / 1128 / 1440** — no horizontal
+  overflow on either route, every form control inside the viewport, and every
+  tile control ≥44px on its shorter side.
+- **The three gate proofs fire.** Removing the zero-photo publish guard fails the
+  publish spec; dropping `host_id` from `getOwnListing` fails the non-owner 404
+  spec; removing the cloud-name fallback fails the draft-notice spec with a 500.
+  Removing the `publicId` folder check fails exactly the 5 photo-security unit
+  tests and nothing else.
+- `get_advisors(security)` — **still 5 WARNs**, the documented baseline. F09 adds
+  no function and no policy.
+- **Seed intact after a full suite run**: 26 listings / 24 published / 130 photos
+  / 17 bookings / 7 reviews / 0 favorites, and **0 listings owned by the fixture
+  user**.
+
+**Not verified — honestly outstanding:**
+- **`MAX_PHOTOS_PER_LISTING` is enforced but unexercised** — reaching 15 photos
+  needs 15 uploads or 15 fixture rows; the branch is written and typed only.
+- **No keyboard or screen-reader pass** on the form or the photo controls. The
+  labels, `aria-invalid`, `aria-describedby` and `role="alert"` are written but
+  have not been heard. F18 owns it.
+- **The `addListingPhoto` failure path has never run** — same shape as F08's
+  `setFavorite` revert branch and F05's untriggered `error.tsx`.
+
+**Deferred / follow-ups:**
+- F10 inherits the `ui/` primitives and `ListingForm`; the edit page should reuse
+  the form rather than fork it.
+- F10's unpublish is still the first thing that can produce a real null embed for
+  `toFavoriteCards` (outstanding since F08).
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
+  outside the repo.
+
+### F09 follow-up — the real Cloudinary round trip  *(2026-07-26)*
+
+Credentials were provisioned, so the one thing F09 shipped unverified is now
+verified. Two real defects surfaced in the process — both invisible while the
+env vars were empty, because the code paths they break were unreachable.
+
+**Getting the credentials right:**
+- The first values failed with `cloud_name mismatch`. A **control probe settled
+  which of the three was wrong**: a deliberately bogus key, and a real key with a
+  bogus secret, both return `api_secret mismatch`, while the real pair returned
+  `cloud_name mismatch` — so the key and secret were valid and only the cloud
+  name was not. It had been set to the dashboard's *display* name (`NextBnb`);
+  the real cloud name is a lowercase generated string (`de4fvvdaa`). Same
+  discipline as F03's deliberately-invalid Unsplash URL: an error message only
+  discriminates if you have checked what a different failure looks like.
+
+**Defect 1 — `CldUploadWidget` needs the api_key in the browser.** It throws
+*"A Cloudinary API Key is required for signed requests"*, and because it throws
+during render the **entire `/host/listings/[id]/photos` route 500s** — the page
+showed `error.tsx`, not a broken button. `CLOUDINARY_API_KEY` was server-only, so
+the widget could never see it. Added `NEXT_PUBLIC_CLOUDINARY_API_KEY` (the same
+value) to `.env.local`, `.env.example` and the `code-standards.md` table.
+
+**This does not weaken anything, and the invariant already said so.** The
+Cloudinary `api_key` is a public identifier — it rides along with every
+browser-side upload so Cloudinary knows whose signature to check. The
+`api_secret` is what authorises, and it never leaves `/api/sign-cloudinary`.
+`architecture.md`'s invariant names `CLOUDINARY_API_SECRET`, never the key, so it
+holds unchanged. `code-standards.md`'s table had the key marked "Sensitive" and
+is now corrected.
+
+**Defect 2 — the same throw-don't-degrade trap, twice.** `CldImage` throws on a
+missing cloud name and `CldUploadWidget` throws on a missing api_key, and in both
+cases the route 500s rather than the image or the button failing alone.
+`ListingImage` falls back to `next/image` with the stored `secure_url`; the
+`PhotoManager` guard now checks **both** public vars and says which is missing.
+Recorded in `library-docs.md`.
+
+**Verified — the full round trip, end to end:**
+- `/api/sign-cloudinary` returns **200** and a 40-char hex signature for a folder
+  the caller hosts.
+- **Cloudinary accepted that signature for a real upload** (HTTP 200), which is
+  the whole signing contract proven in one step — the params we sign are exactly
+  the params the upload sends.
+- The asset exists remotely (`cloudinary.api.resource`), and its `public_id` is
+  under `nextbnb/listings/<id>/`, so `addListingPhotoSchema`'s cross-tenant guard
+  accepts the real response as well as the synthetic ones.
+- **`CldImage` delivers it with `f_auto` and `q_auto`**:
+  `…/image/upload/c_fill,w_3840,g_auto/f_auto/q_auto/v1/nextbnb/listings/…`
+- **Responsive delivery is real, not nominal** — the `srcset` carries nine
+  distinct widths (384 … 3840) against
+  `sizes="(max-width: 744px) 88vw, (max-width: 1128px) 50vw, 540px"`.
+- **Deleting through the real action destroyed the asset**: clicking "Remove
+  photo 1" removed the row and `cloudinary.api.resource` then 404s.
+- **The negative cases all hold** — `403` for a signed `public_id`, a signed
+  `upload_preset`, another host's listing folder, a folder outside the namespace,
+  and no folder at all; `401` signed out.
+- The photos page now renders the real widget at **HTTP 200** with zero page
+  errors and a visible "Upload photos" button.
+- Gates after the change: `tsc` clean, `lint` clean, **122/122** unit,
+  **204 passed / 3 skipped** E2E, `npm run build` green.
+- **Nothing leaked**: 0 assets under `nextbnb/` in Cloudinary and 0
+  `listing_photos` rows holding a `public_id` (every seed row is null).
+
+**Gotcha worth carrying forward:** two proof runs timed out mid-poll and their
+`finally` never ran, orphaning a Cloudinary asset each — the *same* failure mode
+that leaked three listing rows during F09 and prompted `global-teardown.ts`.
+Cleanup that only exists in a `finally` is cleanup that does not survive a
+timeout. The suite itself never uploads, so this is confined to manual proofs,
+but F10's delete path should assume an orphan is possible.
+
+**Still not verified:**
+- **The widget's own UI has not been click-through tested.** The Cloudinary
+  upload widget is a third-party iframe; what is proven is the contract around it
+  — our signature is accepted by Cloudinary for a real file, and the response
+  shape our schema expects is the one it returns.
+- `MAX_PHOTOS_PER_LISTING`, the `addListingPhoto` failure path, and the
+  `destroy()` failure branch remain unexercised.

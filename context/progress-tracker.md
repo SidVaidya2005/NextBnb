@@ -11,9 +11,55 @@ immediately know what is done, what is in progress, and what is next.
 
 ## Current Status
 
-**Phase:** Phase 2 — Browse & Discover **is complete**
-**Last completed:** 08 Favorites
-**Next:** 09 Create listing (Phase 3 — Hosting)
+**Phase:** Phase 3 — Hosting
+**Last completed:** 09 Create listing
+**Next:** 10 Manage listings
+
+**F09 is live: anyone can list a place.** `/host/listings/new` collects the
+details and creates a **draft**, then `/host/listings/[id]/photos` takes uploads,
+reordering, cover selection and publish. Two steps, not one, because
+`/api/sign-cloudinary` signs only for a listing the caller **already owns** — the
+row has to exist before a photo can attach to it. Publish refuses without a photo,
+which is what finally makes "exactly one cover" true (the guarantee
+`coverPhotoOf` has been documenting since F05). **No migration** —
+`0001`/`0003`/`0006` already permitted all of it. Gates: `tsc` clean, `lint`
+clean, **122/122** unit, **204 passed / 3 skipped** E2E, `npm run build` green,
+13 routes. `$249` in the form is **24900** in the column; blanks land as `null`;
+a non-owner gets a real 404; advisor baseline unchanged at 5 WARNs; the seed is
+back to 26/24/130 with **0** listings owned by the fixture user.
+
+**F09 finally rendered `DraftNotice` in a browser** — open since F07, because
+both seed drafts belong to fake users who cannot sign in. A draft owned by the
+Playwright account renders it at 200 while anon still gets a 404.
+
+**Cloudinary is live and the real round trip is verified** (2026-07-26). Signature
+route 200 → **Cloudinary accepted that signature for a real upload** → asset
+present under `nextbnb/listings/<id>/` → `CldImage` delivering with `f_auto`/
+`q_auto` and a nine-width `srcset` → clicking Remove destroyed the asset. All six
+negative cases hold (403 for a signed `public_id`, `upload_preset`, another
+host's folder, an out-of-namespace folder, no folder; 401 signed out). Nothing
+leaked: 0 assets under `nextbnb/`, 0 photo rows with a `public_id`. The suite
+still never calls Cloudinary — it inserts photo rows directly, per
+`code-standards.md`.
+
+**Two defects only the real credentials could expose.** `CldUploadWidget` needs
+the api_key **in the browser** and throws without it — during render, so the
+whole photos route 500'd rather than the button failing. Added
+`NEXT_PUBLIC_CLOUDINARY_API_KEY` (the api_key is a public identifier; the
+**secret** is what authorises, and `architecture.md`'s invariant names the secret,
+never the key). And both `CldImage` and `CldUploadWidget` **throw rather than
+degrade** on missing config, so each is now guarded and falls back instead of
+taking the route down. Detail in `build-journal.md` → F09 follow-up.
+
+**The finding that shaped F09: a schema shared by client and server must accept
+its own output.** The form validates with `createListingSchema` and posts the
+*result* to the action, which re-validates with the same schema — but the
+optional-text fields emitted `null` while accepting only `string | undefined`.
+Every listing with a blank description passed on the client and was refused by
+the server with "Please check the highlighted fields", pointing at no field at
+all. `.nullish()` fixed it and two unit tests now assert `parse(parse(x))`
+succeeds. The schema was correct in each direction *separately*; sharing it is
+what made the gap reachable.
 
 **F08 is live: stays can be saved.** A heart sits on every card and over the
 listing gallery; `/favorites` lists saved stays newest-first with an empty state.
@@ -200,7 +246,7 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 - [x] 08 Favorites
 
 ### Phase 3 — Hosting
-- [ ] 09 Create listing
+- [x] 09 Create listing
 - [ ] 10 Manage listings
 - [ ] 11 Availability management
 
@@ -223,11 +269,26 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 
 - Visual design system is fixed by `context/DESIGN.md` (Airbnb-style: Rausch `#ff385c` on white, `#222222` ink, Inter as the Cereal VF substitute, soft radii, one shadow tier). Tokens live in `globals.css @theme`.
 - Fully responsive is a hard requirement — custom Tailwind breakpoints (`tablet:744` / `desktop:1128` / `wide:1440`) map phone/iPad/laptop/desktop; mobile-first, grids drop columns.
-- Images use **Cloudinary** (signed uploads + `CldImage` responsive delivery), **not** Supabase Storage. `listing_photos` stores `url` + `public_id`.
-- Targets **Next.js 16** → requires Node ≥20.9 (LTS) and TS ≥5.1; `params`/`cookies`/`headers` are async-only.
 - Testing is **Vitest (unit) + Playwright (E2E)**; a feature is "done" only when its tests pass. E2E runs against the seeded DB with a seed-verification step.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
 - **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
 - **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waits in F12's booking widget.
 - **F08** — **a green assertion is not a gating assertion; run every new spec against a deliberately broken build.** `toHaveURL('/')` passes instantly when the page is already at `/`, so the spec guarding "the heart must not navigate" passed against the exact markup it existed to reject. Two further F08 traps rhyme with it: postgrest-js types a to-one embed on a NOT NULL FK as never-null while RLS returns null at runtime (the `toFavoriteCards` filter is load-bearing and TS would never demand it), and a spec that snapshots whole-user state races the parallel workers sharing that user. **Generalises: prove the test fails before trusting that it passes** — and F12/F15's write paths get the same treatment.
 - **F07** — **a route `loading.tsx` and a real HTTP 404 cannot coexist.** The implicit `<Suspense>` it creates makes the response stream, and the status commits to **200 before `notFound()` runs** (Next: "a 404 status for non-streamed responses and a 200 for streamed"). Drafts would have been indexable as live pages. `loading.tsx` was dropped; the specs gate against restoring it. **Applies to every future route that can 404** — F13 `/trips`, F14, F17 — so choose the status over the skeleton unless the route can never 404.
+- **F09** — **a library that throws on missing config turns a misconfiguration into a 500.** `CldImage` throws without a cloud name and `CldUploadWidget` throws without a *browser-visible* api_key — both during render, so one unset env var took down `/listings/[id]` and `/host/listings/[id]/photos` entirely rather than degrading to a broken image or a dead button. Both are now guarded and fall back. It also surfaced that the Cloudinary **api_key is public** (it rides along with every browser upload) while the **secret** authorises — `NEXT_PUBLIC_CLOUDINARY_API_KEY` is therefore correct and `architecture.md`'s invariant, which names only the secret, still holds. **Generalises: before trusting an integration, render it once with the config absent** — F16's Realtime and F18's deploy have the same shape.
+- **F09** — **a validation schema used on both sides of a boundary must accept its own output.** The form validates with `createListingSchema`, posts the *result* to the server action, and the action re-validates with the same schema — so `parse(parse(x))` has to succeed. It did not: the optional-text fields emitted `null` but accepted only `string | undefined`, and every listing with a blank description passed on the client then failed on the server with a message naming no field. **Generalises: whenever one schema guards both a form and the action behind it, test it against its own output** — the two directions are each correct in isolation, which is exactly why nothing else catches it. F12's booking widget shares a schema the same way.
+
+---
+
+## Pruned from Key Decisions (kept for the record)
+
+> - Targets **Next.js 16** → requires Node ≥20.9 (LTS) and TS ≥5.1;
+>   `params`/`cookies`/`headers` are async-only. *(Pruned in F09 at the ~10-bullet
+>   cap — now stable and fully documented in `architecture.md` → Stack and
+>   `CLAUDE.md` → Runtime & Commands.)*
+> - Images use **Cloudinary** (signed uploads + `CldImage` responsive delivery),
+>   **not** Supabase Storage; `listing_photos` stores `url` + `public_id`.
+>   *(Pruned in the F09 follow-up — no longer a pending decision: it is built,
+>   verified end to end against the live account, and fully specified in
+>   `architecture.md` → Image Storage & Delivery and `library-docs.md` →
+>   Cloudinary.)*

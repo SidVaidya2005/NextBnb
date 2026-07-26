@@ -35,7 +35,10 @@ import type { Amenity } from '@/lib/constants'
  * imported by `validations/listings.ts` — putting icon components in it would
  * pull `lucide-react` into every consumer of the constants.
  */
-const AMENITY_META: Record<Amenity, { icon: LucideIcon; label: string }> = {
+// Exported for the create-listing form (F09), which needs the same labels.
+// These stay written out rather than derived: `humanizeToken` renders
+// `bbq_grill` as "Bbq grill" and `ev_charger` as "Ev charger".
+export const AMENITY_META: Record<Amenity, { icon: LucideIcon; label: string }> = {
   wifi: { icon: Wifi, label: 'Wi-Fi' },
   kitchen: { icon: Utensils, label: 'Kitchen' },
   washer: { icon: WashingMachine, label: 'Washer' },

@@ -117,6 +117,54 @@ export function orderedPhotos<T extends { is_cover: boolean; position: number }>
   })
 }
 
+/** The `position` a newly uploaded photo takes: the end of the strip. */
+export function nextPhotoPosition(
+  photos: readonly { position: number }[],
+): number {
+  if (photos.length === 0) return 0
+  return Math.max(...photos.map((photo) => photo.position)) + 1
+}
+
+/**
+ * The full set of `position` writes that moves one photo within the gallery.
+ *
+ * Returns every photo renumbered `0..n-1`, or `null` when the move is a no-op
+ * (the photo is unknown, or already at the end it is being moved toward) so the
+ * caller can skip the round trip.
+ *
+ * **Renumbering everything, rather than swapping two rows, is deliberate.**
+ * Positions drift — a delete leaves a gap, and two rows can legitimately share a
+ * position because nothing in the schema forbids it (`position int not null
+ * default 0`, no unique index). A swap built on `position - 1` compounds that
+ * drift; assigning the whole sequence from the order the user is actually
+ * looking at heals it on every move.
+ *
+ * `'front'` is what "Make cover" uses. Keeping the cover at position 0 is what
+ * makes this function's ordering agree with `orderedPhotos` — that sorts
+ * cover-first, so a cover left in the middle would show one order in the host's
+ * editor and a different one on the listing page.
+ */
+export function reorderedPositions<
+  T extends { id: string; is_cover: boolean; position: number },
+>(
+  photos: readonly T[],
+  photoId: string,
+  move: 'earlier' | 'later' | 'front',
+): { id: string; position: number }[] | null {
+  const order = orderedPhotos(photos)
+  const from = order.findIndex((photo) => photo.id === photoId)
+  if (from === -1) return null
+
+  const to = move === 'front' ? 0 : move === 'earlier' ? from - 1 : from + 1
+  if (to === from || to < 0 || to >= order.length) return null
+
+  const moved = [...order]
+  const [photo] = moved.splice(from, 1)
+  moved.splice(to, 0, photo)
+
+  return moved.map((entry, index) => ({ id: entry.id, position: index }))
+}
+
 /**
  * Rows from `favorites` reduced to the listings a card can render, dropping any
  * whose listing came back empty.

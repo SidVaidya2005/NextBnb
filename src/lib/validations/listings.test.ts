@@ -3,7 +3,11 @@ import { describe, it, expect } from 'vitest'
 
 import { toISODate } from '@/lib/utils'
 import {
+  addListingPhotoSchema,
+  createListingSchema,
   hasActiveFilters,
+  listingPhotoFolder,
+  movePhotoSchema,
   parseListingFilters,
   type RawSearchParams,
 } from '@/lib/validations/listings'
@@ -177,5 +181,211 @@ describe('hasActiveFilters', () => {
 
   it('stays false when every value was rejected', () => {
     expect(hasActiveFilters(parse({ guests: 'abc', type: 'castle' }))).toBe(false)
+  })
+})
+
+// -----------------------------------------------------------------------------
+// Feature 09 — createListingSchema
+// -----------------------------------------------------------------------------
+
+const VALID_LISTING = {
+  title: '  Cliffside Cabin  ',
+  description: '',
+  propertyType: 'cabin',
+  city: 'Reykjavík',
+  state: '',
+  country: 'Iceland',
+  neighborhood: '',
+  maxGuests: 4,
+  bedrooms: 2,
+  beds: 3,
+  bathrooms: 1.5,
+  pricePerNight: 145,
+  cleaningFee: 35,
+  amenities: ['wifi', 'kitchen'],
+  houseRules: '',
+  checkInTime: '15:00',
+  checkOutTime: '11:00',
+  minNights: 2,
+}
+
+const listing = (overrides: Record<string, unknown> = {}) =>
+  createListingSchema.safeParse({ ...VALID_LISTING, ...overrides })
+
+describe('createListingSchema', () => {
+  it('accepts a complete listing and trims the text', () => {
+    const result = listing()
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.title).toBe('Cliffside Cabin')
+      expect(result.data.pricePerNight).toBe(145)
+    }
+  })
+
+  it('turns a blank optional field into null, not an empty string', () => {
+    // The columns are nullable; '' would render as an empty paragraph on the
+    // detail page instead of the row being omitted.
+    const result = listing()
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.description).toBeNull()
+      expect(result.data.state).toBeNull()
+      expect(result.data.neighborhood).toBeNull()
+      expect(result.data.houseRules).toBeNull()
+    }
+  })
+
+  it('keeps an optional field that was actually filled in', () => {
+    const result = listing({ state: ' Suðurland ' })
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.state).toBe('Suðurland')
+  })
+
+  it.each([
+    ['a blank title', { title: '   ' }],
+    ['a missing city', { city: '' }],
+    ['a missing country', { country: '' }],
+    ['an unknown property type', { propertyType: 'castle' }],
+    ['a free listing', { pricePerNight: 0 }],
+    ['a negative price', { pricePerNight: -10 }],
+    ['a negative cleaning fee', { cleaningFee: -1 }],
+    ['more guests than the DB allows', { maxGuests: 17 }],
+    ['no guests', { maxGuests: 0 }],
+    ['a fractional guest count', { maxGuests: 2.5 }],
+    ['zero beds', { beds: 0 }],
+    ['negative bedrooms', { bedrooms: -1 }],
+    ['a quarter bathroom', { bathrooms: 1.25 }],
+    ['an unknown amenity', { amenities: ['helipad'] }],
+    ['a 12-hour check-in time', { checkInTime: '3:00 PM' }],
+    ['an impossible hour', { checkInTime: '24:00' }],
+    ['an impossible minute', { checkOutTime: '11:60' }],
+    ['a zero-night minimum', { minNights: 0 }],
+  ])('rejects %s', (_label, override) => {
+    expect(listing(override).success).toBe(false)
+  })
+
+  it('rejects a missing numeric field rather than coercing it to zero', () => {
+    // react-hook-form hands back NaN for an emptied number input; Zod 4 rejects
+    // NaN, which is what surfaces "Set a nightly price" instead of a free stay.
+    expect(listing({ pricePerNight: Number.NaN }).success).toBe(false)
+  })
+
+  it('allows a studio and a no-fee listing', () => {
+    expect(listing({ bedrooms: 0, cleaningFee: 0 }).success).toBe(true)
+  })
+
+  it('allows an empty amenity list', () => {
+    expect(listing({ amenities: [] }).success).toBe(true)
+  })
+
+  it('accepts its own output — the schema must be idempotent', () => {
+    // The client validates, then posts the RESULT to the server action, which
+    // validates again with this same schema. So parse(parse(x)) has to work.
+    // It did not: the optional-text fields emit `null` but only accepted
+    // `string | undefined`, so every listing with a blank description passed on
+    // the client and was refused by the action with a message naming no field.
+    const first = listing()
+    expect(first.success).toBe(true)
+    if (!first.success) return
+
+    const second = createListingSchema.safeParse(first.data)
+    expect(second.success).toBe(true)
+    if (second.success) expect(second.data).toEqual(first.data)
+  })
+
+  it('round-trips a filled optional field unchanged', () => {
+    const first = listing({ description: 'A quiet place.' })
+    if (!first.success) throw new Error('first parse failed')
+
+    const second = createListingSchema.safeParse(first.data)
+    expect(second.success).toBe(true)
+    if (second.success) expect(second.data.description).toBe('A quiet place.')
+  })
+})
+
+// -----------------------------------------------------------------------------
+// Feature 09 — addListingPhotoSchema
+//
+// Both fields are attacker-controlled: this is a server action, and nothing
+// makes the caller send Cloudinary's actual response.
+// -----------------------------------------------------------------------------
+
+const LISTING_ID = '20000000-0000-4000-a000-000000000001'
+const OTHER_LISTING_ID = '20000000-0000-4000-a000-000000000002'
+
+const photo = (overrides: Record<string, unknown> = {}) =>
+  addListingPhotoSchema.safeParse({
+    listingId: LISTING_ID,
+    url: `https://res.cloudinary.com/demo/image/upload/v1/${listingPhotoFolder(LISTING_ID)}/abc.jpg`,
+    publicId: `${listingPhotoFolder(LISTING_ID)}/abc`,
+    ...overrides,
+  })
+
+describe('addListingPhotoSchema', () => {
+  it('accepts a photo in this listing folder', () => {
+    expect(photo().success).toBe(true)
+  })
+
+  it("refuses a public_id in ANOTHER listing's folder", () => {
+    // The one that matters: deleteListingPhoto passes public_id straight to
+    // cloudinary.uploader.destroy(), so without this a host could record a row
+    // pointing at someone else's asset and then destroy it.
+    expect(
+      photo({ publicId: `${listingPhotoFolder(OTHER_LISTING_ID)}/victim` })
+        .success,
+    ).toBe(false)
+  })
+
+  it('refuses a public_id outside the nextbnb namespace entirely', () => {
+    expect(photo({ publicId: 'someone-elses-brand/logo' }).success).toBe(false)
+  })
+
+  it('refuses a folder-prefix near-miss', () => {
+    // `nextbnb/listings/<id>` with no trailing slash is a sibling folder whose
+    // name merely starts the same way.
+    expect(photo({ publicId: `${listingPhotoFolder(LISTING_ID)}-evil/x` }).success).toBe(
+      false,
+    )
+  })
+
+  it('refuses a URL that is not Cloudinary delivery', () => {
+    expect(photo({ url: 'https://evil.example.com/tracker.gif' }).success).toBe(false)
+  })
+
+  it('refuses a javascript: URL', () => {
+    // z.url() would ACCEPT this — it validates URL syntax, not scheme, which is
+    // why the check is a host prefix rather than z.url().
+    expect(photo({ url: 'javascript:alert(1)' }).success).toBe(false)
+  })
+
+  it('refuses a malformed listing id', () => {
+    expect(photo({ listingId: 'not-a-uuid' }).success).toBe(false)
+  })
+})
+
+describe('movePhotoSchema', () => {
+  it('accepts the two relative directions', () => {
+    for (const direction of ['earlier', 'later']) {
+      expect(
+        movePhotoSchema.safeParse({
+          listingId: LISTING_ID,
+          photoId: OTHER_LISTING_ID,
+          direction,
+        }).success,
+      ).toBe(true)
+    }
+  })
+
+  it('refuses an absolute position', () => {
+    expect(
+      movePhotoSchema.safeParse({
+        listingId: LISTING_ID,
+        photoId: OTHER_LISTING_ID,
+        direction: 3,
+      }).success,
+    ).toBe(false)
   })
 })

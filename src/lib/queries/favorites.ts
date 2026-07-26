@@ -24,7 +24,7 @@ export async function getFavorites(): Promise<ListingCardData[]> {
   const { data, error } = await supabase
     .from('favorites')
     .select(
-      'created_at, listings(id, title, city, country, price_per_night, listing_photos(url, is_cover, position), reviews(rating))',
+      'created_at, listings(id, title, city, country, price_per_night, listing_photos(url, public_id, is_cover, position), reviews(rating))',
     )
     .order('created_at', { ascending: false })
 

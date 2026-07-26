@@ -8,8 +8,10 @@ import {
   formatPrice,
   formatTimeOfDay,
   humanizeToken,
+  nextPhotoPosition,
   nightsBetween,
   orderedPhotos,
+  reorderedPositions,
   safeNextPath,
   toFavoriteCards,
   toISODate,
@@ -336,5 +338,122 @@ describe('toFavoriteCards', () => {
         (listing) => `card:${listing.id}`,
       ),
     ).toEqual(['card:a'])
+  })
+})
+
+describe('nextPhotoPosition', () => {
+  it('starts at 0 for the first photo', () => {
+    expect(nextPhotoPosition([])).toBe(0)
+  })
+
+  it('appends past the highest position, not the count', () => {
+    // A delete leaves a gap, so length is not a safe next index — it would
+    // collide with an existing row.
+    expect(nextPhotoPosition([{ position: 0 }, { position: 4 }])).toBe(5)
+  })
+
+  it('is unaffected by the order rows arrive in', () => {
+    expect(nextPhotoPosition([{ position: 7 }, { position: 2 }])).toBe(8)
+  })
+})
+
+describe('reorderedPositions', () => {
+  const photo = (id: string, position: number, is_cover = false) => ({
+    id,
+    position,
+    is_cover,
+  })
+
+  // Cover first, then ascending position — the order orderedPhotos produces
+  // and therefore the order the host sees.
+  const strip = [
+    photo('a', 0, true),
+    photo('b', 1),
+    photo('c', 2),
+    photo('d', 3),
+  ]
+
+  it('moves a photo one step earlier', () => {
+    expect(reorderedPositions(strip, 'c', 'earlier')).toEqual([
+      { id: 'a', position: 0 },
+      { id: 'c', position: 1 },
+      { id: 'b', position: 2 },
+      { id: 'd', position: 3 },
+    ])
+  })
+
+  it('moves a photo one step later', () => {
+    expect(reorderedPositions(strip, 'b', 'later')).toEqual([
+      { id: 'a', position: 0 },
+      { id: 'c', position: 1 },
+      { id: 'b', position: 2 },
+      { id: 'd', position: 3 },
+    ])
+  })
+
+  it('moves a photo to the front for "Make cover"', () => {
+    expect(reorderedPositions(strip, 'd', 'front')).toEqual([
+      { id: 'd', position: 0 },
+      { id: 'a', position: 1 },
+      { id: 'b', position: 2 },
+      { id: 'c', position: 3 },
+    ])
+  })
+
+  it('returns null at the ends rather than a no-op write', () => {
+    expect(reorderedPositions(strip, 'a', 'earlier')).toBeNull()
+    expect(reorderedPositions(strip, 'd', 'later')).toBeNull()
+    expect(reorderedPositions(strip, 'a', 'front')).toBeNull()
+  })
+
+  it('returns null for a photo that is not in the list', () => {
+    expect(reorderedPositions(strip, 'missing', 'earlier')).toBeNull()
+  })
+
+  it('heals gaps and duplicate positions by renumbering everything', () => {
+    // Nothing in the schema forbids two rows sharing a position, and a delete
+    // leaves a gap. A swap built on `position - 1` would compound both.
+    const messy = [photo('x', 5), photo('y', 5), photo('z', 9)]
+
+    expect(reorderedPositions(messy, 'z', 'earlier')).toEqual([
+      { id: 'x', position: 0 },
+      { id: 'z', position: 1 },
+      { id: 'y', position: 2 },
+    ])
+  })
+
+  it('reads gallery order, not raw position', () => {
+    // `p` holds the LOWEST position but is not first on screen: orderedPhotos
+    // floats the cover `q` ahead of it. So "earlier" is a legal move for `p`
+    // even though its position is already 0, and it is `q` that cannot move up.
+    // Renumbering afterwards is what stops the two orders drifting again.
+    const coverInMiddle = [photo('p', 0), photo('q', 1, true), photo('r', 2)]
+
+    expect(reorderedPositions(coverInMiddle, 'q', 'earlier')).toBeNull()
+    expect(reorderedPositions(coverInMiddle, 'p', 'earlier')).toEqual([
+      { id: 'p', position: 0 },
+      { id: 'q', position: 1 },
+      { id: 'r', position: 2 },
+    ])
+    expect(reorderedPositions(coverInMiddle, 'p', 'later')).toEqual([
+      { id: 'q', position: 0 },
+      { id: 'r', position: 1 },
+      { id: 'p', position: 2 },
+    ])
+  })
+
+  it('leaves a single photo alone in every direction', () => {
+    const one = [photo('solo', 0, true)]
+
+    expect(reorderedPositions(one, 'solo', 'earlier')).toBeNull()
+    expect(reorderedPositions(one, 'solo', 'later')).toBeNull()
+    expect(reorderedPositions(one, 'solo', 'front')).toBeNull()
+  })
+
+  it('does not mutate the array it was given', () => {
+    const original = [...strip]
+    reorderedPositions(strip, 'd', 'front')
+
+    expect(strip).toEqual(original)
   })
 })

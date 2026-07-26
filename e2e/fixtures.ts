@@ -178,19 +178,25 @@ export async function loadListingDetail(
 }
 
 /**
- * The unpublished listings, found rather than hard-coded — these are the only
- * ids that prove the 404 branch, and a hard-coded one would quietly stop testing
- * anything if the seed changed.
+ * The seeded unpublished listings, found rather than hard-coded — these are the
+ * only ids that prove the 404 branch, and a hard-coded one would quietly stop
+ * testing anything if the seed changed.
+ *
+ * Scoped away from the fixture user for the same reason as
+ * `loadPublishedListings`: the host specs create and delete drafts constantly,
+ * and a spec that picked one up could find it gone mid-assertion.
  */
 export async function loadDraftListings(): Promise<
   { id: string; title: string }[]
 > {
   const supabase = serviceClient()
+  const fixtureUserId = await testUserId()
 
   const { data, error } = await supabase
     .from('listings')
     .select('id, title')
     .eq('is_published', false)
+    .neq('host_id', fixtureUserId)
 
   if (error) {
     throw new Error(`[e2e/fixtures] could not load drafts: ${error.message}`)
@@ -242,20 +248,28 @@ export async function testUserId(): Promise<string> {
 }
 
 /**
- * Published listings ordered by id, so a spec can claim `[n]` and be certain no
- * other spec claimed the same one. Derived from the database rather than
- * hard-coded: a hard-coded title quietly stops testing anything if the seed
+ * Published **seed** listings ordered by id, so a spec can claim `[n]` and be
+ * certain no other spec claimed the same one. Derived from the database rather
+ * than hard-coded: a hard-coded title quietly stops testing anything if the seed
  * changes.
+ *
+ * **Listings hosted by the fixture user are excluded, and that is load-bearing.**
+ * Ids are `gen_random_uuid()`, so a listing F09 publishes sorts to an arbitrary
+ * point in this array and shifts every claim after it — while a sibling worker
+ * is mid-assertion on index `[n]`. Scoping to the seed makes the ordering stable
+ * no matter what the host specs create.
  */
 export async function loadPublishedListings(): Promise<
   { id: string; title: string }[]
 > {
   const supabase = serviceClient()
+  const fixtureUserId = await testUserId()
 
   const { data, error } = await supabase
     .from('listings')
     .select('id, title')
     .eq('is_published', true)
+    .neq('host_id', fixtureUserId)
     .order('id')
 
   if (error) {
@@ -397,4 +411,208 @@ export function todayISO(): string {
     String(now.getMonth() + 1).padStart(2, '0'),
     String(now.getDate()).padStart(2, '0'),
   ].join('-')
+}
+
+// -----------------------------------------------------------------------------
+// Host listings (F09)
+//
+// Specs create DRAFTS by default: a draft is invisible to search and to
+// `loadPublishedListings`, so it cannot perturb a parallel worker. The one spec
+// that publishes deletes the row inside its own body rather than in afterEach.
+//
+// Cloudinary is never called from the suite (`code-standards.md`: "mock
+// Cloudinary — never call real external services in CI"), so photo rows are
+// inserted directly with a public_id shaped exactly like a real upload's.
+// -----------------------------------------------------------------------------
+
+/** A city no seed listing uses, so a host fixture can never be mistaken for one. */
+export const FIXTURE_CITY = 'Testerton'
+
+export type DraftListingInput = {
+  title?: string
+  city?: string
+  isPublished?: boolean
+}
+
+/**
+ * A listing owned by the Playwright fixture user.
+ *
+ * Values are deliberately unremarkable — `other` type, no amenities, 4 guests —
+ * so that if one ever escapes cleanup while published it cannot move a count any
+ * search spec compares.
+ */
+export async function createDraftListing(
+  input: DraftListingInput = {},
+): Promise<{ id: string; title: string }> {
+  const supabase = serviceClient()
+  const hostId = await testUserId()
+
+  const title = input.title ?? `E2E draft ${crypto.randomUUID().slice(0, 8)}`
+
+  const { data, error } = await supabase
+    .from('listings')
+    .insert({
+      host_id: hostId,
+      title,
+      property_type: 'other',
+      city: input.city ?? FIXTURE_CITY,
+      country: 'Testland',
+      max_guests: 4,
+      bedrooms: 1,
+      beds: 1,
+      bathrooms: 1,
+      price_per_night: 12_300,
+      cleaning_fee: 0,
+      amenities: [],
+      min_nights: 1,
+      is_published: input.isPublished ?? false,
+    })
+    .select('id, title')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`[e2e/fixtures] could not create a draft listing: ${error?.message}`)
+  }
+
+  return data
+}
+
+/** A photo row shaped like a real Cloudinary upload, without calling Cloudinary. */
+export async function addListingPhotoRow(
+  listingId: string,
+  options: { position?: number; isCover?: boolean; publicId?: string } = {},
+): Promise<{ id: string }> {
+  const supabase = serviceClient()
+
+  const publicId =
+    options.publicId ?? `nextbnb/listings/${listingId}/${crypto.randomUUID().slice(0, 8)}`
+
+  const { data, error } = await supabase
+    .from('listing_photos')
+    .insert({
+      listing_id: listingId,
+      // A real Unsplash URL, so next/image can actually fetch it in a browser.
+      url: 'https://images.unsplash.com/photo-1502005229762-cf1b2da7c5d6?w=1200',
+      public_id: publicId,
+      position: options.position ?? 0,
+      is_cover: options.isCover ?? false,
+    })
+    .select('id')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`[e2e/fixtures] could not add a photo row: ${error?.message}`)
+  }
+
+  return data
+}
+
+export type ListingRow = {
+  id: string
+  title: string
+  hostId: string
+  isPublished: boolean
+  city: string
+  country: string
+  propertyType: string
+  maxGuests: number
+  bedrooms: number
+  beds: number
+  bathrooms: number
+  pricePerNightCents: number
+  cleaningFeeCents: number
+  minNights: number
+  amenities: string[]
+  description: string | null
+  state: string | null
+  neighborhood: string | null
+  houseRules: string | null
+  checkInTime: string | null
+  checkOutTime: string | null
+}
+
+/**
+ * A listing read straight from the table.
+ *
+ * The oracle is the database, never the page that rendered it — asserting the
+ * form's output against the page it produced would only prove self-consistency.
+ */
+export async function readListing(id: string): Promise<ListingRow | null> {
+  const supabase = serviceClient()
+
+  const { data } = await supabase.from('listings').select('*').eq('id', id).maybeSingle()
+  if (!data) return null
+
+  return {
+    id: data.id,
+    title: data.title,
+    hostId: data.host_id,
+    isPublished: data.is_published,
+    city: data.city,
+    country: data.country,
+    propertyType: data.property_type,
+    maxGuests: data.max_guests,
+    bedrooms: data.bedrooms,
+    beds: data.beds,
+    bathrooms: Number(data.bathrooms),
+    pricePerNightCents: data.price_per_night,
+    cleaningFeeCents: data.cleaning_fee,
+    minNights: data.min_nights,
+    amenities: data.amenities,
+    description: data.description,
+    state: data.state,
+    neighborhood: data.neighborhood,
+    houseRules: data.house_rules,
+    checkInTime: data.check_in_time,
+    checkOutTime: data.check_out_time,
+  }
+}
+
+export async function readListingPhotos(
+  listingId: string,
+): Promise<{ id: string; position: number; isCover: boolean; publicId: string | null }[]> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('listing_photos')
+    .select('id, position, is_cover, public_id')
+    .eq('listing_id', listingId)
+    .order('position')
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read photos: ${error.message}`)
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    position: row.position,
+    isCover: row.is_cover,
+    publicId: row.public_id,
+  }))
+}
+
+/** Removes a listing and, by cascade, its photos. */
+export async function deleteListing(id: string): Promise<void> {
+  const supabase = serviceClient()
+
+  const { error } = await supabase.from('listings').delete().eq('id', id)
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not delete listing ${id}: ${error.message}`)
+  }
+}
+
+/**
+ * Every listing the fixture user hosts — the safety net that keeps the seed
+ * counts honest if a spec dies before its own cleanup runs.
+ */
+export async function listingsOwnedByFixtureUser(): Promise<string[]> {
+  const supabase = serviceClient()
+  const hostId = await testUserId()
+
+  const { data, error } = await supabase.from('listings').select('id').eq('host_id', hostId)
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not list host listings: ${error.message}`)
+  }
+
+  return (data ?? []).map((row) => row.id)
 }

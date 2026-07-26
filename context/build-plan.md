@@ -223,6 +223,31 @@ Let a user publish a new listing with photos.
 **Logic:**
 - `createListingSchema` (Zod) + react-hook-form; photos upload to Cloudinary via the signed widget; `actions/listings.createListing` inserts the listing + `listing_photos` (`url` + `public_id`), sets one cover.
 
+**Planned shape (agreed before build, 2026-07-25):**
+- **Two steps, both owned by F09** — `/host/listings/new` (details) → `createListing`
+  inserts a **draft** → redirect to `/host/listings/[id]/photos` (upload + publish).
+  Forced by the sign route: `/api/sign-cloudinary` signs only
+  `nextbnb/listings/<uuid>` for a listing the caller **already owns**, so the row must
+  exist before any upload. F10's `/host/listings/[id]/edit` stays untouched.
+- **One schema, not draft-vs-publish.** Every DB-NOT NULL column is required either
+  way, so a lenient draft is not actually possible. **Publish additionally requires
+  ≥1 photo** — that is what makes "exactly one cover" true, which `coverPhotoOf` and
+  `orderedPhotos` have been documenting as F09's job since F05.
+- **Reorder is move buttons + "Make cover"**, not drag-and-drop: no new dependency,
+  keyboard-accessible for free, works on touch. Reorder writes `position`.
+- **Landing is `/listings/[id]`**, not `/host/listings` (still F10's placeholder). A
+  draft lands on `DraftNotice` — closing the gap open since F07, where no real account
+  owned a draft.
+- **Upload proof is manual once + fixture rows in E2E**, per `code-standards.md`
+  ("mock Cloudinary — never call real external services in CI") and F04's
+  Google-round-trip precedent.
+- **No migration.** `listings`/`listing_photos` policies and grants (`0001`/`0003`/
+  `0006`) already permit exactly this, and `listings_set_updated_at` already maintains
+  `updated_at`.
+- **Prerequisite:** all three Cloudinary env vars were **empty**, so
+  `/api/sign-cloudinary` had never signed anything. They must be provisioned before
+  the photo half can be built or verified.
+
 ### 10 Manage listings
 
 Let a host maintain their existing listings.

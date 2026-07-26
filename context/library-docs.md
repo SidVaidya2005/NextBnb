@@ -186,6 +186,27 @@ import { cloudinary } from '@/lib/cloudinary'
 await cloudinary.uploader.destroy(publicId, { invalidate: true })
 ```
 
+### Environment — three public values, one secret
+
+> **`CldUploadWidget` needs `NEXT_PUBLIC_CLOUDINARY_API_KEY` as well as
+> `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME`** (found in F09). The widget uploads from
+> the browser and sends the `api_key` with the request so Cloudinary knows which
+> account the signature belongs to. Without it the widget throws *"A Cloudinary
+> API Key is required for signed requests"* — and because it throws during
+> render, the **whole route 500s** rather than the button simply not working.
+>
+> This is safe and is Cloudinary's design: the `api_key` is a public identifier
+> that appears in every browser upload, while `CLOUDINARY_API_SECRET` — the value
+> that actually authorises anything — stays server-side in
+> `/api/sign-cloudinary`. Duplicate the key's value into the `NEXT_PUBLIC_`
+> variable; never the secret.
+>
+> **Both `CldImage` and `CldUploadWidget` throw on missing config rather than
+> degrading**, so guard on the env vars before rendering either (see
+> `ListingImage` and `PhotoManager`). `CldImage` also calls `useState`, so it is
+> a **Client Component** — importing it into a Server Component fails with
+> *"useState only works in Client Components"*.
+
 **Rules:**
 - The API secret never reaches the client — uploads are signed by `/api/sign-cloudinary`, which verifies the user, **whitelists the signable keys**, and confirms the `folder` (`nextbnb/listings/<id>`) belongs to a listing the caller owns before signing (see `architecture.md` → Key Patterns). Never sign a client-supplied `public_id`/`upload_preset`.
 - The widget's `options.folder` is what gets signed; keep it exactly `nextbnb/listings/${listingId}` so the server's ownership check and the signature agree.
