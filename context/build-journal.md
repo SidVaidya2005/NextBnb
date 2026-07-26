@@ -1826,3 +1826,142 @@ anon SELECT, `0006` the anon revokes. **Closes Phase 3.**
   cell" trap, which will bite the booking widget's specs identically.
 - The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
   outside the repo.
+
+---
+
+## Phase 3 · Close-out — verification catch-up & the second fixture account  *(2026-07-26)*
+
+Not a numbered feature and not a bug fix: Phase 3 was already green on every gate
+when this started. It re-verified that, then closed the **second-test-user**
+backlog that had been open since F04 — the single item three separate gaps were
+all waiting on.
+
+**Scope built (7 files):** `SECOND_USER` + `SECOND_AUTH_STATE_FILE` in
+`e2e/constants.ts`; `mintSessionCookies(user)` parameterised in `e2e/session.ts`;
+a second setup step in `e2e/auth.setup.ts`; `secondUserId`, `fixtureUserIds`,
+`setUserAdmin`, `fixtureAdmins` and a `hostId` option on `createDraftListing` in
+`e2e/fixtures.ts`; an admin-reset pass in `e2e/global-teardown.ts`;
+`e2e/second-user.spec.ts` (3 specs). Two `code-standards.md` reconciliations.
+**No migration, no new dependency, no `src/` change, `database.types.ts`
+untouched.**
+
+**Verification pass (before any change):**
+- `tsc` clean, `lint` clean, **194/194** unit, **265 passed / 3 skipped** E2E,
+  `npm run build` green at **15 routes**, working tree clean at `3c0b902`.
+- **`seed-verification.sql` — 46/46 PASS.** Seed intact after a full suite run:
+  26 / 24 / 130 / 17 / 7 / 5 / 0 favorites, **0 listings owned by a fixture
+  user**, 0 orphans, 0 sentinel leftovers, **0 photo rows carrying a
+  `public_id`** (nothing has ever leaked to Cloudinary).
+- `get_advisors(security)` — **5 WARNs**, the documented baseline, no sixth.
+- Migration filenames match remote `schema_migrations` **7/7**.
+- **Invariants checked against source, not docs**: no Supabase client
+  constructed outside `lib/supabase/`; no `.from()` outside queries/actions
+  (bar the sanctioned sign-route check); zero bare `<img>`; no barrels; no deep
+  relative imports; no hardcoded hex; no TODO/FIXME; no stray `console.log`;
+  every action `'use server'`; every query `import 'server-only'`.
+- **The F06 trap is absent.** All four `bookings` reads are `.eq('host_id',
+  user.id)`-scoped. No guest-facing bookings read exists — F12's function is
+  still genuinely unbuilt, confirmed against `pg_proc` (5 public functions, and
+  `unavailable_listing_ids` still takes no listing parameter).
+- **The F07 invariant holds**: zero `loading.tsx` files anywhere, against four
+  routes that call `notFound()`.
+- **Smoke-tested on a PRODUCTION build**, because `next dev` cannot prove F07's
+  status codes: `/` 200, published listing 200, **draft 404**, malformed id 404,
+  `/trips` 307, `/host/listings` 307, unauthenticated `/api/sign-cloudinary`
+  **401**, and the draft title appears **0 times** in anon HTML. Server log
+  carries no errors — only the known lockfile warning.
+
+**Decisions:**
+- **A second account, not a second session.** The point is to be a *different
+  principal*; a second session for the same user asks RLS the identical question.
+- **The second account is deliberately NOT a standing admin.** The admin spec
+  grants `is_admin`, asserts, and revokes in a `finally`, with
+  `global-teardown.ts` as the backstop. Fixture passwords are committed to this
+  repo, so a permanent admin fixture would be a genuine privilege path into the
+  same project that holds live data — and F17's moderation includes a hard
+  delete. A timeout skipping a `finally` is not hypothetical here: it is exactly
+  how F09 leaked three listings and how the F09 follow-up orphaned two Cloudinary
+  assets.
+- **`second-user.spec.ts` runs `mode: 'serial'`, and that is load-bearing.**
+  `fullyParallel: true` parallelises tests *within* a file too, and two of these
+  specs assert on the account's whole favorites state. This is the one file that
+  owns global per-user state, and it owns it by running alone — which is what
+  finally makes "the favorites page is empty" assertable. F08's no-row-counts
+  rule was about the *shared* account, not about the assertion being wrong.
+- **Both fixture users are excluded from `loadPublishedListings` /
+  `loadDraftListings`, and both are swept by teardown.** The null-embed spec
+  publishes a listing hosted by the primary user, so a sweep scoped to one host
+  would miss rows the other left. `min_nights: 30` keeps any published fixture
+  out of both sides of `search.spec.ts`'s exact-count comparison — F10's fix,
+  reused rather than rediscovered.
+- **Two `code-standards.md` reconciliations, because the code was right and the
+  standard was under-specified.** `/api/sign-cloudinary` carries a non-null
+  assertion on `CLOUDINARY_API_SECRET` and a direct `.from('listings')`
+  ownership read; both are prescribed verbatim by `architecture.md` → Key
+  Patterns, while `code-standards.md`'s general rules carved out neither. The
+  standard now names them, scoped narrowly so neither reads as a general licence.
+
+**Gotchas:**
+- **A Google account cannot serve as a fixture user, and adding one does not
+  unblock anything.** Playwright cannot drive a consent screen — the same reason
+  F04 provisions through email/password in the first place. Worth stating
+  plainly in the tracker, because "add another user" is the obvious reading of
+  what these gaps needed, and it is the one form of second user that does not work.
+- **The null-embed spec's headline assertion passes vacuously on a crashed
+  page.** `getByRole('link', { name }).toHaveCount(0)` is satisfied when the
+  route 500s, because a 500 has no links either. Gate proof 1 removed the filter
+  in `toFavoriteCards` and the *count* assertion still passed — what failed was
+  the trailing "the page still renders" check. Eighth instance of this project's
+  recurring trap, and the first where the false pass came from the page being
+  **absent** rather than from a locator matching too much.
+- **The `/favorites` empty-state spec asserts its own precondition.** It reads
+  `readFavorites(secondUserId)` and requires `[]` before navigating; a stale row
+  from an interrupted run would otherwise fail the assertion for a reason that
+  has nothing to do with the page.
+- **The grid's absence is asserted, not just the empty text.** An empty `<ul>`
+  would render a silent blank panel and still satisfy a text-only assertion.
+
+**Verified (agent, Node v26.5.0):**
+- `tsc` clean; `lint` clean; `npm run test` **194/194** (unchanged — no `src/`
+  logic changed); `npm run test:e2e` **269 passed / 3 skipped** (265 prior + 3
+  new specs + 1 new setup step) from a deleted `e2e/.auth` and a free :3000.
+- **`toFavoriteCards` has now met a real null.** Host = primary user, viewer =
+  second user: the favorite renders while published (the positive control), and
+  after the host unpublishes it the card is gone, **the favorites row is still
+  in the table**, and the page still renders. That last pair is what makes it a
+  null-*embed* proof rather than a deleted-row proof.
+- **`/favorites`' empty state renders** for an account with zero rows, with no
+  `Saved stays` list in the DOM.
+- **`/admin` opens and closes with `is_admin`**, proven with the negative
+  control first on the same account and same route, then re-checked after
+  revocation — so the 200 can only mean the flag decided it.
+- **All three gate proofs fire**, each run against the broken build and then
+  reverted: removing `toFavoriteCards`' null filter fails the null-embed spec;
+  replacing `/admin`'s `is_admin` check with a bare session check fails the
+  negative control; inverting the `favorites.length === 0` branch fails the
+  empty state. `git diff src/` is empty afterwards.
+- **The database is clean after a full run**: seed at 26 / 24 / 130 / 17 / 7 / 5,
+  0 favorites, 0 fixture listings, and **exactly one admin — the developer's
+  Google account**, confirming the temporary grant was given back.
+
+**Not verified — honestly outstanding:**
+- **The teardown's admin-reset backstop has never actually fired.** It exists for
+  the run killed mid-spec; every run so far reached its `finally`. Same shape as
+  the `global-teardown` listing sweep, which did fire once, in F09.
+- The rest of the backlog is unchanged and triaged in `progress-tracker.md`:
+  the `{ ok: false }` Supabase-error branch is still unexercised in every action,
+  and the keyboard/screen-reader pass is still deferred (six features running).
+
+**Deferred / follow-ups:**
+- **F14 and F16 need the second account as a feature, not a fixture** — host
+  reservations need a guest who is not the host, and messaging needs two
+  participants. The harness is now in place for both.
+- F17 inherits a working `/admin` route-gate spec and should extend it rather
+  than write a third user.
+- The Supabase branch `main` now reports `FUNCTIONS_DEPLOYED` / `ACTIVE_HEALTHY`
+  rather than the `MIGRATIONS_FAILED` F02 recorded. **What changed it was not
+  observed, so this is not evidence the migration rename works** — that remains
+  documented-correct and unverified. Disabling the GitHub integration is still a
+  dashboard action.
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
+  outside the repo.

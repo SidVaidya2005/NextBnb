@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
-import { TEST_USER } from './constants'
+import { SECOND_USER, TEST_USER } from './constants'
 import type { Database } from '@/types/database.types'
 
 /**
@@ -190,13 +190,13 @@ export async function loadDraftListings(): Promise<
   { id: string; title: string }[]
 > {
   const supabase = serviceClient()
-  const fixtureUserId = await testUserId()
+  const hostIds = await fixtureUserIds()
 
   const { data, error } = await supabase
     .from('listings')
     .select('id, title')
     .eq('is_published', false)
-    .neq('host_id', fixtureUserId)
+    .not('host_id', 'in', `(${hostIds.join(',')})`)
 
   if (error) {
     throw new Error(`[e2e/fixtures] could not load drafts: ${error.message}`)
@@ -218,16 +218,22 @@ export async function loadDraftListings(): Promise<
 // assert on row counts or on "the favorites page is empty" — a sibling worker
 // may legitimately have a row in flight. Each spec claims its own listing and
 // asserts on that listing's title.
+//
+// **The exception is `second-user.spec.ts`**, which owns the second account
+// outright and runs `mode: 'serial'` so nothing races it. That is what finally
+// makes "the favorites page is empty" assertable — the rule above is about the
+// *shared* account, not about the assertion being wrong in principle.
 // -----------------------------------------------------------------------------
 
 /** A seeded guest, for proving one user cannot see another's favorites. */
 export const OTHER_USER_ID = '00000000-0000-4000-b000-000000000003'
 
-let cachedTestUserId: string | null = null
+const cachedUserIds = new Map<string, string>()
 
-/** The Playwright fixture user's id, resolved from the auth admin API. */
-export async function testUserId(): Promise<string> {
-  if (cachedTestUserId) return cachedTestUserId
+/** Resolves a fixture account's id from the auth admin API, once per run. */
+async function userIdByEmail(email: string): Promise<string> {
+  const cached = cachedUserIds.get(email)
+  if (cached) return cached
 
   const supabase = serviceClient()
   const { data, error } = await supabase.auth.admin.listUsers({ perPage: 1000 })
@@ -236,15 +242,71 @@ export async function testUserId(): Promise<string> {
     throw new Error(`[e2e/fixtures] could not list users: ${error.message}`)
   }
 
-  const user = data.users.find((candidate) => candidate.email === TEST_USER.email)
+  const user = data.users.find((candidate) => candidate.email === email)
   if (!user) {
     throw new Error(
-      `[e2e/fixtures] the test user ${TEST_USER.email} does not exist. auth.setup.ts provisions it — run the setup project first.`,
+      `[e2e/fixtures] the test user ${email} does not exist. auth.setup.ts provisions it — run the setup project first.`,
     )
   }
 
-  cachedTestUserId = user.id
+  cachedUserIds.set(email, user.id)
   return user.id
+}
+
+/** The primary Playwright fixture user's id. */
+export function testUserId(): Promise<string> {
+  return userIdByEmail(TEST_USER.email)
+}
+
+/** The second fixture user's id — a different principal, so RLS answers differently. */
+export function secondUserId(): Promise<string> {
+  return userIdByEmail(SECOND_USER.email)
+}
+
+/** Both fixture accounts, for cleanup passes that must not miss one. */
+export function fixtureUserIds(): Promise<string[]> {
+  return Promise.all([testUserId(), secondUserId()])
+}
+
+/**
+ * Flips `profiles.is_admin` for a fixture account.
+ *
+ * Deliberately a *temporary* state rather than a standing admin fixture: the
+ * account's password is committed to this repo, so a permanently-admin test user
+ * would be a real privilege path into whatever project the suite points at — and
+ * F17's admin moderation includes a hard delete. Callers turn it on for one
+ * assertion and off in a `finally`; `global-teardown.ts` is the backstop for the
+ * run that is killed before that `finally` executes.
+ */
+export async function setUserAdmin(userId: string, isAdmin: boolean): Promise<void> {
+  const supabase = serviceClient()
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ is_admin: isAdmin })
+    .eq('id', userId)
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not set is_admin: ${error.message}`)
+  }
+}
+
+/** Which fixture accounts currently hold `is_admin` — the teardown's oracle. */
+export async function fixtureAdmins(): Promise<string[]> {
+  const supabase = serviceClient()
+  const ids = await fixtureUserIds()
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id')
+    .in('id', ids)
+    .eq('is_admin', true)
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read admin flags: ${error.message}`)
+  }
+
+  return (data ?? []).map((row) => row.id)
 }
 
 /**
@@ -263,13 +325,13 @@ export async function loadPublishedListings(): Promise<
   { id: string; title: string }[]
 > {
   const supabase = serviceClient()
-  const fixtureUserId = await testUserId()
+  const hostIds = await fixtureUserIds()
 
   const { data, error } = await supabase
     .from('listings')
     .select('id, title')
     .eq('is_published', true)
-    .neq('host_id', fixtureUserId)
+    .not('host_id', 'in', `(${hostIds.join(',')})`)
     .order('id')
 
   if (error) {
@@ -442,6 +504,12 @@ export type DraftListingInput = {
    * both sides of that comparison.
    */
   minNights?: number
+  /**
+   * Host it as a specific fixture account. Defaults to the primary user.
+   * `secondUserId()` is what lets a spec put the *host* and the *viewer* in
+   * different accounts, which is the only way to reach a null `listings` embed.
+   */
+  hostId?: string
 }
 
 /**
@@ -455,7 +523,7 @@ export async function createDraftListing(
   input: DraftListingInput = {},
 ): Promise<{ id: string; title: string }> {
   const supabase = serviceClient()
-  const hostId = await testUserId()
+  const hostId = input.hostId ?? (await testUserId())
 
   const title = input.title ?? `E2E draft ${crypto.randomUUID().slice(0, 8)}`
 
@@ -612,14 +680,18 @@ export async function deleteListing(id: string): Promise<void> {
 }
 
 /**
- * Every listing the fixture user hosts — the safety net that keeps the seed
- * counts honest if a spec dies before its own cleanup runs.
+ * Every listing hosted by **either** fixture account — the safety net that keeps
+ * the seed counts honest if a spec dies before its own cleanup runs.
+ *
+ * Both accounts, not just the primary one: the second user hosts the listing the
+ * null-embed spec unpublishes, so a listing left behind by that spec would be
+ * invisible to a sweep scoped to one host.
  */
 export async function listingsOwnedByFixtureUser(): Promise<string[]> {
   const supabase = serviceClient()
-  const hostId = await testUserId()
+  const hostIds = await fixtureUserIds()
 
-  const { data, error } = await supabase.from('listings').select('id').eq('host_id', hostId)
+  const { data, error } = await supabase.from('listings').select('id').in('host_id', hostIds)
   if (error) {
     throw new Error(`[e2e/fixtures] could not list host listings: ${error.message}`)
   }

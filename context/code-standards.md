@@ -30,7 +30,7 @@ The AI agent on this project operates as a senior engineer. This means:
 - TypeScript ≥5.1 (Next 16 minimum). Prefer `type` aliases for data shapes; reserve `interface` for extensible object contracts.
 - Server-action and query inputs from the client are `unknown` until validated by Zod — never trust their shape.
 - Row and enum types come from `src/types/database.types.ts` (generated). Derive with helpers like `type Listing = Database['public']['Tables']['listings']['Row']`; do not re-declare table columns by hand.
-- No non-null assertions (`!`) except for env vars in the Supabase client factories; handle `null`/`undefined` explicitly everywhere else.
+- No non-null assertions (`!`) except on **env vars read at a client/SDK construction boundary** — the Supabase client factories (`lib/supabase/*`) and the Cloudinary signing call in `/api/sign-cloudinary`, whose shapes are fixed in `architecture.md` → Key Patterns. Handle `null`/`undefined` explicitly everywhere else.
 - Use `async/await`; no floating promises (await or explicitly void them).
 - Prefer immutable data — `const`, and don't mutate function parameters or shared arrays/objects.
 - Exhaustively handle union/enum branches (e.g. `booking_status`); use a `never` check in the default case where practical.
@@ -207,6 +207,7 @@ export async function getPublishedListings(filters: ListingFilters): Promise<Lis
 ### Route handler (`src/app/**/route.ts`)
 
 - Handlers do HTTP only — the OAuth callback (`/auth/callback`) and the Cloudinary signature route (`/api/sign-cloudinary`). No UI. Keep them thin: verify the user, do the one job (code exchange, or ownership-checked signing), return a `Response`/redirect. Any real mutation belongs in a server action, not a route handler.
+- **The one sanctioned read outside `lib/queries/`** is the sign route's ownership check (`.from('listings').select('id').eq('host_id', user.id)`), whose exact shape is fixed in `architecture.md` → Key Patterns. It stays inline because it *is* the handler's one job — the authorization decision the signature depends on — and routing it through a query module would put the guard a call away from the thing it guards. Do not read this as licence for other inline reads.
 
 ---
 
@@ -234,6 +235,8 @@ Every feature ships with tests — "verifiable" means automated, not just clicka
 **Rules:**
 - Keep pricing/date/availability logic as pure functions (`src/lib/utils.ts` + helpers) so it is unit-testable without a database.
 - E2E runs against a seeded test database (Feature 03); a **seed-verification** step asserts expected listing/user counts before the suite runs.
+- **Two fixture accounts exist, and the second one is not interchangeable with the first.** `TEST_USER` is the shared signed-in session almost every spec uses; `SECOND_USER` exists so RLS can be asked the question one principal structurally cannot ask — "what does someone who is *not* the host / *not* the owner see?". Reach for it whenever an assertion depends on the viewer being a different person, and keep specs that own a second-user global (favorites, `is_admin`) in `second-user.spec.ts` under `mode: 'serial'`.
+- **Never leave a fixture account privileged.** A spec that needs `is_admin` grants it, asserts, and revokes it in a `finally`, with `global-teardown.ts` as the backstop — fixture passwords are committed, so a standing admin is a privilege path rather than an untidy row.
 - Mock Cloudinary and the OAuth provider in tests — never call real external services in CI.
 - A feature is "done" only when its unit tests and any relevant E2E flow pass.
 

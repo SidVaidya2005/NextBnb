@@ -1,6 +1,10 @@
 import { test as setup } from '@playwright/test'
 
-import { AUTH_STATE_FILE } from './constants'
+import {
+  AUTH_STATE_FILE,
+  SECOND_AUTH_STATE_FILE,
+  SECOND_USER,
+} from './constants'
 import { mintSessionCookies } from './session'
 
 /**
@@ -14,4 +18,16 @@ import { mintSessionCookies } from './session'
 setup('authenticate a test user', async ({ context }) => {
   await context.addCookies(await mintSessionCookies())
   await context.storageState({ path: AUTH_STATE_FILE })
+})
+
+/**
+ * The same, for the second account.
+ *
+ * Kept as a separate storageState rather than a second session for the same
+ * user: the point of this account is to be a *different* principal, so that RLS
+ * is asked the question one account structurally cannot ask (see SECOND_USER).
+ */
+setup('authenticate the second test user', async ({ context }) => {
+  await context.addCookies(await mintSessionCookies(SECOND_USER))
+  await context.storageState({ path: SECOND_AUTH_STATE_FILE })
 })

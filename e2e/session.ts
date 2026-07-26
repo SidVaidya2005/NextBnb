@@ -4,9 +4,11 @@ import type { Cookie } from '@playwright/test'
 
 import { TEST_USER } from './constants'
 
+type FixtureUser = { email: string; password: string; fullName: string }
+
 /**
- * Mints a NEW Supabase session for the test user and returns it as Playwright
- * cookies.
+ * Mints a NEW Supabase session for a fixture user and returns it as Playwright
+ * cookies. Defaults to the primary account; pass `SECOND_USER` for the second.
  *
  * Every call creates an independent session (a fresh `session_id`), which
  * matters: signing out deletes the session row server-side, so any spec that
@@ -16,9 +18,13 @@ import { TEST_USER } from './constants'
  * Google consent cannot be driven by Playwright, so the session comes from the
  * email/password provider. The app never surfaces that path, but Supabase Auth
  * issues identical cookies either way, so the proxy refresh, `getUser()` and
- * RLS all behave exactly as they would after a real Google sign-in.
+ * RLS all behave exactly as they would after a real Google sign-in. **This is
+ * also why a Google account added by hand cannot serve as a fixture user** — the
+ * suite has no way to complete a consent screen.
  */
-export async function mintSessionCookies(): Promise<Cookie[]> {
+export async function mintSessionCookies(
+  user: FixtureUser = TEST_USER,
+): Promise<Cookie[]> {
   process.loadEnvFile('.env.local')
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -46,8 +52,8 @@ export async function mintSessionCookies(): Promise<Cookie[]> {
 
   const signIn = () =>
     signInClient.auth.signInWithPassword({
-      email: TEST_USER.email,
-      password: TEST_USER.password,
+      email: user.email,
+      password: user.password,
     })
 
   // 1. Try signing in first. On every run after the very first the user already
@@ -62,16 +68,16 @@ export async function mintSessionCookies(): Promise<Cookie[]> {
     })
 
     const { error: createError } = await admin.auth.admin.createUser({
-      email: TEST_USER.email,
-      password: TEST_USER.password,
+      email: user.email,
+      password: user.password,
       email_confirm: true,
-      user_metadata: { full_name: TEST_USER.fullName },
+      user_metadata: { full_name: user.fullName },
     })
 
     // "already registered" means a parallel worker won the race — fine.
     if (createError && !/already|exists|registered/i.test(createError.message)) {
       throw new Error(
-        `[e2e/session] could not create the test user: ${createError.message}`,
+        `[e2e/session] could not create ${user.email}: ${createError.message}`,
       )
     }
 
@@ -80,7 +86,7 @@ export async function mintSessionCookies(): Promise<Cookie[]> {
 
   if (signInError || !data.session) {
     throw new Error(
-      `[e2e/session] could not sign in the test user: ${signInError?.message ?? 'no session returned'}. ` +
+      `[e2e/session] could not sign in ${user.email}: ${signInError?.message ?? 'no session returned'}. ` +
         'If the Supabase email provider has been disabled, re-enable it — this fixture depends on it.',
     )
   }

@@ -1,4 +1,9 @@
-import { deleteListing, listingsOwnedByFixtureUser } from './fixtures'
+import {
+  deleteListing,
+  fixtureAdmins,
+  listingsOwnedByFixtureUser,
+  setUserAdmin,
+} from './fixtures'
 
 /**
  * Removes any listing still owned by the Playwright fixture user.
@@ -20,13 +25,30 @@ import { deleteListing, listingsOwnedByFixtureUser } from './fixtures'
  */
 export default async function globalTeardown() {
   const leaked = await listingsOwnedByFixtureUser()
-  if (leaked.length === 0) return
 
-  console.log(
-    `[e2e/global-teardown] removing ${leaked.length} listing(s) left by an interrupted spec`,
-  )
+  if (leaked.length > 0) {
+    console.log(
+      `[e2e/global-teardown] removing ${leaked.length} listing(s) left by an interrupted spec`,
+    )
 
-  for (const id of leaked) {
-    await deleteListing(id)
+    for (const id of leaked) {
+      await deleteListing(id)
+    }
+  }
+
+  // The admin spec grants `is_admin` for one assertion and drops it in a
+  // `finally`. A spec killed by a timeout never reaches that `finally` — the
+  // exact failure mode that leaked three listings in F09 — and here the residue
+  // is not an untidy row but a **standing admin account whose password is
+  // committed to this repo**. Reset it unconditionally.
+  const stillAdmin = await fixtureAdmins()
+  if (stillAdmin.length > 0) {
+    console.log(
+      `[e2e/global-teardown] revoking is_admin left on ${stillAdmin.length} fixture account(s)`,
+    )
+
+    for (const id of stillAdmin) {
+      await setUserAdmin(id, false)
+    }
   }
 }
