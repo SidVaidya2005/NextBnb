@@ -11,10 +11,14 @@ import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
 import { TextInput } from '@/components/ui/TextInput'
 import { Textarea } from '@/components/ui/Textarea'
-import { createListing } from '@/lib/actions/listings'
+import { createListing, updateListing } from '@/lib/actions/listings'
 import { AMENITIES, MAX_GUESTS, PROPERTY_TYPES } from '@/lib/constants'
 import { humanizeToken } from '@/lib/utils'
-import { createListingSchema } from '@/lib/validations/listings'
+import {
+  createListingSchema,
+  DEFAULT_CHECK_IN_TIME,
+  DEFAULT_CHECK_OUT_TIME,
+} from '@/lib/validations/listings'
 import type { CreateListingInput, ListingFormValues } from '@/lib/validations/listings'
 
 /** Hourly options for the two time fields — `check_in_time` is `HH:MM` text. */
@@ -40,28 +44,58 @@ const DEFAULTS: ListingFormValues = {
   cleaningFee: 0,
   amenities: [],
   houseRules: '',
-  checkInTime: '15:00',
-  checkOutTime: '11:00',
+  checkInTime: DEFAULT_CHECK_IN_TIME,
+  checkOutTime: DEFAULT_CHECK_OUT_TIME,
   minNights: 1,
 }
 
 /**
- * Step 1 of creating a listing: everything except the photos.
- *
- * Submitting creates a **draft** and moves to the photo step. It is not a
- * "save as draft vs publish" choice — publishing requires at least one photo,
- * and a photo cannot be uploaded until the listing exists, because
- * `/api/sign-cloudinary` only signs for a listing the caller already owns.
- *
- * The resolver validates with the *same* schema `createListing` re-validates
- * with on the server, so the two can never disagree about what is acceptable.
+ * A discriminated union rather than optional props: `listingId` and the loaded
+ * values are meaningless in create mode and mandatory in edit mode, and the
+ * union is what makes forgetting one a type error instead of a runtime one.
  */
-export function ListingForm() {
+type Props =
+  | { mode: 'create' }
+  | { mode: 'edit'; listingId: string; defaultValues: ListingFormValues }
+
+const COPY = {
+  create: {
+    label: 'List your place',
+    submit: 'Save and add photos',
+    submitting: 'Saving…',
+    note: 'This saves your place as a draft. Nobody can see it until you add a photo and publish.',
+  },
+  edit: {
+    label: 'Edit your listing',
+    submit: 'Save changes',
+    submitting: 'Saving…',
+    note: 'Changes go live straight away if this listing is published.',
+  },
+} as const
+
+/**
+ * The listing fields, for both creating and editing.
+ *
+ * Creating submits a **draft** and moves to the photo step. It is not a "save as
+ * draft vs publish" choice — publishing requires at least one photo, and a photo
+ * cannot be uploaded until the listing exists, because `/api/sign-cloudinary`
+ * only signs for a listing the caller already owns. Editing saves in place and
+ * returns to the host's listings.
+ *
+ * Both modes resolve with `createListingSchema`, which is the *same* schema each
+ * action re-validates with on the server (`updateListingSchema` extends it with
+ * the id), so client and server can never disagree about what is acceptable —
+ * and so a rule added to creation is enforced on edit for free.
+ */
+export function ListingForm(props: Props) {
   const router = useRouter()
+  const copy = COPY[props.mode]
 
   const form = useForm<ListingFormValues, unknown, CreateListingInput>({
     resolver: zodResolver(createListingSchema),
-    defaultValues: DEFAULTS,
+    // In edit mode these come from `toListingFormValues`, which is where the
+    // nullable columns become the empty strings an <input> can actually hold.
+    defaultValues: props.mode === 'edit' ? props.defaultValues : DEFAULTS,
   })
 
   const {
@@ -72,6 +106,20 @@ export function ListingForm() {
   } = form
 
   async function onSubmit(values: CreateListingInput) {
+    if (props.mode === 'edit') {
+      const result = await updateListing({ ...values, listingId: props.listingId })
+
+      if (!result.ok) {
+        setError('root', { message: result.error })
+        return
+      }
+
+      // The action already revalidated the affected routes, so this navigates
+      // to a fresh render rather than needing a refresh of its own.
+      router.push('/host/listings')
+      return
+    }
+
     const result = await createListing(values)
 
     if (!result.ok) {
@@ -91,8 +139,9 @@ export function ListingForm() {
       onSubmit={handleSubmit(onSubmit)}
       noValidate
       // Named so it is addressable: the nav's SearchBar also has a "Guests"
-      // control, so an unscoped label lookup matches two elements.
-      aria-label="List your place"
+      // control, so an unscoped label lookup matches two elements. The two modes
+      // get distinct names so a spec can be certain which form it has hold of.
+      aria-label={copy.label}
       className="space-y-12"
     >
       <Section title="About your place">
@@ -334,13 +383,10 @@ export function ListingForm() {
         )}
 
         <Button type="submit" disabled={isSubmitting} className="w-full tablet:w-auto">
-          {isSubmitting ? 'Saving…' : 'Save and add photos'}
+          {isSubmitting ? copy.submitting : copy.submit}
         </Button>
 
-        <p className="mt-3 text-sm text-muted">
-          This saves your place as a draft. Nobody can see it until you add a
-          photo and publish.
-        </p>
+        <p className="mt-3 text-sm text-muted">{copy.note}</p>
       </div>
     </form>
   )

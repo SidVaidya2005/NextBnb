@@ -36,7 +36,7 @@ export default function NewListingPage() {
       </p>
 
       <div className="mt-10">
-        <ListingForm />
+        <ListingForm mode="create" />
       </div>
     </div>
   )
