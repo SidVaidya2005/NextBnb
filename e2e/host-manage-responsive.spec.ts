@@ -52,11 +52,12 @@ for (const { name, width, height } of WIDTHS) {
 
         await expectNoHorizontalScroll(page)
 
-        // Four controls share this row. They may wrap, but none may spill past
-        // the viewport or shrink below the floor.
+        // Five controls share this row since F11 added Availability. They may
+        // wrap, but none may spill past the viewport or shrink below the floor.
         const controls = [
           row.getByRole('link', { name: `Edit ${listing.title}` }),
           row.getByRole('link', { name: `Manage photos for ${listing.title}` }),
+          row.getByRole('link', { name: `Manage availability for ${listing.title}` }),
           row.getByRole('button', { name: `Publish ${listing.title}` }),
           row.getByRole('button', { name: `Delete ${listing.title}` }),
         ]

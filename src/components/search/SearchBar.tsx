@@ -43,23 +43,26 @@ function SearchBarFields({ searchParams }: { searchParams: URLSearchParams }) {
 
   const [city, setCity] = useState(searchParams.get('city') ?? '')
   const [guests, setGuests] = useState(searchParams.get('guests') ?? '')
+  // The picker speaks in `start`/`end` because it also serves the host's block
+  // calendar; the URL contract is `checkIn`/`checkOut`. This is the one place
+  // the two names meet.
   const [range, setRange] = useState<DateRangeValue>({
-    checkIn: searchParams.get('checkIn'),
-    checkOut: searchParams.get('checkOut'),
+    start: searchParams.get('checkIn'),
+    end: searchParams.get('checkOut'),
   })
 
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [overlayOpen, setOverlayOpen] = useState(false)
 
-  const dateLabel = formatDateRange(range.checkIn ?? undefined, range.checkOut ?? undefined)
+  const dateLabel = formatDateRange(range.start ?? undefined, range.end ?? undefined)
 
   function submit() {
     const next = new URLSearchParams(searchParams)
 
     setOrDelete(next, 'city', city)
-    setOrDelete(next, 'checkIn', range.checkIn)
+    setOrDelete(next, 'checkIn', range.start)
     // A lone check-in filters nothing, so it is not worth putting in the URL.
-    setOrDelete(next, 'checkOut', range.checkIn ? range.checkOut : null)
+    setOrDelete(next, 'checkOut', range.start ? range.end : null)
     setOrDelete(next, 'guests', guests)
 
     setCalendarOpen(false)
@@ -68,7 +71,7 @@ function SearchBarFields({ searchParams }: { searchParams: URLSearchParams }) {
   }
 
   function clearDates() {
-    setRange({ checkIn: null, checkOut: null })
+    setRange({ start: null, end: null })
   }
 
   return (

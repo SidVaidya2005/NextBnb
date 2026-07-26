@@ -87,6 +87,13 @@ export function HostListingCard({ listing }: Props) {
           >
             Photos
           </Link>
+          <Link
+            href={`/host/listings/${listing.id}/availability`}
+            className={cn(HOST_CONTROL, HOST_CONTROL_DEFAULT)}
+            aria-label={`Manage availability for ${listing.title}`}
+          >
+            Availability
+          </Link>
         </div>
 
         <ListingActions

@@ -5,10 +5,13 @@ import { createClient } from '@/lib/supabase/server'
 import {
   averageRating,
   blocksListingDeletion,
+  bookedNightsRange,
   coverPhotoOf,
   orderedPhotos,
+  todayISO,
 } from '@/lib/utils'
 import { toListingFormValues } from '@/lib/validations/listings'
+import type { InclusiveRange } from '@/lib/utils'
 import type {
   ListingFilters,
   ListingFormValues,
@@ -478,6 +481,100 @@ export async function getOwnListingForEdit(
     title: data.title,
     isPublished: data.is_published,
     values: toListingFormValues(data),
+  }
+}
+
+/** One `blocked_dates` row as the host's list renders it. Both ends inclusive. */
+export type ListingBlock = {
+  id: string
+  startDate: string
+  endDate: string
+}
+
+export type OwnListingAvailabilityData = {
+  id: string
+  title: string
+  isPublished: boolean
+  /** The host's own blocks, earliest first. Removable, past ones included. */
+  blocks: ListingBlock[]
+  /** Nights held by confirmed, not-yet-finished bookings, as inclusive ranges.
+   *  Read-only here — freeing them is a cancellation, not an unblock. */
+  bookedRanges: InclusiveRange[]
+}
+
+/**
+ * A listing this user **hosts**, with everything its availability calendar
+ * shows — or `null`, which the caller turns into a 404.
+ *
+ * **Reading `bookings` here is safe, and it was checked rather than assumed.**
+ * The `bookings` SELECT policy admits the listing's host, and `.eq('host_id',
+ * user.id)` scopes this to listings this user hosts — so the reader is always
+ * privileged for exactly the rows being read.
+ *
+ * **This is F10's `getOwnListings` reasoning, not F06's trap**, and the
+ * difference is worth restating because the two look alike: there, missing
+ * booking rows inferred a *permission* ("every listing is available") and
+ * arrived as a success. Here a non-host reads no listing at all, so there is no
+ * row set left to draw a wrong conclusion from.
+ *
+ * **It also does not solve F12's problem.** A guest's calendar needs the same
+ * dates for a listing they do not host, and RLS gives them nothing — that needs
+ * its own `security definer` function, the way F06 needed one for search.
+ *
+ * A third narrow query rather than a widened `getOwnListing`, for the reason
+ * F10 recorded: that one feeds the photo editor and has no use for date ranges.
+ */
+export async function getOwnListingAvailability(
+  id: string,
+): Promise<OwnListingAvailabilityData | null> {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data, error } = await supabase
+    .from('listings')
+    .select(
+      'id, title, is_published, blocked_dates(id, start_date, end_date), bookings(status, check_in, check_out)',
+    )
+    .eq('id', id)
+    .eq('host_id', user.id)
+    .single()
+
+  if (error) {
+    // PGRST116 is "no rows" — someone else's listing, or none. An ordinary 404.
+    if (error.code !== 'PGRST116') {
+      console.error('[queries/listings] getOwnListingAvailability failed:', error.message)
+    }
+    return null
+  }
+
+  return {
+    id: data.id,
+    title: data.title,
+    isPublished: data.is_published,
+    blocks: data.blocked_dates
+      .map((block) => ({
+        id: block.id,
+        startDate: block.start_date,
+        endDate: block.end_date,
+      }))
+      .sort((a, b) => a.startDate.localeCompare(b.startDate)),
+    // Cancelled stays free their dates — the same rule the partial exclusion
+    // constraint applies — so only confirmed ones occupy the calendar.
+    //
+    // Finished stays are dropped here, on the **server**, where "today" is
+    // decided exactly once. Doing it in the component would compute `todayISO()`
+    // during the server render and again during hydration, which is a mismatch
+    // waiting for a midnight page load. Blocks are deliberately *not* filtered
+    // the same way: a stale one still has to be removable.
+    bookedRanges: data.bookings
+      .filter((booking) => booking.status === 'confirmed')
+      .map(bookedNightsRange)
+      .filter((range) => range.end >= todayISO())
+      .sort((a, b) => a.start.localeCompare(b.start)),
   }
 }
 

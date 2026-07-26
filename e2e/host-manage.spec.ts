@@ -14,6 +14,7 @@ import {
   readListingPhotos,
   todayISO,
 } from './fixtures'
+import { waitForHydration } from './hydration'
 
 /**
  * Managing an existing listing (F10) — the grid, the editor, publish/unpublish
@@ -43,36 +44,6 @@ const ownListings = (page: Page) =>
   page.getByRole('list', { name: 'Your listings' })
 
 const editForm = (page: Page) => page.getByRole('form', { name: 'Edit your listing' })
-
-/**
- * Waits until React owns this element, not just the server's HTML.
- *
- * **Every spec here that clicks before hydration is a false result, and two of
- * them were.** Before hydration a `type="button"` click does nothing at all (no
- * handler is attached yet), and a value typed into a field React is about to
- * re-assert from `defaultValues` is silently reverted — so clearing the title
- * and submitting *saved the original title and navigated away*, which looked
- * exactly like "the editor accepts a blank title". Neither failure mode is
- * visible in the markup, and both go away on a slower machine, which is the
- * definition of a flake that would have been blamed on the app.
- *
- * React attaches a `__reactProps$…` key to every host node it hydrates. That is
- * an internal, but it is the direct signal — far better than sleeping and
- * hoping, which is what the alternative amounts to.
- */
-async function waitForHydration(locator: Locator) {
-  await expect
-    .poll(
-      () =>
-        locator
-          .first()
-          .evaluate((element) =>
-            Object.keys(element).some((key) => key.startsWith('__reactProps$')),
-          ),
-      { message: 'React never hydrated this element' },
-    )
-    .toBe(true)
-}
 
 async function waitForOwnListings(page: Page) {
   // Race the list against the empty state: waiting only for the list would hang

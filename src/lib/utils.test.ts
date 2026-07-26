@@ -2,9 +2,12 @@ import { describe, it, expect } from 'vitest'
 import {
   averageRating,
   blocksListingDeletion,
+  bookedNightsRange,
   coverPhotoOf,
+  findBlockConflict,
   formatCapacity,
   formatDateRange,
+  formatInclusiveRange,
   formatMonthYear,
   formatPrice,
   formatTimeOfDay,
@@ -12,6 +15,7 @@ import {
   nextPhotoPosition,
   nightsBetween,
   orderedPhotos,
+  rangesOverlap,
   reorderedPositions,
   safeNextPath,
   toFavoriteCards,
@@ -525,5 +529,208 @@ describe('blocksListingDeletion', () => {
         TODAY,
       ),
     ).toBe(false)
+  })
+})
+
+describe('bookedNightsRange', () => {
+  it('drops the checkout day — a stay occupies [check_in, check_out)', () => {
+    // Aug 5 -> Aug 10 is four nights: the 5th, 6th, 7th and 8th... and the 9th.
+    // The 10th is the day the guest leaves, and another guest may check in on it.
+    expect(bookedNightsRange({ check_in: '2026-08-05', check_out: '2026-08-10' })).toEqual({
+      start: '2026-08-05',
+      end: '2026-08-09',
+    })
+  })
+
+  it('renders a single-night stay as one occupied day', () => {
+    expect(bookedNightsRange({ check_in: '2026-08-05', check_out: '2026-08-06' })).toEqual({
+      start: '2026-08-05',
+      end: '2026-08-05',
+    })
+  })
+
+  it('crosses a month boundary', () => {
+    expect(bookedNightsRange({ check_in: '2026-07-31', check_out: '2026-08-02' })).toEqual({
+      start: '2026-07-31',
+      end: '2026-08-01',
+    })
+  })
+
+  it('crosses a year boundary', () => {
+    expect(bookedNightsRange({ check_in: '2026-12-31', check_out: '2027-01-02' })).toEqual({
+      start: '2026-12-31',
+      end: '2027-01-01',
+    })
+  })
+})
+
+describe('rangesOverlap', () => {
+  const august = (start: string, end: string) => ({
+    start: `2026-08-${start}`,
+    end: `2026-08-${end}`,
+  })
+
+  it('is true for identical ranges', () => {
+    expect(rangesOverlap(august('05', '09'), august('05', '09'))).toBe(true)
+  })
+
+  it('is false for ranges that do not touch', () => {
+    expect(rangesOverlap(august('05', '09'), august('15', '19'))).toBe(false)
+  })
+
+  it('is true when they share a single day', () => {
+    expect(rangesOverlap(august('05', '09'), august('09', '12'))).toBe(true)
+  })
+
+  it('is false for adjacent ranges — both ends are inclusive, so end + 1 is free', () => {
+    expect(rangesOverlap(august('05', '09'), august('10', '12'))).toBe(false)
+  })
+
+  it('is true when one range contains the other', () => {
+    expect(rangesOverlap(august('01', '31'), august('14', '15'))).toBe(true)
+  })
+
+  it('is symmetric — argument order cannot change the answer', () => {
+    const a = august('05', '09')
+    const b = august('08', '12')
+    expect(rangesOverlap(a, b)).toBe(rangesOverlap(b, a))
+  })
+
+  it('catches a one-day range sitting inside a longer one', () => {
+    expect(rangesOverlap(august('07', '07'), august('05', '09'))).toBe(true)
+  })
+
+  it('compares across months, since the format sorts chronologically', () => {
+    expect(
+      rangesOverlap(
+        { start: '2026-07-28', end: '2026-08-02' },
+        { start: '2026-08-01', end: '2026-08-03' },
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('findBlockConflict', () => {
+  const NOTHING_OCCUPIED = { booked: [], blocked: [] }
+
+  it('accepts a range with nothing in its way', () => {
+    expect(
+      findBlockConflict({ start: '2026-08-05', end: '2026-08-09' }, NOTHING_OCCUPIED),
+    ).toBeNull()
+  })
+
+  it('names a confirmed reservation when the range hits one', () => {
+    expect(
+      findBlockConflict(
+        { start: '2026-08-07', end: '2026-08-12' },
+        { booked: [{ start: '2026-08-05', end: '2026-08-09' }], blocked: [] },
+      ),
+    ).toBe('booking')
+  })
+
+  it('names an existing block when the range hits one', () => {
+    expect(
+      findBlockConflict(
+        { start: '2026-08-20', end: '2026-08-25' },
+        { booked: [], blocked: [{ start: '2026-08-18', end: '2026-08-23' }] },
+      ),
+    ).toBe('block')
+  })
+
+  it('reports the reservation first when the range hits both', () => {
+    // The host can remove their own block; they cannot remove someone's stay,
+    // so that is the more useful half of the answer.
+    expect(
+      findBlockConflict(
+        { start: '2026-08-01', end: '2026-08-31' },
+        {
+          booked: [{ start: '2026-08-05', end: '2026-08-09' }],
+          blocked: [{ start: '2026-08-18', end: '2026-08-23' }],
+        },
+      ),
+    ).toBe('booking')
+  })
+
+  it('accepts a block starting on a booking’s checkout day', () => {
+    // The half-open proof, in the shape this feature meets it: the stay runs
+    // Aug 5 -> Aug 10, so its occupied nights end on the 9th and the 10th is
+    // free. Blocking from the 10th must be allowed, exactly as the exclusion
+    // constraint allows a same-day turnover.
+    const stay = bookedNightsRange({ check_in: '2026-08-05', check_out: '2026-08-10' })
+    expect(
+      findBlockConflict({ start: '2026-08-10', end: '2026-08-14' }, { booked: [stay], blocked: [] }),
+    ).toBeNull()
+  })
+
+  it('refuses a block ending on a booking’s first night', () => {
+    const stay = bookedNightsRange({ check_in: '2026-08-05', check_out: '2026-08-10' })
+    expect(
+      findBlockConflict({ start: '2026-08-01', end: '2026-08-05' }, { booked: [stay], blocked: [] }),
+    ).toBe('booking')
+  })
+
+  it('accepts a block ending the day before an existing block starts', () => {
+    expect(
+      findBlockConflict(
+        { start: '2026-08-14', end: '2026-08-17' },
+        { booked: [], blocked: [{ start: '2026-08-18', end: '2026-08-23' }] },
+      ),
+    ).toBeNull()
+  })
+
+  it('accepts a one-day block on a free day between two occupied spans', () => {
+    expect(
+      findBlockConflict(
+        { start: '2026-08-10', end: '2026-08-10' },
+        {
+          booked: [{ start: '2026-08-05', end: '2026-08-09' }],
+          blocked: [{ start: '2026-08-11', end: '2026-08-12' }],
+        },
+      ),
+    ).toBeNull()
+  })
+
+  it('checks every occupied span, not just the first', () => {
+    expect(
+      findBlockConflict(
+        { start: '2026-09-01', end: '2026-09-03' },
+        {
+          booked: [],
+          blocked: [
+            { start: '2026-08-01', end: '2026-08-02' },
+            { start: '2026-08-18', end: '2026-08-23' },
+            { start: '2026-09-02', end: '2026-09-04' },
+          ],
+        },
+      ),
+    ).toBe('block')
+  })
+})
+
+describe('formatInclusiveRange', () => {
+  it('renders a multi-day block, collapsing a shared month', () => {
+    expect(formatInclusiveRange({ start: '2026-08-18', end: '2026-08-23' })).toBe(
+      'Aug 18 – 23',
+    )
+  })
+
+  it('collapses a one-day block to a single date', () => {
+    // "Aug 18 – 18" is what formatDateRange would produce. A stay can never be
+    // one day, so only the inclusive model has to answer for this.
+    expect(formatInclusiveRange({ start: '2026-08-18', end: '2026-08-18' })).toBe(
+      'Aug 18',
+    )
+  })
+
+  it('keeps both months when the block crosses one', () => {
+    expect(formatInclusiveRange({ start: '2026-07-31', end: '2026-08-02' })).toBe(
+      'Jul 31 – Aug 2',
+    )
+  })
+
+  it('keeps both months when the block crosses a year', () => {
+    expect(formatInclusiveRange({ start: '2026-12-30', end: '2027-01-02' })).toBe(
+      'Dec 30 – Jan 2',
+    )
   })
 })

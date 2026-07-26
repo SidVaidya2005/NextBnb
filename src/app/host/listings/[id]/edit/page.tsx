@@ -10,7 +10,8 @@ type Props = { params: Promise<{ id: string }> }
 /**
  * Edit an existing listing's details. Photos stay on `/photos` — that surface is
  * verified end to end against the live Cloudinary account and has no business
- * being rebuilt here.
+ * being rebuilt here — and availability stays on `/availability`, which owns its
+ * own calendar and mutations rather than re-rendering this form on every write.
  *
  * **No `loading.tsx` for this route** — F07's finding. A route `loading.tsx`
  * wraps the page in an implicit `<Suspense>`, so the response streams and the
@@ -52,12 +53,18 @@ export default async function EditListingPage({ params }: Props) {
           : 'This listing is a draft. Only you can see it until you publish.'}
       </p>
 
-      <p className="mt-3 text-sm text-muted">
+      <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
         <Link
           href={`/host/listings/${listing.id}/photos`}
           className="underline underline-offset-4 hover:text-ink"
         >
           Manage photos
+        </Link>
+        <Link
+          href={`/host/listings/${listing.id}/availability`}
+          className="underline underline-offset-4 hover:text-ink"
+        >
+          Manage availability
         </Link>
       </p>
 

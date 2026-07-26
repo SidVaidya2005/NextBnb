@@ -735,3 +735,73 @@ export async function publishFixtureListing(
     )
   }
 }
+
+// -----------------------------------------------------------------------------
+// Feature 11 — host-managed availability
+//
+// `blocked_dates` rows are INCLUSIVE [start_date, end_date] and cascade with
+// their listing, so nothing here needs a cleanup counterpart: deleting the
+// fixture listing takes its blocks with it, and `global-teardown.ts` sweeps any
+// listing an interrupted spec left behind.
+// -----------------------------------------------------------------------------
+
+/**
+ * A block written straight to the table.
+ *
+ * Setup only, and for one spec shape in particular: reaching `addBlock`'s
+ * conflict guard needs a row that appeared *after* the page rendered, because
+ * the calendar disables every day it already knows about. Specs that mean to
+ * test blocking drive the real calendar instead.
+ */
+export async function createBlockedDateRow(
+  listingId: string,
+  options: { startDate: string; endDate: string },
+): Promise<{ id: string }> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('blocked_dates')
+    .insert({
+      listing_id: listingId,
+      start_date: options.startDate,
+      end_date: options.endDate,
+    })
+    .select('id')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`[e2e/fixtures] could not create a blocked range: ${error?.message}`)
+  }
+
+  return data
+}
+
+/**
+ * A listing's blocks, straight from the table — the oracle for every assertion
+ * about what the calendar actually wrote. Earliest first.
+ *
+ * Reading the row rather than the page is what catches an off-by-one in the
+ * inclusive/half-open crossing: a UI that renders "Aug 18 – 23" correctly can
+ * still have stored `end_date = 2026-08-24`.
+ */
+export async function readBlockedDates(
+  listingId: string,
+): Promise<{ id: string; startDate: string; endDate: string }[]> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('blocked_dates')
+    .select('id, start_date, end_date')
+    .eq('listing_id', listingId)
+    .order('start_date', { ascending: true })
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read blocked dates: ${error.message}`)
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    startDate: row.start_date,
+    endDate: row.end_date,
+  }))
+}

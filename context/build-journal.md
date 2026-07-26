@@ -1590,3 +1590,239 @@ no column grant restricts which listing columns a host may write.
   that is the design, and it should say so where it is written.
 - The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
   outside the repo.
+
+---
+
+## Phase 3 · Feature 11 — Availability management  *(2026-07-26)*
+
+**Scope built (12 files):** `InclusiveRange` + `bookedNightsRange`,
+`rangesOverlap`, `findBlockConflict` and `formatInclusiveRange` in
+`lib/utils.ts` (+25 unit tests); `lib/validations/blockedDates.ts`
+(`addBlockSchema`, `removeBlockSchema`, +12 unit tests);
+`getOwnListingAvailability` + `ListingBlock`/`OwnListingAvailabilityData` in
+`lib/queries/listings.ts`; `lib/actions/blockedDates.ts` (`addBlock`,
+`removeBlock`, shared `ownOccupancy`); a `bounds` prop on
+`components/ui/DateRangePicker.tsx` with its value fields renamed
+`checkIn`/`checkOut` → `start`/`end` (and `SearchBar` repointed);
+`components/host/AvailabilityManager.tsx`;
+`/host/listings/[id]/availability`; an Availability link on
+`HostListingCard` and a cross-link on `/edit`; `e2e/hydration.ts` and
+`e2e/calendar.ts` extracted; `createBlockedDateRow`/`readBlockedDates` fixtures;
+`e2e/host-availability.spec.ts` (13) and
+`e2e/host-availability-responsive.spec.ts` (15). **No migration, no new
+dependency, `database.types.ts` untouched** — `0001` had the table and
+`end_date >= start_date`, `0003` all four host-scoped policies, `0005` the split
+anon SELECT, `0006` the anon revokes. **Closes Phase 3.**
+
+**Decisions:**
+- **Its own route, not a section on the editor.** `build-plan.md`'s UI line said
+  "availability section on the listing editor"; it shipped as a third sibling to
+  `/edit` and `/photos`. `/edit` is one large react-hook-form carrying the
+  hydration hazard F10 documented, and hanging a second set of mutations off it
+  re-renders the whole form on every block for no gain. The deviation is recorded
+  in `build-plan.md` under F11 rather than left to read as drift later.
+- **`DateRangePicker` widened, not forked.** A `bounds: 'half-open' |
+  'inclusive'` prop, defaulting to half-open so `SearchBar` was untouched
+  behaviourally. Exactly two rules differ: inclusive completes a **one-day**
+  range on a second click of the same day (a stay cannot be zero nights; a block
+  of one night is ordinary, and `end_date >= start_date` is the table's own
+  constraint), and it counts the end day in the straddle test. A second calendar
+  would have duplicated ~200 lines of month grid and given DESIGN.md's single
+  `date-picker-day` spec two implementations to drift between.
+- **Named for the range model, not the caller.** `bounds` rather than
+  `mode: 'stay' | 'block'`, because `architecture.md` restricts
+  `components/ui/` to presentational primitives with no business rules — the
+  component must not learn what a "block" is. The same reasoning then forced the
+  value fields from `checkIn`/`checkOut` to `start`/`end`: leaving a host's "last
+  blocked night" in a field called `checkOut` would have been the inconsistency
+  the prop naming existed to avoid. `SearchBar` now maps the URL contract
+  (`?checkIn=`) to the picker's fields at its own boundary, which is where that
+  translation belongs anyway.
+- **Overlaps refused, not merged and not allowed.** Blocks never overlap a
+  confirmed booking *or* each other, with a distinct message for each so the host
+  knows which. Merging would silently rewrite a range the host never touched and
+  would need an UPDATE — the one `blocked_dates` verb this feature never issues.
+  Allowing overlaps is harmless for the availability union but reads as broken:
+  removing one of two coincident rows leaves the nights blocked with no
+  explanation.
+- **Removal is a named list control.** Clicking a blocked day would mean splitting
+  a range on partial removal — an UPDATE plus an INSERT, and a second way to
+  write blocks. Each Unblock names its range, F10's every-control-names-its-target
+  rule.
+- **Bookings and blocks are listed separately rather than drawn differently.**
+  Both grey out on the calendar, because a taken night is a taken night, but only
+  one of them is the host's to undo and a greyed cell cannot say which it is. Two
+  lists deliver `build-plan.md`'s "read-only for booked" without teaching a `ui/`
+  primitive the difference.
+- **Reading `bookings` directly is safe, and it was checked.** The `bookings`
+  SELECT policy admits the listing's host and the query is `host_id`-scoped, so
+  the reader is always privileged for the rows being read — F10's
+  `getOwnListings` reasoning, **not F06's trap**, where missing rows inferred a
+  *permission* and arrived as a success. Here a non-host reads no listing at all,
+  so no row set survives to draw a wrong conclusion from. **It does not solve
+  F12's problem:** a guest needs the same dates for a listing they do not host,
+  and RLS gives them nothing.
+- **The past-date floor is strict in the UI and lenient in the action.** The
+  calendar offers today onward; `addBlock` refuses only a block whose *end* is
+  already past. A `startDate >= today` rule in the shared schema would satisfy
+  F09's "must accept its own output" in shape while failing in *time* —
+  `todayISO()` runs once in the browser and again on the server, so a range
+  submitted at 23:59:59 would be refused at 00:00:01 naming a field the host
+  filled in correctly. Same instinct as F10's one-day-wide delete cutoff: when a
+  comparison straddles two clocks, pick the direction whose error is harmless.
+- **Finished bookings are filtered out on the server, not in the component.**
+  They feed a rendered list now, so "today" has to be decided exactly once;
+  computing it during both the server render and hydration is a mismatch waiting
+  for a midnight page load. Blocks are deliberately *not* filtered the same way —
+  a stale one still has to be removable.
+- **`removeBlock` carries no guard, and that was read rather than assumed.** F10's
+  rule is to check the FK actions on everything referencing a row before writing
+  a delete. Nothing references `blocked_dates`; `listing_id` cascades *into* it
+  from `listings`. A block's blast radius is the block.
+- **`getOwnListingAvailability` is a third narrow query, not a widened
+  `getOwnListing`** — F10's stated reason: that one feeds the photo editor and has
+  no use for date ranges.
+- **`waitForHydration` and the calendar helpers were extracted** to
+  `e2e/hydration.ts` and `e2e/calendar.ts`. F11 was the second feature to need
+  the hydration wait, and two copies of a subtle wait is how one of them quietly
+  stops matching what React does.
+
+**Gotchas:**
+- **A negative assertion needs a positive control, and gate proof 3 is the only
+  reason I know.** The non-owner 404 spec named
+  `20000000-0000-4000-a000-000000000001` — the `a000` sentinel range belongs to
+  `schema-verification.sql`; the seed's listings are `b000`. **No such listing
+  existed**, so the route 404'd because the row was missing, and the spec **passed
+  with `.eq('host_id', user.id)` deleted from the query**. It now claims a real
+  listing via `loadPublishedListings()` (which excludes the fixture user) and
+  additionally asserts that listing serves **200** on its public page, so the 404
+  can only mean "not yours". The database probe got the same treatment: a non-host
+  `blocked_dates` insert is refused, *and* the identical probe as the host
+  succeeds — without that control, "refused" might only have meant `set_config`
+  broke every write. **F08's lesson in a new costume, and F03's control-URL
+  lesson from the other direction.**
+- **`getByRole('alert')` also matches Next's route announcer.** Every page carries
+  `<div role="alert" id="__next-route-announcer__">`, empty — so the two refusal
+  specs died on a strict-mode violation whose message read like the app had
+  rendered nothing, while the app had in fact rendered exactly the right
+  sentence. **Seventh instance in this project of a locator coupled to something
+  outside the thing under test** (F05's `getByText('0.0')` matching prices, F07's
+  `circle-user-round` counting the nav, F08's `input[name="next"]` matching
+  hearts, F09's `getByLabel('Guests')` matching the SearchBar, F10's
+  `getByText('Draft')` matching fixture titles and its `getByRole` substring
+  match). Fixed by scoping to the section's own `region`, which is why that
+  `<section>` carries an `aria-labelledby` at all.
+- **Never locate a day cell with `.first()`.** The calendar opens on the current
+  month, so the first cell is the 1st — in the past for most of any month, and
+  therefore `disabled`. Playwright waits for actionability, so the click does not
+  fail fast with "this is disabled": it hangs for the full 30 seconds and reports
+  nothing about why. Five responsive specs timed out identically before the cause
+  was obvious. `e2e/calendar.ts` now addresses days by date and says so in its
+  header.
+- **A spec that rebuilds a formatted label is a latent flake.** The unblock spec
+  reconstructed "Aug 15 – 17" by hand, which stops matching on the ~2 days a month
+  where the two ends straddle a month boundary and the component correctly renders
+  "Jul 31 – Aug 2". Replaced with a position-based locator — the list is sorted by
+  start date — and the database remains the oracle for *which* range went.
+- **The action's overlap guard is unreachable through the calendar, which is the
+  point of the calendar.** Every day the page already knows about is disabled, so
+  a conflict can only arrive *after* the render. That makes the race the only
+  honest way to reach the server guard — insert the booking (or block) while the
+  host is deciding, then click — which is exactly how F10 proved its delete guard,
+  and it is also the genuine failure mode rather than a contrivance.
+- **`start!` was the first draft of the inclusive selection rule**, which
+  `code-standards.md` forbids outside the Supabase env-var factories. Restructured
+  into two early returns so TypeScript's control-flow analysis narrows `start`
+  properly — shorter *and* legal.
+- **`formatDateRange` cannot render a one-day block.** It produces "Aug 18 – 18",
+  which is unreachable for a stay (the two ends are always different days) and the
+  ordinary case for a block. `formatInclusiveRange` is a separate helper rather
+  than a widened one, so the search pill's behaviour could not shift.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run test` **194/194**
+  (157 prior + 37 new); `npm run test:e2e` **265 passed / 3 skipped** (237 prior
+  + 28 new) from a deleted `e2e/.auth` and a free :3000; `npm run build` green
+  with **15 routes**, `/host/listings/[id]/availability` present and
+  `ƒ Proxy (Middleware)` still printing.
+- **Inferred types proved real, not `never`** — a throwaway `const _probe: null =
+  data` made tsc print the nested select's actual shape:
+  `blocked_dates: { id, start_date, end_date }[]` and
+  `bookings: { status: "confirmed" | "cancelled", check_in, check_out }[]`, with
+  `status` narrowed to the enum union so the confirmed-only filter is type-safe.
+  F04's `@supabase/ssr` incident is why this is checked rather than assumed.
+- **Blocks checked against the table, not the page that wrote them.** A range
+  picked on the calendar stores `start_date`/`end_date` exactly as picked — the
+  end **not** pushed out a day to match the half-open model bookings use. A single
+  day stores `start_date = end_date`. Unblocking removes that row and leaves both
+  the listing's other block and all its bookings untouched.
+- **Half-open semantics proven at the surface the host touches:** for a stay
+  running check-in → check-out, both the check-in day and the day before checkout
+  are disabled, and **the checkout day is selectable** — the same-day turnover the
+  exclusion constraint permits. For an inclusive block, both ends are disabled and
+  the day after the end is free; a block abutting an existing one at `end + 1` is
+  accepted.
+- **The guards are enforced, not merely displayed.** With a range already selected,
+  inserting a confirmed booking inside it mid-decision makes the action refuse
+  naming the reservation, with **no** block written and the booking still present;
+  inserting a block does the same naming the existing block, leaving exactly the
+  one row that was there.
+- **RLS is the real guard, proven by impersonation with a control.** An
+  authenticated non-host insert into `blocked_dates` is refused; the identical
+  probe run as the listing's own host succeeds. Seed left at 5 blocks either way.
+- `/host/listings/[id]/availability` returns a real **404** for a signed-in
+  non-owner (whose listing serves 200 publicly) and for a malformed id, and
+  **307**s a signed-out visitor with `?signin=required&next=%2Fhost%2Flistings…`.
+- **End to end through `unavailable_listing_ids()`:** blocking a range removes a
+  published listing from a dated search covering it, and unblocking through the UI
+  brings it back — F11's writes reach the function F06 built without this feature
+  touching migration `0007`.
+- **All four gate proofs fire**, each run against the broken build and then
+  reverted: removing the booking-conflict check fails the racing-refusal spec;
+  replacing `subDays(check_out, 1)` with `check_out` fails the checkout-day spec
+  (and 5 unit tests); dropping `host_id` from the query fails the non-owner spec
+  with `Received: 200`; setting `bounds` back to `'half-open'` fails the
+  one-day-block spec.
+- **Responsive measured at 320 / 375 / 744 / 1128 / 1440** — each band's lower
+  boundary. No horizontal *page* overflow at any width, every control inside the
+  viewport and ≥44px, month navigation ≥44×44, and the day cell holding DESIGN.md's
+  40px. The calendar itself scrolls **inside its own container** below `tablet:`,
+  which is the design: a month panel is fixed at a width no phone can hold, and a
+  scrolling calendar is correct where a scrolling page would be the defect.
+- `get_advisors(security)` — **still 5 WARNs**, the documented baseline. F11 adds
+  no function and no policy.
+- **Seed intact after a full suite run**: 26 listings / 24 published / 130 photos
+  / 17 bookings / 7 reviews / **5 blocked ranges** / 0 favorites, and **0 listings
+  owned by the fixture user**. Blocks need no cleanup pass of their own — they
+  cascade with the fixture listing, which `global-teardown.ts` already sweeps.
+
+**Not verified — honestly outstanding:**
+- **The race has been guarded but never landed.** The spec proves `addBlock`
+  refuses a booking that arrives while the host decides; what has never been
+  produced is a booking arriving in the microseconds *after* the guard's read, so
+  a block genuinely overlapping a confirmed stay. Benign by design, reachable only
+  by contriving the interleaving.
+- **The `{ ok: false }` Supabase-error branches of both actions have never run** —
+  guard refusals and not-found paths are covered; a genuine database error is not.
+  Same shape as F10's `updateListing`/`deleteListing` and F08's `setFavorite`.
+- **The 365-day ceiling is unit-tested only** — reaching it through the calendar
+  is ~365 month clicks.
+- **`blocked_dates_update_own_listing` is a knowingly unused policy.** F11 only
+  inserts and deletes; widening a block is remove-and-re-add. Worth knowing before
+  it is read as evidence that editing a block is supported.
+- **No keyboard or screen-reader pass on the calendar** — it inherits F06's gap
+  exactly: the cells are tabbable buttons but the `role="grid"` arrow-key
+  roving-focus pattern is not implemented, and a 40-cell tab sequence per month is
+  not a usable path. The `aria-live` selection hint has not been heard. F18 owns it.
+
+**Deferred / follow-ups:**
+- **F12 inherits `bounds`, and the `unavailableRanges` prop that has been empty
+  since F06.** What it still owns is the *source* of those ranges for a guest: a
+  per-listing `security definer` function, because an anon visitor reads zero
+  booking rows. F11's query is host-only and cannot be reused for it.
+- F12 should reuse `findBlockConflict`/`bookedNightsRange` for its own
+  availability re-check rather than writing a third overlap implementation.
+- `e2e/calendar.ts` is F12's for free — including the "never `.first()` a day
+  cell" trap, which will bite the booking widget's specs identically.
+- The stray `~/package-lock.json` multiple-lockfile warning persists. Cosmetic,
+  outside the repo.

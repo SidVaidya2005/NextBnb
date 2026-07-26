@@ -11,11 +11,62 @@ immediately know what is done, what is in progress, and what is next.
 
 ## Current Status
 
-**Phase:** Phase 3 — Hosting
-**Last completed:** 10 Manage listings
-**Next:** 11 Availability management
+**Phase:** Phase 3 — Hosting **(complete)**
+**Last completed:** 11 Availability management
+**Next:** 12 Instant Book — the first feature of Phase 4
 
-**F10 is live: a host can maintain what they own.** `/host/listings` lists every
+**F11 is live: a host controls when their place is free.**
+`/host/listings/[id]/availability` shows one calendar of everything already
+taken, a "Blocked by you" list with an Unblock on each range, and a "Reserved"
+list that is deliberately read-only — freeing those nights is a cancellation
+(F13), not an unblock. Blocking a range refuses if it overlaps a confirmed stay
+**or** an existing block, with a different message for each. **No migration** —
+`0001`/`0003`/`0005`/`0006` already permitted every write, and
+`database.types.ts` is untouched. Gates: `tsc` clean, `lint` clean, **194/194**
+unit, **265 passed / 3 skipped** E2E, `npm run build` green, **15 routes**.
+Advisor baseline unchanged at 5 WARNs; seed intact at 26/24/130/17/7/**5
+blocks**/0 favorites with **0** listings owned by the fixture user.
+
+**A third route, not a section on the editor.** `build-plan.md` put availability
+"on the listing editor"; it shipped as a sibling of `/edit` and `/photos`
+instead, because `/edit` is one large react-hook-form carrying the hydration
+window F10 documented, and a second set of mutations on it would re-render the
+whole form per block. Recorded as an as-built deviation rather than left to read
+as drift.
+
+**`DateRangePicker` was widened, not forked** — a `bounds: 'half-open' |
+'inclusive'` prop. Exactly two rules differ: inclusive completes a **one-day**
+range on a second click of the same day, and counts the end day in the straddle
+test. Named for the range model rather than `'stay' | 'block'` because
+`components/ui/` may not learn what a block is; its value fields moved from
+`checkIn`/`checkOut` to `start`/`end` for the same reason, with `SearchBar` now
+mapping the URL contract at its own boundary. **F12 inherits the primitive** and
+the empty `unavailableRanges` prop it has carried since F06.
+
+**The finding that shaped F11: a negative assertion needs a positive control, or
+it passes for the wrong reason.** The spec asserting `/availability` 404s for a
+non-owner named a hand-written listing id in the wrong sentinel namespace
+(`a000`, the schema-verification range) — so **no such listing existed**, the
+route 404'd because the row was missing rather than because the viewer was not
+its host, and the spec **passed with `host_id` scoping deleted from the query**.
+Only the gate proof disagreed. It now uses a real seeded listing and asserts
+that same listing returns **200** on its public page, so the 404 can only mean
+"not yours". Generalises: pair every "this is refused" with a proof the same
+thing succeeds when it should — F03 learned it from a deliberately invalid
+Unsplash URL, F09's follow-up from a control probe on the Cloudinary
+credentials.
+
+**RLS is the real guard on blocks, and that was proven by impersonation** rather
+than assumed from the action's check: an authenticated non-host insert into
+`blocked_dates` is refused, while the **same probe as the listing's host
+succeeds** — the control that makes the refusal mean something. The action's
+overlap guard, by contrast, is honestly only UX: no constraint can span two
+tables, so a guest booking between the host's render and the insert can still
+land a stay under a block. That race is accepted and benign —
+`unavailable_listing_ids` unions both halves, so search excludes the listing
+either way and nobody's stay is lost.
+
+**F10 remains green: a host can maintain what they own.** `/host/listings` lists every
 listing they host — published and drafts, newest first — with Edit, Photos,
 Publish/Unpublish and Delete on each row, and
 `/host/listings/[id]/edit` reuses `ListingForm` through a discriminated `mode`
@@ -229,6 +280,26 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 `/listings/[id]`.
 
 **Remaining loose ends (small):**
+- **The block-over-booking race has been guarded but never actually *landed*.**
+  The spec inserts a booking while the host is deciding and proves `addBlock`
+  refuses; what has never been produced is the outcome when the booking arrives
+  in the microseconds *after* the guard's read — a block genuinely overlapping a
+  confirmed stay. It is benign by design and reachable only by contriving the
+  interleaving, so it is documented rather than tested.
+- **`addBlock`'s and `removeBlock`'s `{ ok: false }` Supabase-error branches have
+  never run** — the guard refusals and the not-found paths are covered; a genuine
+  database error is not. The same shape as F10's `updateListing`/`deleteListing`,
+  F08's `setFavorite` revert and F05's untriggered `error.tsx`.
+- **The 365-day block ceiling is unit-tested only.** Reaching it through the
+  calendar means ~365 "Next month" clicks, so the E2E leaves it alone.
+- **`blocked_dates_update_own_listing` is now a knowingly unused policy.** F11
+  only ever inserts and deletes — widening a block is remove-and-re-add by
+  design — so the UPDATE policy is live in the database with no caller. Worth
+  knowing before someone reads it as evidence that editing a block is supported.
+- **No keyboard or screen-reader pass on the availability calendar.** It inherits
+  F06's gap exactly: the day cells are real buttons and tabbable, but the
+  `role="grid"` arrow-key roving-focus pattern is not implemented, and a 40-cell
+  tab sequence per month is not a usable path. F18 owns it.
 - **F08's failure path has never run.** `SaveButton`'s revert-and-announce branch
   needs `setFavorite` to return `{ ok: false }`, which needs an induced Supabase
   error. Same shape as F05's never-triggered `error.tsx`.
@@ -299,7 +370,7 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 ### Phase 3 — Hosting
 - [x] 09 Create listing
 - [x] 10 Manage listings
-- [ ] 11 Availability management
+- [x] 11 Availability management
 
 ### Phase 4 — Booking
 - [ ] 12 Instant Book
@@ -318,7 +389,6 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 
 ## Key Decisions
 
-- Visual design system is fixed by `context/DESIGN.md` (Airbnb-style: Rausch `#ff385c` on white, `#222222` ink, Inter as the Cereal VF substitute, soft radii, one shadow tier). Tokens live in `globals.css @theme`.
 - Fully responsive is a hard requirement — custom Tailwind breakpoints (`tablet:744` / `desktop:1128` / `wide:1440`) map phone/iPad/laptop/desktop; mobile-first, grids drop columns.
 - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`, `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a per-table matrix in `architecture.md`.
 - **F02 complete** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
@@ -328,10 +398,18 @@ both fixes (6 failures). Clean at 22 widths from 320 to 1920 on `/` and
 - **F09** — **a library that throws on missing config turns a misconfiguration into a 500.** `CldImage` throws without a cloud name and `CldUploadWidget` throws without a *browser-visible* api_key — both during render, so one unset env var took down `/listings/[id]` and `/host/listings/[id]/photos` entirely rather than degrading to a broken image or a dead button. Both are now guarded and fall back. It also surfaced that the Cloudinary **api_key is public** (it rides along with every browser upload) while the **secret** authorises — `NEXT_PUBLIC_CLOUDINARY_API_KEY` is therefore correct and `architecture.md`'s invariant, which names only the secret, still holds. **Generalises: before trusting an integration, render it once with the config absent** — F16's Realtime and F18's deploy have the same shape.
 - **F09** — **a validation schema used on both sides of a boundary must accept its own output.** The form validates with `createListingSchema`, posts the *result* to the server action, and the action re-validates with the same schema — so `parse(parse(x))` has to succeed. It did not: the optional-text fields emitted `null` but accepted only `string | undefined`, and every listing with a blank description passed on the client then failed on the server with a message naming no field. **Generalises: whenever one schema guards both a form and the action behind it, test it against its own output** — the two directions are each correct in isolation, which is exactly why nothing else catches it. F12's booking widget shares a schema the same way.
 - **F10** — **an FK cascade is a destructive path with no error, no test and no type pointing at it.** `bookings.listing_id` is `on delete cascade`, so a host deleting a listing does not *cancel* its reservations — it erases them, leaving the guest nothing in `/trips` and no record a stay ever existed. Nothing surfaces it: the delete succeeds, RLS permits it, and no assertion covered a table the feature never mentions. It is now guarded in the action (refuse while a confirmed stay is still coming, steer to unpublish), stated in the UI rather than only disabled, and the cutoff is widened by a day so the JS/`current_date` boundary can only ever err toward refusing. **Generalises: before shipping a delete, read the FK actions on every table that references the row — the blast radius is in the schema, not in the feature.** F17's admin delete is the same cascade with the guard deliberately absent, and F11's `blocked_dates` is next.
+- **F11** — **a negative assertion needs a positive control, or it passes for the wrong reason.** The spec proving `/host/listings/[id]/availability` 404s for a non-owner named a listing id that did not exist, so the route 404'd because the row was missing — and the spec **passed with `host_id` scoping deleted from the query**. Nothing but the gate proof disagreed. It now uses a real seeded listing and additionally asserts that listing serves **200** on its public page, so the 404 can only mean "not yours"; the RLS half was proven the same way, by checking that the *host* can insert a block with the very probe that refused a non-host. **Generalises: every "X is refused" needs a paired proof that X succeeds when it should — otherwise the refusal may be measuring the setup, not the rule.** F03 learned it from a deliberately invalid Unsplash URL and F09's follow-up from a control probe on the Cloudinary credentials; F12's no-self-booking and past-date refusals, and F15's one-review-per-booking, are the next places it applies.
 
 ---
 
 ## Pruned from Key Decisions (kept for the record)
+
+> - Visual design system is fixed by `context/DESIGN.md` (Airbnb-style: Rausch
+>   `#ff385c` on white, `#222222` ink, Inter as the Cereal VF substitute, soft
+>   radii, one shadow tier). Tokens live in `globals.css @theme`. *(Pruned in F11
+>   at the ~10-bullet cap — a standing rule rather than a pending decision, and
+>   stated in three places already: `CLAUDE.md` → Standing rules, `DESIGN.md`
+>   itself, and `code-standards.md` → Design System & Responsive Standards.)*
 
 > - Targets **Next.js 16** → requires Node ≥20.9 (LTS) and TS ≥5.1;
 >   `params`/`cookies`/`headers` are async-only. *(Pruned in F09 at the ~10-bullet

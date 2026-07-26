@@ -70,6 +70,25 @@ export function formatDateRange(
 }
 
 /**
+ * An inclusive span rendered for the host's availability list — "Aug 18 – 23",
+ * collapsing the month when both ends share one and collapsing the range
+ * entirely when it is a single day.
+ *
+ * Distinct from `formatDateRange`, which renders a half-open *stay*: there the
+ * two ends are always different days, so "Aug 18 – 18" is unreachable. Here it
+ * is the ordinary way to block one night, and it needs to read as "Aug 18".
+ */
+export function formatInclusiveRange(range: { start: string; end: string }): string {
+  const start = parseISO(range.start)
+  const end = parseISO(range.end)
+
+  if (range.start === range.end) return format(start, 'MMM d')
+
+  const sameMonth = format(start, 'yyyy-MM') === format(end, 'yyyy-MM')
+  return `${format(start, 'MMM d')} – ${format(end, sameMonth ? 'd' : 'MMM d')}`
+}
+
+/**
  * Mean of a listing's review ratings, or `null` when it has none.
  *
  * `null` is the "New" signal the card renders — deliberately distinct from `0`,
@@ -215,6 +234,88 @@ export function blocksListingDeletion(
   return bookings.some(
     (booking) => booking.status === 'confirmed' && booking.check_out >= cutoff,
   )
+}
+
+/**
+ * A span of occupied calendar days, **both ends inclusive** — the shape
+ * `blocked_dates` already stores and the shape a calendar renders.
+ *
+ * Bookings are the other model (half-open `[check_in, check_out)`), so they are
+ * converted by `bookedNightsRange` before they meet anything here. Keeping one
+ * model on this side of the boundary is what stops the two drifting: every
+ * function below may assume both ends are occupied.
+ */
+export type InclusiveRange = { start: string; end: string }
+
+/**
+ * The nights a booking actually occupies, as an inclusive range.
+ *
+ * **The `- 1` is the whole point.** A stay is half-open `[check_in, check_out)`:
+ * the guest leaves on the checkout day and another guest may arrive that same
+ * morning, which is precisely what the `btree_gist` exclusion constraint permits
+ * and what `unavailable_listing_ids` reproduces with `'[)'`. Passing `check_out`
+ * through unchanged would paint one extra night as occupied on every calendar in
+ * the app and refuse a legal same-day turnover — a wrong answer that looks
+ * entirely reasonable on screen.
+ *
+ * `check_out > check_in` is a table check constraint, so the result always has
+ * `end >= start`; a one-night stay collapses to a single day.
+ */
+export function bookedNightsRange(booking: {
+  check_in: string
+  check_out: string
+}): InclusiveRange {
+  return {
+    start: booking.check_in,
+    end: toISODate(subDays(parseISO(booking.check_out), 1)),
+  }
+}
+
+/**
+ * Whether two inclusive spans share at least one day.
+ *
+ * Compared as plain `YYYY-MM-DD` **strings**, which is exact rather than merely
+ * convenient: the format is zero-padded and fixed-width, so lexicographic order
+ * *is* chronological order (see `toISODate`). That keeps this free of timezone
+ * and DST reasoning entirely — there is no Date here to be an hour off.
+ *
+ * Both ends count, so ranges that merely touch (`a.end === b.start`) overlap,
+ * while adjacent ones (`b.start === a.end + 1 day`) do not.
+ */
+export function rangesOverlap(a: InclusiveRange, b: InclusiveRange): boolean {
+  return a.start <= b.end && b.start <= a.end
+}
+
+/** What stands in the way of a proposed block, or nothing. */
+export type BlockConflict = 'booking' | 'block'
+
+/**
+ * The first thing a proposed block collides with — a guest's confirmed stay, an
+ * existing block, or nothing at all.
+ *
+ * One implementation, two callers: the action refuses on it and the calendar
+ * greys out days with it, so the control a host sees and the rule the server
+ * enforces cannot disagree. The same arrangement as `blocksListingDeletion`,
+ * which exists for the same reason.
+ *
+ * **Bookings are reported ahead of blocks when a range hits both.** A host can
+ * remove their own block and try again; they cannot remove someone's stay. The
+ * more actionable half of the answer is the one worth saying.
+ */
+export function findBlockConflict(
+  candidate: InclusiveRange,
+  occupied: {
+    booked: readonly InclusiveRange[]
+    blocked: readonly InclusiveRange[]
+  },
+): BlockConflict | null {
+  if (occupied.booked.some((range) => rangesOverlap(candidate, range))) {
+    return 'booking'
+  }
+  if (occupied.blocked.some((range) => rangesOverlap(candidate, range))) {
+    return 'block'
+  }
+  return null
 }
 
 /**

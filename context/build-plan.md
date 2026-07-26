@@ -299,6 +299,53 @@ Let a host block dates their listing isn't available.
 **Logic:**
 - `actions/blockedDates.addBlock` / `removeBlock` (owner-scoped; block ranges are inclusive `[start, end]`; **reject a range overlapping any confirmed booking**); blocked ranges feed the same availability check used by search and booking (see `architecture.md` → Availability Rules).
 
+**Planned shape (agreed before build, 2026-07-26):**
+- **Its own route — `/host/listings/[id]/availability`**, a third sibling to `/edit`
+  and `/photos`, not a section on the editor as the UI line above says. F10 kept those
+  two apart deliberately; `/edit` is one large react-hook-form whose hydration window
+  F10 documented as a real hazard, and hanging a second set of mutations off it makes
+  every block write re-render the whole editor. `HostListingCard` gains a third link
+  and `/edit` cross-links across, the way it already does to `/photos`.
+- **`DateRangePicker` is widened, not forked** — a new `bounds: 'half-open' | 'inclusive'`
+  prop, defaulting to `'half-open'` so `SearchBar` is untouched. Exactly two rules differ:
+  in `'inclusive'` a second click on the same day completes a **one-day** range, and the
+  end day counts in the straddle test. Named for the range model rather than
+  `mode: 'stay' | 'block'` because `components/ui/` holds presentational primitives with
+  no business rules — it must not learn what a "block" is. **F12 inherits the same
+  primitive** instead of a second calendar drifting from DESIGN.md's one `date-picker-day`.
+- **An overlapping block is refused — not merged, not allowed.** Blocks never overlap a
+  confirmed booking (the line above) *or* each other, with a different message for each so
+  the host knows which. Merging would silently rewrite a range the host never touched and
+  would be an UPDATE — the one `blocked_dates` verb this feature never issues, leaving
+  `blocked_dates_update_own_listing` deliberately unused. Allowing overlaps is harmless for
+  the availability union but reads as broken: removing one of two coincident rows leaves the
+  nights blocked with no explanation.
+- **Removal is a named list control, not a calendar click.** Clicking a day would mean
+  splitting a range on partial removal — an UPDATE plus an INSERT, and a second way to
+  write blocks. The list follows F10's every-control-names-its-target rule.
+- **Reading `bookings` directly is safe, and it was checked.** The `bookings` SELECT policy
+  admits the listing's host and the query is `host_id`-scoped, so the reader is always
+  privileged for the rows being counted — F10's `getOwnListings` reasoning, **not F06's
+  trap**, where missing rows inferred a *permission*. **This does not solve F12's problem:**
+  the guest-facing per-listing calendar still needs its own `security definer` function,
+  because an anon visitor reads zero bookings.
+- **The past-date floor is strict in the UI and lenient in the action** — the calendar
+  offers today onward, and the action refuses only a block whose *end* is before today.
+  A strict `start >= today` on both sides is evaluated twice at two moments, so a submit at
+  23:59:59 could be refused at 00:00:01: F09's "a shared schema must accept its own output",
+  date-shaped. Same spirit as F10's `subDays(today, 1)` — pick the harmless error.
+- **`removeBlock` needs no cascade guard, and that was read first.** `blocked_dates.listing_id`
+  cascades *from* `listings`; nothing references `blocked_dates`, so deleting a block erases
+  only itself. Recorded because F10's key decision says to read the FK actions before writing
+  any delete.
+- **Accepted race:** a guest can book between the host's render and the insert, so a block can
+  still land over a booking created moments later. No database constraint expresses a
+  cross-table rule, and the consequence is benign — `unavailable_listing_ids` unions both, so
+  search excludes the listing either way and the booking stands. Same shape as F10's delete guard.
+- **No migration.** `0001` has the table and `end_date >= start_date`, `0003` all four
+  host-scoped policies, `0005` the split anon SELECT, `0006` the anon revokes.
+  `database.types.ts` is untouched.
+
 ---
 
 ## Phase 4 — Booking

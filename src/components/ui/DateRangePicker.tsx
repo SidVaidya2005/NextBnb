@@ -17,16 +17,37 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import { cn, toISODate, todayISO } from '@/lib/utils'
 
-/** An occupied span, both ends inclusive. F06 passes none; F12 fills these in
- *  from a listing's confirmed bookings and host blocks. */
+/** An occupied span, both ends inclusive. F06 passed none; F11 fills these from
+ *  a listing's confirmed bookings and host blocks, and F12 will do the same for
+ *  guests once a public per-listing availability function exists. */
 export type UnavailableRange = { start: string; end: string }
 
-export type DateRangeValue = { checkIn: string | null; checkOut: string | null }
+/** A selected span. Deliberately not `checkIn`/`checkOut`: this primitive serves
+ *  a guest picking a stay *and* a host picking nights to block, and only the
+ *  caller knows which. */
+export type DateRangeValue = { start: string | null; end: string | null }
+
+/**
+ * Which end-day convention the selection follows — the **only** thing that
+ * differs between the two callers.
+ *
+ * - `'half-open'` — `[start, end)`, a stay. The end day is the day the guest
+ *   leaves: it is not occupied, so a range may end on an unavailable day and a
+ *   zero-night selection is meaningless.
+ * - `'inclusive'` — `[start, end]`, a `blocked_dates` row. Both ends are
+ *   occupied, so the end day must be free too, and a single day is a valid range.
+ *
+ * Named for the range model rather than for the caller (`'stay' | 'block'`)
+ * because `components/ui/` holds presentational primitives with no business
+ * rules — this component must not know what a "block" is.
+ */
+export type RangeBounds = 'half-open' | 'inclusive'
 
 type Props = {
   value: DateRangeValue
   onChange: (next: DateRangeValue) => void
   unavailableRanges?: readonly UnavailableRange[]
+  bounds?: RangeBounds
 }
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
@@ -39,9 +60,14 @@ const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
  * than reflowed. Rendered only while its popover is open, so "today" is always
  * computed on the client and can never disagree with a server-rendered value.
  */
-export function DateRangePicker({ value, onChange, unavailableRanges = [] }: Props) {
+export function DateRangePicker({
+  value,
+  onChange,
+  unavailableRanges = [],
+  bounds = 'half-open',
+}: Props) {
   const [firstMonth, setFirstMonth] = useState(() =>
-    startOfMonth(value.checkIn ? parseISO(value.checkIn) : new Date()),
+    startOfMonth(value.start ? parseISO(value.start) : new Date()),
   )
 
   const today = todayISO()
@@ -55,31 +81,44 @@ export function DateRangePicker({ value, onChange, unavailableRanges = [] }: Pro
   }
 
   function handleSelect(iso: string) {
-    const { checkIn, checkOut } = value
+    const { start, end } = value
 
-    // No start yet, a completed range, or a click on/before the start: begin again.
-    if (!checkIn || checkOut || iso <= checkIn) {
-      onChange({ checkIn: iso, checkOut: null })
+    // No start yet, or a completed range: begin again.
+    if (!start || end !== null) {
+      onChange({ start: iso, end: null })
       return
     }
 
-    // A range may not straddle an unavailable night — restart there instead of
-    // silently proposing dates that cannot be booked.
+    // A click ON the start is where the two conventions part company. Half-open:
+    // restart, because a stay that checks out the day it checks in is zero
+    // nights. Inclusive: fall through and complete a one-day range, because a
+    // single blocked night is an ordinary block (`end_date >= start_date` is the
+    // table's own constraint).
+    const restartsRange = bounds === 'inclusive' ? iso < start : iso <= start
+    if (restartsRange) {
+      onChange({ start: iso, end: null })
+      return
+    }
+
+    // A range may not straddle an unavailable day — restart there instead of
+    // silently proposing something that cannot be saved.
     const straddles = eachDayOfInterval({
-      start: parseISO(checkIn),
+      start: parseISO(start),
       end: parseISO(iso),
     }).some((day) => {
       const dayIso = toISODate(day)
-      // Half-open: the checkout day itself is not occupied by this stay.
-      return dayIso !== iso && isUnavailable(dayIso)
+      // Half-open ranges do not occupy their end day, so an unavailable day is
+      // allowed to sit there. Inclusive ranges do occupy it, so it must be free.
+      if (bounds === 'half-open' && dayIso === iso) return false
+      return isUnavailable(dayIso)
     })
 
     if (straddles) {
-      onChange({ checkIn: iso, checkOut: null })
+      onChange({ start: iso, end: null })
       return
     }
 
-    onChange({ checkIn, checkOut: iso })
+    onChange({ start, end: iso })
   }
 
   return (
@@ -213,13 +252,13 @@ function DayCell({
   // interactive — selecting them would silently jump the visible month.
   if (!isSameMonth(day, month)) return <span className="size-10" />
 
-  const isStart = value.checkIn === iso
-  const isEnd = value.checkOut === iso
+  const isStart = value.start === iso
+  const isEnd = value.end === iso
   const inRange =
-    value.checkIn !== null &&
-    value.checkOut !== null &&
-    iso > value.checkIn &&
-    iso < value.checkOut
+    value.start !== null &&
+    value.end !== null &&
+    iso > value.start &&
+    iso < value.end
 
   const selectable = isSelectable(iso)
   const isEndpoint = isStart || isEnd
@@ -229,8 +268,8 @@ function DayCell({
       className={cn(
         'flex justify-center',
         // The lozenge that visually connects the two endpoints.
-        (inRange || (isEndpoint && value.checkOut)) && 'bg-surface-soft',
-        isStart && value.checkOut && 'rounded-l-full',
+        (inRange || (isEndpoint && value.end)) && 'bg-surface-soft',
+        isStart && value.end && 'rounded-l-full',
         isEnd && 'rounded-r-full',
       )}
     >
