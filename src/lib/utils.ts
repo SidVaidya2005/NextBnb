@@ -286,6 +286,60 @@ export function blocksListingDeletion(
   )
 }
 
+/** The two sections `/trips` splits a guest's bookings into. */
+export type TripSection = 'upcoming' | 'past'
+
+/**
+ * Which half of `/trips` a booking belongs in.
+ *
+ * **"Upcoming" means *still going to happen*, not *in the future*.** Two
+ * consequences follow, and both are deliberate:
+ *
+ * - A stay whose check-in has passed but whose checkout has not is **upcoming**,
+ *   because the guest is on it. Filing it under "Past" would tell someone their
+ *   current stay is over. It is not cancellable — see `canCancelBooking` — so the
+ *   card states why instead of offering a control.
+ * - A **cancelled** booking is past whatever its dates say. It is not happening,
+ *   and listing it beside stays that are would be the same lie in reverse.
+ *
+ * Compared as `YYYY-MM-DD` strings, so there is no Date here to be an hour off
+ * (see `toISODate`). `check_out` is the half-open end — the day the guest
+ * leaves — so a stay ending today is still upcoming for the few hours it takes
+ * them to leave, which is the generous direction and costs nothing.
+ */
+export function tripSection(
+  booking: { status: string; check_out: string },
+  today: Date = new Date(),
+): TripSection {
+  const isActive =
+    booking.status === 'confirmed' && booking.check_out >= toISODate(today)
+  return isActive ? 'upcoming' : 'past'
+}
+
+/**
+ * Whether a guest may still cancel this stay.
+ *
+ * **This mirrors `bookings_update_cancel_own_or_admin`'s USING clause exactly**
+ * (`status = 'confirmed' and check_in >= current_date`) and is the only place
+ * that rule is written in TypeScript. It decides whether the control renders;
+ * the policy decides whether the write lands, and `cancelBooking`'s zero-row
+ * check is what notices when the two disagree.
+ *
+ * **The cutoff is deliberately *not* widened, inverting F10 and F11.** Both
+ * pushed their cutoffs out by a day because refusing was the harmless error.
+ * Here the two sides fail differently: `todayISO()` can sit either side of the
+ * database's `current_date` near midnight, and offering a Cancel the server then
+ * refuses produces an honest sentence, while hiding one the server would have
+ * accepted silently takes the option away. Matching the policy is what keeps the
+ * disagreement recoverable.
+ */
+export function canCancelBooking(
+  booking: { status: string; check_in: string },
+  today: Date = new Date(),
+): boolean {
+  return booking.status === 'confirmed' && booking.check_in >= toISODate(today)
+}
+
 /**
  * A span of occupied calendar days, **both ends inclusive** — the shape
  * `blocked_dates` already stores and the shape a calendar renders.

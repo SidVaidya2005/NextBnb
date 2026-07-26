@@ -12,7 +12,7 @@ import {
   rangesOverlap,
   todayISO,
 } from '@/lib/utils'
-import { createBookingSchema } from '@/lib/validations/bookings'
+import { cancelBookingSchema, createBookingSchema } from '@/lib/validations/bookings'
 import type { ActionResult } from '@/lib/utils'
 
 /** The listing fields a reservation is priced and validated against. */
@@ -191,6 +191,83 @@ export async function createBooking(
   // unless the host edited the price mid-decision, and in that case what the
   // confirmation shows should be what the row holds.
   return { ok: true, data: { id: data.id, total: data.total } }
+}
+
+/**
+ * Cancel an upcoming stay, freeing its nights for everyone else.
+ *
+ * **Read this before adding a window check to it.** Unlike `createBooking`, whose
+ * table above records four rules only the action enforces, this action enforces
+ * *none* of the cancellation rules — the database owns all of them:
+ *
+ * | Rule | Enforced by |
+ * | ---- | ----------- |
+ * | The booking is this user's | `bookings_update_cancel_own_or_admin` (USING) |
+ * | It is still `confirmed` | same policy — so a cancel can never be undone |
+ * | `check_in` has not passed | same policy |
+ * | Only `status`/`cancelled_at` may be written | column `GRANT` (migration `0006`) |
+ *
+ * Re-checking any of those here would buy nothing the database is not already
+ * doing, and re-checking the date in JS would import
+ * `createBookingSchema`'s past-date trap: `todayISO()` and the database's
+ * `current_date` can disagree by a day around midnight.
+ *
+ * **What this action alone can do is notice that nothing happened.** From
+ * `architecture.md`: *"an UPDATE/DELETE against a table with RLS on and no
+ * matching policy affects zero rows and returns success, which is
+ * indistinguishable from 'it worked'."* Postgres does not raise on a policy
+ * miss — it filters. So a cancel of a stay that has already started, or that
+ * belongs to someone else, comes back `{ error: null }` and would be reported to
+ * the guest as a successful cancellation of a reservation that is still live.
+ * The `.select(...).maybeSingle()` and the `!data` branch below are the only
+ * thing standing between that and a guest who thinks they are not travelling.
+ */
+export async function cancelBooking(input: unknown): Promise<ActionResult> {
+  const parsed = cancelBookingSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: 'That reservation could not be found.' }
+  }
+
+  const { bookingId } = parsed.data
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: 'Sign in to manage your trips.' }
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+    })
+    .eq('id', bookingId)
+    .select('id, listing_id')
+    .maybeSingle()
+
+  if (error) {
+    console.error('[actions/bookings] cancelBooking failed:', error.message)
+    return { ok: false, error: 'That stay could not be cancelled. Please try again.' }
+  }
+
+  // Zero rows. RLS refused — the stay has started, it is already cancelled, or
+  // it is not this user's — and said so by returning success with nothing in it.
+  // The message covers all three deliberately: which one it was is not the
+  // guest's business when the booking is not theirs.
+  if (!data) {
+    return { ok: false, error: 'That stay can no longer be cancelled.' }
+  }
+
+  revalidatePath('/trips')
+  // The nights are free again, so the listing's calendar has changed — the exact
+  // mirror of what `createBooking` revalidates when it takes them.
+  revalidatePath(`/listings/${data.listing_id}`)
+  // `getOwnListings` derives `canDelete` from `blocksListingDeletion`, so this
+  // cancellation may have just unblocked the host's delete control.
+  revalidatePath('/host/listings')
+
+  return { ok: true, data: undefined }
 }
 
 /**

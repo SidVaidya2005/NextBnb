@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 
 import { MAX_GUESTS } from '@/lib/constants'
 import { toISODate } from '@/lib/utils'
-import { createBookingSchema } from '@/lib/validations/bookings'
+import { cancelBookingSchema, createBookingSchema } from '@/lib/validations/bookings'
 
 const LISTING_ID = '20000000-0000-4000-b000-000000000001'
 
@@ -128,5 +128,42 @@ describe('createBookingSchema', () => {
     const once = createBookingSchema.parse(stay('2026-08-12', '2026-08-17'))
     expect(() => createBookingSchema.parse(once)).not.toThrow()
     expect(createBookingSchema.parse(once)).toEqual(once)
+  })
+})
+
+describe('cancelBookingSchema', () => {
+  const BOOKING_ID = '30000000-0000-4000-b000-000000000009'
+
+  it('accepts a booking id', () => {
+    expect(cancelBookingSchema.safeParse({ bookingId: BOOKING_ID }).success).toBe(true)
+  })
+
+  it('rejects an id that is not a uuid', () => {
+    expect(cancelBookingSchema.safeParse({ bookingId: 'not-a-uuid' }).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects a missing id', () => {
+    expect(cancelBookingSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('rejects a non-object payload', () => {
+    // The action takes `unknown` off the wire; a bare string must not reach it.
+    expect(cancelBookingSchema.safeParse(BOOKING_ID).success).toBe(false)
+  })
+
+  it('carries no cancellation window — that rule is the policy’s', () => {
+    // The schema holds an id, not a row: it cannot see status or dates, so it
+    // cannot express "still confirmed, check-in not passed". That lives in
+    // bookings_update_cancel_own_or_admin, and `cancelBooking` detects a policy
+    // refusal by the update returning zero rows rather than by re-checking.
+    const parsed = cancelBookingSchema.parse({ bookingId: BOOKING_ID })
+    expect(Object.keys(parsed)).toEqual(['bookingId'])
+  })
+
+  it('accepts its own output', () => {
+    const once = cancelBookingSchema.parse({ bookingId: BOOKING_ID })
+    expect(cancelBookingSchema.parse(once)).toEqual(once)
   })
 })

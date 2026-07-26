@@ -77,3 +77,29 @@ export const createBookingSchema = z
   )
 
 export type CreateBookingInput = z.output<typeof createBookingSchema>
+
+// -----------------------------------------------------------------------------
+// Feature 13 — Trips
+// -----------------------------------------------------------------------------
+
+/**
+ * A cancellation request. **Deliberately just the id**, and the emptiness is the
+ * design rather than an omission.
+ *
+ * Everything a cancellation has to be true about — the booking is this user's,
+ * it is still `confirmed`, and its check-in has not passed — lives in
+ * `bookings_update_cancel_own_or_admin`'s USING clause, and the column grant
+ * (`status`, `cancelled_at` only) covers the rest. A schema cannot see any of
+ * it: it holds an id, not a row, so it cannot know the status or the dates.
+ *
+ * Restating the window here would also be `createBookingSchema`'s past-date trap
+ * a second time — a rule evaluated in the browser at 23:59:59 and on the server
+ * at 00:00:01 refuses a cancellation the guest asked for correctly. The one
+ * check that genuinely belongs to `cancelBooking` is that the update **changed a
+ * row**; see that action.
+ */
+export const cancelBookingSchema = z.object({
+  bookingId: z.uuid(),
+})
+
+export type CancelBookingInput = z.output<typeof cancelBookingSchema>

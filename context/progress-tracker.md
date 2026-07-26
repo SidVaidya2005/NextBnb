@@ -11,29 +11,37 @@
 ## Current Status
 
 **Phase:** Phase 4 — Booking (in progress)
-**Last completed:** 12 Instant Book
-**Next:** 13 Trips (guest reservations)
+**Last completed:** 13 Trips (guest reservations)
+**Next:** 14 Host reservations
 
-F12 made booking real: a guest picks dates on a calendar that greys out what is
-taken, and Reserve writes a `confirmed` booking whose nights are then gone for
-everyone else. Confirmation is in-page because `/trips` is still F13's
-placeholder. Full detail: `build-journal.md` → F12.
+F13 closed the guest side of the booking loop: `/trips` lists the stays a guest
+holds, splits them into still-going-to-happen and everything else, and cancels an
+upcoming one — which frees its nights, because the exclusion constraint is
+partial on `status = 'confirmed'`. The feature is mostly one guard: RLS refuses a
+late cancel by filtering, not by raising, so the update returns success with zero
+rows. Full detail: `build-journal.md` → F13.
 
-### Live baselines (F12 close, 2026-07-26)
+### Live baselines (F13 close, 2026-07-26)
 
 Treat any deviation from these as a finding, not a new normal.
 
 | Gate | Value |
 | ---- | ----- |
 | `npx tsc --noEmit` / `npm run lint` | clean |
-| `npm run test` (unit) | 211/211 |
-| `npm run test:e2e` | 295 passed / 3 skipped |
+| `npm run test` (unit) | 230/230 |
+| `npm run test:e2e` | 313 passed / 3 skipped |
 | `npm run build` | green, **15 routes**, `ƒ Proxy (Middleware)` printing |
 | `seed-verification.sql` | 46/46 |
 | Seed rows | 26 listings (24 published) / 130 photos / 17 bookings / 7 reviews / 5 blocks / 0 favorites |
 | Fixture residue after a full run | 0 listings, 0 bookings, **exactly one admin** (developer's Google account) |
 | Security advisors | **7 WARNs — an 8th is a finding** |
 | Migrations vs remote | 8/8 matching |
+
+**`bookings` now totals 18, and the extra row is real.** The developer's own Google
+account holds a genuine upcoming stay (Jul 27–30 on a seeded listing), booked
+through the UI. `seed-verification.sql` scopes every assertion to the
+`30000000-…` id prefix, so it still reads 17 and passes — but a whole-table count
+of `bookings` is no longer 17 and should not be treated as residue.
 
 The 7 WARNs are all intentional: `authenticated` EXECUTE on `is_admin()` and
 `admin_list_users()` (both load-bearing); leaked-password protection off
@@ -49,8 +57,14 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 **Untested branches** (written, reasoned, never executed)
 - **The `{ ok: false }` Supabase-error branch of every action** — `setFavorite`
   (F08), `updateListing`/`deleteListing` (F10), `addBlock`/`removeBlock` (F11),
-  `createBooking` (F12). Guard refusals and not-found paths *are* covered; a
-  genuine database error is not. Same shape as F05's untriggered `error.tsx`.
+  `createBooking` (F12), `cancelBooking` (F13). Guard refusals and not-found
+  paths *are* covered; a genuine database error is not. Same shape as F05's
+  untriggered `error.tsx`. **F13's zero-row branch is the exception** — it is a
+  refusal, not an error, and it is gate-proved.
+- **`cancelBooking`'s refusal is unreachable through the UI**, because
+  `canCancel` never renders the control for a stay the policy would refuse.
+  Reaching it needs a forged request or a stay whose check-in passes while the
+  page sits open. The gate proof reached it by relaxing `canCancel` for one run.
 - **`createBooking`'s past-date branch** — the calendar never offers a past day,
   so reaching it needs a forged request.
 - **The `23P01` exclusion-constraint branch** — the app-side check fires first, so
@@ -90,10 +104,11 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
   dashboard once there is one.
 
 **Outstanding actions**
-- **No keyboard or screen-reader pass**, now seven features running (F06's
+- **No keyboard or screen-reader pass**, now eight features running (F06's
   calendar `role="grid"` roving focus, F08's heart, F09's form, F10's two-step
   delete, F11's calendar, F12's stepper/popover/sheet — the sheet is a
-  `role="dialog"` with **no focus trap and no focus restore**). **F18 owns it.**
+  `role="dialog"` with **no focus trap and no focus restore** — and F13's
+  two-step cancel, which moves focus nowhere when it swaps controls). **F18 owns it.**
 - **Disable the GitHub integration** in the Supabase dashboard (Project Settings →
   Integrations) — no MCP tool exists for it. The branch now reports
   `FUNCTIONS_DEPLOYED`/`ACTIVE_HEALTHY` rather than F02's `MIGRATIONS_FAILED`, but
@@ -125,7 +140,7 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 
 ### Phase 4 — Booking
 - [x] 12 Instant Book
-- [ ] 13 Trips (guest reservations)
+- [x] 13 Trips (guest reservations)
 - [ ] 14 Host reservations
 
 ### Phase 5 — Engagement
@@ -140,13 +155,12 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 
 ## Key Decisions
 
-> At the ~10-bullet cap. **F13 must prune one into `build-journal.md` before adding.**
+> At the ~10-bullet cap. **F14 must prune one into `build-journal.md` before adding.**
 
 - **F02** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
 - **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waited in F12's booking widget — and was sharper there, because *any* signed-in guest reads zero rows for a listing they do not host.
 - **F07** — **a route `loading.tsx` and a real HTTP 404 cannot coexist.** The implicit `<Suspense>` it creates makes the response stream, and the status commits to **200 before `notFound()` runs** (Next: "a 404 status for non-streamed responses and a 200 for streamed"). Drafts would have been indexable as live pages. `loading.tsx` was dropped; the specs gate against restoring it. **Applies to every future route that can 404** — F13 `/trips`, F14, F17 — so choose the status over the skeleton unless the route can never 404.
 - **F08** — **a green assertion is not a gating assertion; run every new spec against a deliberately broken build.** `toHaveURL('/')` passes instantly when the page is already at `/`, so the spec guarding "the heart must not navigate" passed against the exact markup it existed to reject. Two further F08 traps rhyme with it: postgrest-js types a to-one embed on a NOT NULL FK as never-null while RLS returns null at runtime (the `toFavoriteCards` filter is load-bearing and TS would never demand it), and a spec that snapshots whole-user state races the parallel workers sharing that user. **Generalises: prove the test fails before trusting that it passes.**
-- **F09** — **a library that throws on missing config turns a misconfiguration into a 500.** `CldImage` throws without a cloud name and `CldUploadWidget` throws without a *browser-visible* api_key — both during render, so one unset env var took down `/listings/[id]` and `/host/listings/[id]/photos` entirely rather than degrading. Both are now guarded and fall back. It also surfaced that the Cloudinary **api_key is public** while the **secret** authorises — `NEXT_PUBLIC_CLOUDINARY_API_KEY` is therefore correct and `architecture.md`'s invariant, which names only the secret, still holds. **Generalises: before trusting an integration, render it once with the config absent** — F16's Realtime and F18's deploy have the same shape.
 - **F09** — **a validation schema used on both sides of a boundary must accept its own output.** The form validates with `createListingSchema`, posts the *result* to the server action, and the action re-validates with the same schema — so `parse(parse(x))` has to succeed. It did not: the optional-text fields emitted `null` but accepted only `string | undefined`, and every listing with a blank description passed on the client then failed on the server with a message naming no field. **Generalises: whenever one schema guards both a form and the action behind it, test it against its own output** — the two directions are each correct in isolation, which is exactly why nothing else catches it.
 - **F10** — **an FK cascade is a destructive path with no error, no test and no type pointing at it.** `bookings.listing_id` is `on delete cascade`, so a host deleting a listing does not *cancel* its reservations — it erases them, leaving the guest nothing in `/trips` and no record a stay ever existed. It is now guarded in the action (refuse while a confirmed stay is still coming, steer to unpublish), stated in the UI rather than only disabled, and the cutoff is widened by a day so the JS/`current_date` boundary can only ever err toward refusing. **Generalises: before shipping a delete, read the FK actions on every table that references the row — the blast radius is in the schema, not in the feature.** F17's admin delete is the same cascade with the guard deliberately absent.
 - **Phase 3 close-out** — **a suite with one account can only ask RLS half of every question, and the half it can ask returns the reassuring answer.** Three gaps stayed open from F04 to F11 because the Playwright fixture user was the only principal that could sign in: it was always the host of anything it unpublished, always the sole writer of its own favorites, and never safely flippable to admin. A second account closed all three at once, and the shape generalises past testing: **whenever behaviour depends on who is asking, one identity cannot verify it.** F14's host reservations need a guest who is not the host, and F16's messaging needs two participants — both are this same requirement arriving as a feature. Corollary: a fixture account granted `is_admin` must give it back in a `finally` **and** in global teardown, because fixture passwords are committed and a timeout skips the `finally`.
@@ -155,7 +169,23 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 
 ---
 
+- **F13** — **RLS refuses a write by filtering, not by raising — so a refused UPDATE is indistinguishable from a successful one.** The cancellation window lives entirely in `bookings_update_cancel_own_or_admin`'s USING clause, so `cancelBooking` re-checking it would buy nothing; what only the action can do is notice that **zero rows changed**, because Postgres returns `{ error: null }` either way. Gate-proved: with the `!data` branch removed, cancelling an in-progress stay showed the guest no refusal at all while the row stayed `confirmed`. **Generalises: after any RLS-scoped UPDATE or DELETE, the row count *is* the authorization result — `.select()` it and treat empty as refusal.** F17's admin cancel and unpublish are the next place this applies, and its delete has the same shape. Its sibling finding: `/trips` needed an explicit `guest_id` filter because the `bookings` SELECT policy also admits hosts and admins — **the inverse of `getFavorites`, where leaning on RLS is correct** — so "does the policy answer exactly my question?" has to be asked per table, not per project.
+
+---
+
 ## Pruned from Key Decisions (kept for the record)
+
+> - **F09** — a library that throws on missing config turns a misconfiguration into
+>   a 500. `CldImage` throws without a cloud name and `CldUploadWidget` throws
+>   without a *browser-visible* api_key — both during render, so one unset env var
+>   took down `/listings/[id]` and `/host/listings/[id]/photos` entirely rather than
+>   degrading. Both are now guarded and fall back. It also surfaced that the
+>   Cloudinary **api_key is public** while the **secret** authorises. *(Pruned in F13
+>   at the ~10-bullet cap — built, guarded and fully specified in `library-docs.md` →
+>   Cloudinary, whose "Environment — three public values, one secret" block states
+>   both halves, and in `code-standards.md` → Environment Variables. The
+>   render-it-once-with-the-config-absent lesson still applies to F16's Realtime and
+>   F18's deploy, and is recorded in `build-journal.md` → F09.)*
 
 > - Availability/booking rules are fixed: bookings half-open `[check_in, check_out)`,
 >   `blocked_dates` inclusive; no self-booking; fees round half-up in cents; RLS is a

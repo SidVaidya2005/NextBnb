@@ -110,11 +110,19 @@ test.describe('price, guests and property type', () => {
     // so the discriminating case is the floor.
     const upTo100 = await countAt(page, '/?maxPrice=100')
     const from100 = await countAt(page, '/?minPrice=100')
-    const all = await countAt(page, '/')
 
     expect(upTo100).toBeGreaterThan(0)
     expect(from100).toBeGreaterThan(0)
-    expect(upTo100 + from100).toBeGreaterThanOrEqual(all)
+    // Measured against the SEEDED catalogue, not against a third live count of
+    // `/`. The three counts are taken across three navigations, and a fixture
+    // listing published by a concurrent spec can legitimately enter or leave the
+    // grid between them — which is what made this fail once F13 added more
+    // publishers (F12 introduced the first). The seed is the one population no
+    // spec mutates, and every seeded listing falls in one bucket or the other,
+    // so churn can only ever add to these two counts. Read as cents the bounds
+    // would put everything in one bucket and empty the other, which the two
+    // `toBeGreaterThan(0)` assertions above still catch.
+    expect(upTo100 + from100).toBeGreaterThanOrEqual(snapshot.listings.length)
   })
 
   test('an inverted price range is read as the range it means', async ({
@@ -233,10 +241,14 @@ test.describe('availability', () => {
 
 test.describe('URL contract', () => {
   test('a malformed URL degrades to an unfiltered grid', async ({ page }) => {
-    const all = await countAt(page, '/')
+    // Compared against the seeded catalogue rather than a separately-timed count
+    // of `/`: the two navigations can straddle a concurrent spec publishing or
+    // deleting a fixture listing (see the price-bounds test above). The claim is
+    // that these params apply NO filter, so every seeded listing must still be
+    // there — if any one of them were honoured, the count would drop below it.
     expect(
       await countAt(page, '/?guests=abc&minPrice=-5&type=castle&amenities=helipad'),
-    ).toBe(all)
+    ).toBeGreaterThanOrEqual(snapshot.listings.length)
   })
 
   test('one bad param does not discard the good ones', async ({ page }) => {

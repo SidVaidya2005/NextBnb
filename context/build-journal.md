@@ -2255,7 +2255,170 @@ on `loadSeedSnapshot`); `e2e/booking.spec.ts` (10) and
 **Deferred / follow-ups:**
 - **F13 inherits the confirmation's link to `/trips`** and should make it land on
   the guest's actual booking. `revalidatePath('/trips')` already fires.
+  → **Closed by F13.** The link is unchanged and now lands on a real page.
 - **F13's cancel window is the next DB-enforced rule**, so its gate proof needs
   F12's lesson: the UPDATE policy would refuse a late cancel even with the action's
   check removed, so the spec must target something only the action enforces.
+  → **Closed by F13**, and the answer was sharper than expected: there is no
+  window check in the action at all. The only thing it enforces is that the update
+  **changed a row** — RLS refuses by filtering, so a refused cancel returns success
+  with zero rows. That is what the gate proof targets.
 - F13/F14 should reuse `readBookings`'s widened shape as their oracle.
+  → **Closed by F13**, which reused it and added a single-row `readBooking`
+  alongside — the cancel assertions need one booking's every column, not a
+  listing's set.
+
+---
+
+## Phase 4 · Feature 13 — Trips (guest reservations)  *(2026-07-26)*
+
+**Scope built (11 files):** `tripSection` + `canCancelBooking` + `TripSection` in
+`lib/utils.ts` (+13 unit tests); `lib/queries/bookings.ts` (`getGuestBookings`,
+`toTrip`, `TripData`/`TripListing`/`GuestTrips`); `cancelBookingSchema` in
+`lib/validations/bookings.ts` (+6 unit tests); `cancelBooking` in
+`lib/actions/bookings.ts`; `app/trips/page.tsx` rewritten from
+`FeaturePlaceholder`; `components/trips/TripCard.tsx` and
+`components/trips/CancelTripButton.tsx`; `guestId` added to `createBookingRow` and
+`readBooking` added in `e2e/fixtures.ts`; `e2e/trips.spec.ts` (8) and
+`e2e/trips-responsive.spec.ts` (10); two re-based assertions in `e2e/search.spec.ts`.
+**No migration, no new dependency, no new route.**
+
+**Decisions:**
+- **The action enforces none of the cancellation rules, and that is the feature.**
+  Ownership, `status = 'confirmed'` and `check_in >= current_date` all live in
+  `bookings_update_cancel_own_or_admin`'s USING clause; the writable-column list
+  (`status`, `cancelled_at`) lives in `0006`. Re-checking any of them in JS would buy
+  nothing the database is not already doing, and re-checking the *date* would import
+  `createBookingSchema`'s past-date trap — `todayISO()` and `current_date` disagree by
+  a day around midnight. What only the action can do is notice that **zero rows
+  changed**: `architecture.md` already warned that an UPDATE with no matching policy
+  "affects zero rows and returns success, which is indistinguishable from 'it worked'",
+  and this is the first feature where that sentence is the whole implementation.
+  `.select('id, listing_id').maybeSingle()` + `if (!data)` is it.
+- **`getGuestBookings` filters `guest_id` explicitly — the inverse of `getFavorites`.**
+  That query deliberately omits its `user_id` filter because the `favorites` policy *is*
+  `user_id = auth.uid()`. The `bookings` SELECT policy is broader: guest **OR** the
+  listing's host **OR** `is_admin()`. Copying the favorites pattern would have put
+  F14's screen inside F13's and handed an admin the entire table, with nothing erroring
+  — the same *shape* as F06's trap but pointing the other way: there, missing rows
+  inferred a permission; here, **extra** rows answer a different question than the one
+  the page asks.
+- **Two sections, four temporal states.** "Upcoming" means *still going to happen*
+  (`confirmed` **and** `check_out >= today`), so an in-progress stay sits there with a
+  stated reason instead of a control, and every cancelled booking is Past whatever its
+  dates say. Filing an in-progress stay under "Past" would tell someone the stay they
+  are physically on is over; listing a cancelled future stay under "Upcoming" is the
+  same lie reversed. Both rules are pure functions in `lib/utils.ts` so they are
+  testable without a database.
+- **A booking outlives its listing's visibility, and keeps its card.** Once a host
+  unpublishes, RLS returns a null `listings` embed to the guest. `/favorites` drops
+  such rows via `toFavoriteCards` — right for a saved listing, wrong for a reservation
+  twice over: the guest still holds it, and the cancel control lives on the card that
+  would have been dropped. It renders "This listing is no longer available", unlinked,
+  with dates/guests/total/status intact.
+- **`canCancel` mirrors the policy exactly rather than widening, inverting F10 and
+  F11.** Those pushed their cutoffs out a day because refusing was the harmless error.
+  Here the two sides fail differently: offering a Cancel the server refuses produces an
+  honest sentence (the zero-row guard), while hiding one the server would have accepted
+  silently removes the option. Matching the policy keeps the disagreement recoverable.
+- **DESIGN.md `button-secondary` at 48px, not `HOST_CONTROL`'s 44px.** That compromise
+  exists because four controls share one row at 320px; a trip card has one, so it gets
+  the real spec. Promoting `hostControlStyles.ts` into `components/ui/` was considered
+  and dropped — it would have been a three-file refactor to reach a token this surface
+  does not want.
+- **`revalidatePath('/host/listings')` on cancel**, alongside `/trips` and the listing.
+  `getOwnListings` derives `canDelete` from `blocksListingDeletion`, so a cancellation
+  can unblock a host's delete button two screens away.
+
+**Gotchas:**
+- **The planned teardown pass was written, then deleted as redundant.** The plan assumed
+  F13's fixture bookings would sit on *seeded* listings and so would not cascade —
+  making `seed-verification.sql`'s count of 17 vulnerable to a spec killed before its
+  `finally`. Reading `listingsOwnedByFixtureUser` disproved it: it already covers **both**
+  fixture accounts, and F12's geometry (second account hosts, primary books) keeps every
+  row on a sweepable listing. Shipping cleanup for a state that cannot occur would have
+  been a docstring describing a scenario that does not exist.
+- **postgrest-js types the `listings` embed as never-null, and a probe proved it.** A
+  throwaway `const _probe: null = data` made tsc print
+  `listings: { id: string; title: string; … }` with no `| null`. So the null-embed branch
+  the unpublish spec exercises is one TypeScript would never have asked for — F08's
+  finding, reproduced on a different table. F04's `@supabase/ssr` incident is why this is
+  probed rather than assumed; the same probe also confirmed the select had not degraded
+  to `never`.
+- **F13's route count prediction was wrong.** The plan expected 16 routes on the grounds
+  that `/trips` "becomes dynamic". It was already a route — a placeholder page is still a
+  page — so the build stays at **15**. → **Did not happen.**
+- **F13 exposed a latent race in `search.spec.ts`, and it took a full-suite run to
+  surface.** Two assertions compared live grid counts taken across *two separate
+  navigations* (`countAt('/')` vs `countAt('/?…')`). Any concurrently-published fixture
+  listing entering or leaving between them breaks the comparison — and a *stable* extra
+  listing does not, which is why F12's publishers never triggered it and F13's extra ones
+  did. Both were re-based onto `snapshot.listings`, the seeded population no spec mutates.
+  **They were then re-gate-proved**: with a spurious `.gte('max_guests', 10)` in
+  `getPublishedListings`, both still fail — the re-base weakened their *timing*
+  sensitivity, not what they gate.
+- **The gate proof needed the UI relaxed before it could reach the branch.** `canCancel`
+  never renders a control for a stay the policy would refuse, so the refusal is
+  unreachable through the interface — the same shape as `createBooking`'s past-date
+  branch. Temporarily setting `canCancel: row.status === 'confirmed'` made an
+  in-progress stay cancellable on screen; with the `!data` branch present the spec
+  passes, and with it deleted **no refusal appears at all**. Both changes reverted.
+
+**Verified (agent, Node v26.5.0):**
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run test` **230/230** (211 prior
+  + 19 new); `npm run test:e2e` **313 passed / 3 skipped** (295 prior + 18) from a
+  deleted `e2e/.auth`; `npm run build` green with **15 routes** and
+  `ƒ Proxy (Middleware)` still printing.
+- **Cancellation checked against the table, never the page.** After a UI cancel the row
+  reads `status = 'cancelled'` while `check_in`, `check_out`, `price_per_night`,
+  `service_fee` and `total` are **byte-identical to before** — the `0006` column grant
+  proving itself rather than being read about.
+- **The nights are genuinely freed, proven against anon.** The first night of a booked
+  stay is disabled on an anonymous visitor's calendar, and enabled again after the
+  cancel — so the change came through `listing_occupied_ranges`, not through a session
+  that could read `bookings`.
+- **Both gate proofs fire**, each run against the broken build and then reverted:
+  deleting `.eq('guest_id', user.id)` makes a host see a stranger's booking in their own
+  Trips (`Expected 0, Received 1`), and deleting the `!data` branch removes the refusal
+  entirely while the row stays `confirmed`.
+- All four temporal states asserted end to end: upcoming (cancellable), in-progress
+  (Upcoming, reason stated, no control), finished (Past, no control), cancelled (Past,
+  badged, no control) — plus the unpublished-listing fallback, still cancellable.
+- **Responsive measured at 320 / 375 / 744 / 1128 / 1440** — each band's lower boundary,
+  no horizontal page overflow either before or **after** the two-step confirm puts two
+  controls on one row, and the cancel control ≥44px on its shorter side at every width.
+- `get_advisors(security)` — **exactly 7 WARNs**, unchanged. F13 adds no migration.
+- **`seed-verification.sql` — 46/46 PASS** after a full suite run: 26 / 24 / 130 / 17 /
+  7 / 5 / 0 favorites, and exactly one admin.
+- **Smoke-tested on a PRODUCTION build** (`next dev` cannot prove status codes): `/`
+  **200**, `/trips` **307** signed out, `/favorites` **307**, and no errors in the
+  server log.
+- Migration filenames match remote `schema_migrations` **8/8**.
+
+**Not verified — honestly outstanding:**
+- **`cancelBooking`'s zero-row refusal never runs in the normal suite.** `canCancel`
+  hides the control for exactly the stays the policy would refuse, so reaching it needs
+  a forged request — or a stay whose check-in passes while the page sits open. Proven
+  once, with the UI deliberately relaxed.
+- **The `{ ok: false }` Supabase-error branch is unexercised**, as in every action since
+  F08.
+- **The 100-trip ceiling (`MAX_TRIPS`) has never been approached** — it is a defensive
+  bound, not pagination, and no fixture comes close.
+- **No keyboard or screen-reader pass** on the two-step cancel. Swapping "Cancel
+  reservation" for "Confirm cancellation" moves focus nowhere, so a keyboard user lands
+  on whatever follows in DOM order. F18 owns it, now eight features running.
+- **The "listing no longer available" card is proven only for an *unpublished* listing**,
+  not a deleted one. A hard delete cascades the booking away entirely (F10's finding), so
+  that state is unreachable by design — worth knowing before someone tries to test it.
+
+**Deferred / follow-ups:**
+- **F14 must prune a Key Decision** before adding its own; the list is back at the cap.
+- **F14 inherits the `guest_id` lesson directly.** `getHostReservations` asks the
+  mirror-image question, and the same SELECT policy admits all three principals — so it
+  needs its own explicit scoping and its own "not mine" gate proof.
+- **F17's admin cancel, unpublish and delete all inherit the zero-row guard.** Each is an
+  RLS-scoped write whose refusal arrives as success; `cancelBooking` is the pattern to
+  copy, not re-derive.
+- **The developer's own Google account now holds a real upcoming booking** (Jul 27–30, a
+  seeded listing). Harmless — every seed assertion is prefix-scoped — but a whole-table
+  `bookings` count is no longer 17, and F14's fixtures should not assume it is.

@@ -719,17 +719,30 @@ export async function listingsOwnedByFixtureUser(): Promise<string[]> {
 // -----------------------------------------------------------------------------
 
 /**
- * A confirmed booking on a fixture listing, for proving the delete guard.
+ * A booking row, for proving guards that need one to already exist.
  *
- * **Always attach these to a DRAFT fixture listing.** A published one would move
- * the count `home.spec.ts` asserts, and the booking cascades away with the
- * listing so `global-teardown.ts` already covers it. (A booking on a draft is a
- * state `seed-verification.sql` would flag — it runs by hand, never inside the
- * suite, and by then the fixture rows are gone.)
+ * **Two callers with different geometries, which is why `guestId` exists.**
  *
- * The guest is a seeded one, never the fixture user: the host is the fixture
- * user, and a host booking their own listing is exactly what the INSERT policy
- * and the seed's integrity checks forbid.
+ * - **F10's delete guard** attaches a booking to a **DRAFT fixture listing**. The
+ *   fixture user is the *host*, so the guest must be a seeded one — a host
+ *   booking their own listing is exactly what the INSERT policy and the seed's
+ *   integrity checks forbid. A published fixture listing would also move the
+ *   count `home.spec.ts` asserts.
+ * - **F13's trips** need the fixture user as the **guest**, so they pass
+ *   `guestId: await testUserId()` against a listing hosted by the *second*
+ *   fixture account — F12's arrangement, which keeps both sides of the booking on
+ *   sweepable accounts without ever being a self-booking.
+ *
+ * `guestId` defaults to the seeded guest so F10's call sites are unchanged.
+ *
+ * Either way the row cascades with its listing, and `listingsOwnedByFixtureUser`
+ * covers **both** fixture accounts — so `global-teardown.ts` already reaches
+ * every booking either caller creates. No booking-specific sweep is needed.
+ *
+ * Note the service-role client bypasses RLS, so this can write states the app
+ * never could — a past-dated stay, or an in-progress one. That is the point:
+ * `createBooking` refuses past dates, so a seeded "you are on this stay right
+ * now" row has no other way into the database.
  */
 export async function createBookingRow(
   listingId: string,
@@ -737,6 +750,8 @@ export async function createBookingRow(
     checkIn: string
     checkOut: string
     status?: 'confirmed' | 'cancelled'
+    /** Defaults to the seeded guest. Pass a fixture id for guest-side specs. */
+    guestId?: string
   },
 ): Promise<{ id: string }> {
   const supabase = serviceClient()
@@ -752,7 +767,7 @@ export async function createBookingRow(
     .from('bookings')
     .insert({
       listing_id: listingId,
-      guest_id: OTHER_USER_ID,
+      guest_id: options.guestId ?? OTHER_USER_ID,
       check_in: options.checkIn,
       check_out: options.checkOut,
       guests_count: 2,
@@ -802,6 +817,39 @@ export async function readBookings(listingId: string): Promise<BookingRow[]> {
     serviceFeeCents: row.service_fee,
     totalCents: row.total,
   }))
+}
+
+/**
+ * One booking straight from the table — the oracle for "the cancel landed" and,
+ * more importantly, for "the cancel wrote **only** the two granted columns".
+ */
+export async function readBooking(bookingId: string): Promise<BookingRow | null> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('id', bookingId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read booking: ${error.message}`)
+  }
+  if (!data) return null
+
+  return {
+    id: data.id,
+    guestId: data.guest_id,
+    status: data.status,
+    checkIn: data.check_in,
+    checkOut: data.check_out,
+    guestsCount: data.guests_count,
+    nights: data.nights,
+    pricePerNightCents: data.price_per_night,
+    cleaningFeeCents: data.cleaning_fee,
+    serviceFeeCents: data.service_fee,
+    totalCents: data.total,
+  }
 }
 
 /**

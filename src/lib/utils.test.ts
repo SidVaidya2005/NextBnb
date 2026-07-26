@@ -3,6 +3,7 @@ import {
   averageRating,
   blocksListingDeletion,
   bookedNightsRange,
+  canCancelBooking,
   coverPhotoOf,
   findBlockConflict,
   formatCapacity,
@@ -21,6 +22,7 @@ import {
   safeNextPath,
   toFavoriteCards,
   toISODate,
+  tripSection,
 } from '@/lib/utils'
 
 describe('formatPrice', () => {
@@ -530,6 +532,98 @@ describe('blocksListingDeletion', () => {
         TODAY,
       ),
     ).toBe(false)
+  })
+})
+
+// The four temporal states seed.sql deliberately covers, pinned to a fixed
+// "today" so the assertions describe the rule rather than the day they run.
+// See supabase/seed.sql — 8 past-confirmed, 5 upcoming, 1 in-progress, 2 cancelled.
+const TRIP_TODAY = new Date('2026-07-26T12:00:00')
+
+const trip = (status: string, check_in: string, check_out: string) => ({
+  status,
+  check_in,
+  check_out,
+})
+
+const PAST_CONFIRMED = trip('confirmed', '2026-06-01', '2026-06-05')
+const UPCOMING = trip('confirmed', '2026-08-07', '2026-08-12')
+const IN_PROGRESS = trip('confirmed', '2026-07-24', '2026-07-29')
+const CANCELLED_FUTURE = trip('cancelled', '2026-08-12', '2026-08-16')
+
+describe('tripSection', () => {
+  it('files a stay that has not happened yet under upcoming', () => {
+    expect(tripSection(UPCOMING, TRIP_TODAY)).toBe('upcoming')
+  })
+
+  it('files a finished stay under past', () => {
+    expect(tripSection(PAST_CONFIRMED, TRIP_TODAY)).toBe('past')
+  })
+
+  it('files a stay the guest is currently on under upcoming', () => {
+    // Not "past": the guest is physically there. It is not cancellable either,
+    // which is canCancelBooking's job, not this one's.
+    expect(tripSection(IN_PROGRESS, TRIP_TODAY)).toBe('upcoming')
+  })
+
+  it('files a cancelled stay under past however far in the future', () => {
+    // "Upcoming" means still going to happen. A cancelled booking is not.
+    expect(tripSection(CANCELLED_FUTURE, TRIP_TODAY)).toBe('past')
+  })
+
+  it('keeps a stay checking out today in upcoming', () => {
+    // check_out is the half-open end — the guest is still leaving.
+    expect(
+      tripSection(trip('confirmed', '2026-07-20', '2026-07-26'), TRIP_TODAY),
+    ).toBe('upcoming')
+  })
+
+  it('moves a stay that checked out yesterday to past', () => {
+    expect(
+      tripSection(trip('confirmed', '2026-07-20', '2026-07-25'), TRIP_TODAY),
+    ).toBe('past')
+  })
+})
+
+describe('canCancelBooking', () => {
+  it('allows cancelling a stay that has not started', () => {
+    expect(canCancelBooking(UPCOMING, TRIP_TODAY)).toBe(true)
+  })
+
+  it('refuses a stay already in progress', () => {
+    // bookings_update_cancel_own_or_admin requires check_in >= current_date, so
+    // the database would refuse this write regardless of what the UI offered.
+    expect(canCancelBooking(IN_PROGRESS, TRIP_TODAY)).toBe(false)
+  })
+
+  it('refuses a finished stay', () => {
+    expect(canCancelBooking(PAST_CONFIRMED, TRIP_TODAY)).toBe(false)
+  })
+
+  it('refuses an already-cancelled booking', () => {
+    // The policy's USING clause also requires status = 'confirmed', which is
+    // what makes a cancellation un-reversible.
+    expect(canCancelBooking(CANCELLED_FUTURE, TRIP_TODAY)).toBe(false)
+  })
+
+  it('allows cancelling on the check-in day itself', () => {
+    // The policy boundary is `check_in >= current_date`, inclusive. Matching it
+    // exactly is the point — see the note on not widening this cutoff.
+    expect(
+      canCancelBooking(trip('confirmed', '2026-07-26', '2026-07-30'), TRIP_TODAY),
+    ).toBe(true)
+  })
+
+  it('refuses one day past check-in', () => {
+    expect(
+      canCancelBooking(trip('confirmed', '2026-07-25', '2026-07-30'), TRIP_TODAY),
+    ).toBe(false)
+  })
+
+  it('agrees with tripSection that an in-progress stay is upcoming but locked', () => {
+    // The pair the /trips card renders: in the upcoming list, no cancel control.
+    expect(tripSection(IN_PROGRESS, TRIP_TODAY)).toBe('upcoming')
+    expect(canCancelBooking(IN_PROGRESS, TRIP_TODAY)).toBe(false)
   })
 })
 

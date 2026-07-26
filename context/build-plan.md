@@ -418,6 +418,40 @@ Where a guest sees and manages their bookings.
 **Logic:**
 - `queries/bookings.getGuestBookings`; `actions/bookings.cancelBooking` (guest-owned, allowed only while `confirmed` and `check_in >= today`; sets `cancelled` + `cancelled_at`, which frees the dates), revalidate.
 
+**As built (deviations worth knowing):**
+- **`getGuestBookings` filters `guest_id` explicitly, and this is the one query in
+  the project where leaning on RLS would be wrong.** `getFavorites` deliberately omits
+  its `user_id` filter because the `favorites` policy *is* `user_id = auth.uid()`. The
+  `bookings` SELECT policy is broader — guest **OR** the listing's host **OR**
+  `is_admin()` — so the same pattern would put F14's screen inside F13's and hand an
+  admin the whole table, with nothing erroring. Gate-proved: deleting the filter makes
+  a host see a stranger's booking in their own Trips.
+- **`cancelBooking` enforces none of the cancellation rules, on purpose.** Ownership,
+  `status = 'confirmed'` and `check_in >= current_date` all live in
+  `bookings_update_cancel_own_or_admin`'s USING clause, and the writable-column list in
+  `0006`. What the action alone can do is notice the update **changed nothing**: RLS
+  filters rather than raising, so a refused cancel returns `{ error: null }` and zero
+  rows. `.select(...).maybeSingle()` plus a `!data` branch is the entire feature.
+- **Two sections, but four temporal states.** "Upcoming" means *still going to happen*
+  (`confirmed` **and** `check_out >= today`), so an **in-progress** stay sits there with
+  no control and a stated reason, while **every cancelled booking** is Past whatever its
+  dates say. `tripSection` / `canCancelBooking` are pure and unit-tested against all
+  four states the seed carries.
+- **A booking whose listing is no longer visible keeps its card.** RLS returns a null
+  `listings` embed once a host unpublishes — and postgrest-js types that embed as
+  **never-null**, so TypeScript never asks (F08's trap, verified again by probe here).
+  `/favorites` drops such rows; a reservation must not be, or the guest loses sight of a
+  stay they still hold *and* the cancel control that lives on that card.
+- **No migration, and no new route** — `/trips` was already a placeholder route, so the
+  build stays at **15 routes**. `database.types.ts` untouched; advisors still 7 WARNs.
+- **The cancel control is DESIGN.md `button-secondary` at 48px**, not the host row's
+  44px `HOST_CONTROL`. That compromise exists because four controls share one row at
+  320px; a trip card has one.
+- **F13 exposed a latent race in two `search.spec.ts` assertions.** Both compared live
+  grid counts taken across two navigations, which any concurrently-published fixture
+  listing can change between. Re-based onto the seeded catalogue (`snapshot.listings`),
+  which no spec mutates, and re-gate-proved against a spurious filter.
+
 ### 14 Host reservations
 
 Where a host sees bookings on their listings.
