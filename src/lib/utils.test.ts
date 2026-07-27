@@ -4,6 +4,7 @@ import {
   blocksListingDeletion,
   bookedNightsRange,
   canCancelBooking,
+  canReviewBooking,
   coverPhotoOf,
   findBlockConflict,
   formatCapacity,
@@ -625,6 +626,75 @@ describe('canCancelBooking', () => {
     // The pair the /trips card renders: in the upcoming list, no cancel control.
     expect(tripSection(IN_PROGRESS, TRIP_TODAY)).toBe('upcoming')
     expect(canCancelBooking(IN_PROGRESS, TRIP_TODAY)).toBe(false)
+  })
+})
+
+describe('canReviewBooking', () => {
+  it('allows reviewing a finished, unreviewed stay', () => {
+    expect(canReviewBooking(PAST_CONFIRMED, false, TRIP_TODAY)).toBe(true)
+  })
+
+  it('refuses a stay that has already been reviewed', () => {
+    // The one-per-booking rule. `reviews.booking_id` is unique, so the database
+    // would refuse the second insert with 23505 regardless — this is what keeps
+    // the form from being offered in the first place.
+    expect(canReviewBooking(PAST_CONFIRMED, true, TRIP_TODAY)).toBe(false)
+  })
+
+  it('refuses a stay that has not happened yet', () => {
+    expect(canReviewBooking(UPCOMING, false, TRIP_TODAY)).toBe(false)
+  })
+
+  it('refuses a stay the guest is currently on', () => {
+    expect(canReviewBooking(IN_PROGRESS, false, TRIP_TODAY)).toBe(false)
+  })
+
+  it('refuses a cancelled stay, however far in the past', () => {
+    // Past by tripSection, never reviewable: nobody stayed. The INSERT policy
+    // requires status = 'confirmed' for exactly this reason.
+    expect(
+      canReviewBooking(trip('cancelled', '2026-06-01', '2026-06-05'), false, TRIP_TODAY),
+    ).toBe(false)
+  })
+
+  it('refuses a stay checking out today', () => {
+    // The policy boundary is `check_out < current_date`, exclusive — so the day
+    // the guest leaves is one day too early. Matching it exactly is the point.
+    expect(
+      canReviewBooking(trip('confirmed', '2026-07-20', '2026-07-26'), false, TRIP_TODAY),
+    ).toBe(false)
+  })
+
+  it('allows a stay that checked out yesterday', () => {
+    expect(
+      canReviewBooking(trip('confirmed', '2026-07-20', '2026-07-25'), false, TRIP_TODAY),
+    ).toBe(true)
+  })
+
+  it('never offers a review on a stay tripSection files as upcoming', () => {
+    // The invariant the /trips page depends on: the form lives in the Past
+    // section, so a reviewable booking must never be sorted into Upcoming.
+    // Checking out today is the boundary where the two rules could disagree.
+    const bookings = [
+      PAST_CONFIRMED,
+      UPCOMING,
+      IN_PROGRESS,
+      CANCELLED_FUTURE,
+      trip('confirmed', '2026-07-20', '2026-07-26'),
+      trip('confirmed', '2026-07-20', '2026-07-25'),
+    ]
+
+    const reviewable = bookings.filter((booking) =>
+      canReviewBooking(booking, false, TRIP_TODAY),
+    )
+
+    // Non-vacuous first: a loop over an empty set passes while proving nothing,
+    // which is F08's finding in miniature. Two of the six above are reviewable.
+    expect(reviewable).toHaveLength(2)
+
+    for (const booking of reviewable) {
+      expect(tripSection(booking, TRIP_TODAY)).toBe('past')
+    }
   })
 })
 

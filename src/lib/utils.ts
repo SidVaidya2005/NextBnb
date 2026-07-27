@@ -365,6 +365,40 @@ export function canCancelBooking(
 }
 
 /**
+ * Whether this guest may still review this stay.
+ *
+ * **This restates `reviews_insert_own_completed_booking`'s window verbatim**
+ * (`b.status = 'confirmed' and b.check_out < current_date`), plus the
+ * one-per-booking rule the `reviews.booking_id` unique index owns. It decides
+ * whether the form renders; the policy and the index decide whether the write
+ * lands. Same division of labour as `canCancelBooking`.
+ *
+ * **The cutoff is deliberately not widened, and the reason differs from
+ * `canCancelBooking`'s.** There, both directions were survivable. Here the
+ * asymmetry is structural: a failed INSERT `WITH CHECK` **raises** `42501` — it
+ * does not filter the way a refused UPDATE does — so a form offered a minute
+ * early produces an honest, retryable sentence, while hiding one the database
+ * would have accepted takes the option away with nothing said. F10 and F11
+ * widened their cutoffs because refusing was the harmless error; here refusing
+ * is *also* the harmless error, so matching the policy exactly is what refuses.
+ *
+ * **`status` is load-bearing beyond "is it finished".** A cancelled stay is Past
+ * by `tripSection` however its dates read, and it is never reviewable — nobody
+ * stayed. The two functions agree on every confirmed booking (`check_out <
+ * today` is exactly the negation of `tripSection`'s `check_out >= today`), so a
+ * reviewable stay is always in the Past section and the form can never appear
+ * under Upcoming. The unit tests assert that rather than trusting it.
+ */
+export function canReviewBooking(
+  booking: { status: string; check_out: string },
+  hasReview: boolean,
+  today: Date = new Date(),
+): boolean {
+  if (hasReview) return false
+  return booking.status === 'confirmed' && booking.check_out < toISODate(today)
+}
+
+/**
  * A span of occupied calendar days, **both ends inclusive** — the shape
  * `blocked_dates` already stores and the shape a calendar renders.
  *

@@ -1,7 +1,13 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
-import { canCancelBooking, coverPhotoOf, hostEarnings, tripSection } from '@/lib/utils'
+import {
+  canCancelBooking,
+  canReviewBooking,
+  coverPhotoOf,
+  hostEarnings,
+  tripSection,
+} from '@/lib/utils'
 import type { Database } from '@/types/database.types'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
@@ -30,6 +36,22 @@ export type TripListing = {
   coverPublicId: string | null
 }
 
+/**
+ * The review this guest left for this stay, read back onto its own trip card.
+ *
+ * One per booking — `reviews.booking_id` is `unique` — so this is a single row
+ * or nothing, and postgrest-js types it that way: `reviews_booking_id_fkey`
+ * carries `isOneToOne: true`, which makes the embed a nullable object rather
+ * than an array. **Unlike the `listings` embed above, TypeScript does ask about
+ * this null**, so no hand-written `| null` is needed to make it honest.
+ */
+export type TripReview = {
+  id: string
+  rating: number
+  /** Null for a star-only review; the schema normalises blank to null. */
+  comment: string | null
+}
+
 /** One reservation as `/trips` renders it. */
 export type TripData = {
   id: string
@@ -44,6 +66,10 @@ export type TripData = {
   listing: TripListing | null
   /** Whether the cancel control renders. Mirrors the UPDATE policy's window. */
   canCancel: boolean
+  /** This guest's review of the stay, or null if they have not left one. */
+  review: TripReview | null
+  /** Whether the review form renders. Mirrors the INSERT policy's window. */
+  canReview: boolean
 }
 
 export type GuestTrips = {
@@ -76,6 +102,16 @@ const MAX_TRIPS = 100
  *
  * Cancelled bookings are **not** filtered out: a guest who cancels needs to see
  * that it worked, and `tripSection` files them under past whatever their dates.
+ *
+ * **The `reviews` embed is safe to nest, and that was checked rather than
+ * assumed.** `reviews_select_public` is `using (true)` for anon *and*
+ * authenticated, so this reader sees every review that exists and an absent one
+ * genuinely means "not reviewed". That is the distinction F06 turns on: here
+ * missing rows infer a **restriction** (the form is offered), not a permission,
+ * so a wrong answer would show a form the database then refuses rather than
+ * hiding one it would have accepted. Same reasoning as the `favorites` embed in
+ * `getPublishedListings`, and the opposite of the `bookings` reads that have to
+ * go through a definer function.
  */
 export async function getGuestBookings(): Promise<GuestTrips> {
   const supabase = await createClient()
@@ -91,7 +127,7 @@ export async function getGuestBookings(): Promise<GuestTrips> {
   const { data, error } = await supabase
     .from('bookings')
     .select(
-      'id, check_in, check_out, guests_count, nights, total, status, listings(id, title, city, country, listing_photos(url, public_id, is_cover, position))',
+      'id, check_in, check_out, guests_count, nights, total, status, listings(id, title, city, country, listing_photos(url, public_id, is_cover, position)), reviews(id, rating, comment)',
     )
     .eq('guest_id', user.id)
     .limit(MAX_TRIPS)
@@ -149,6 +185,8 @@ type TripRow = {
       position: number
     }[]
   } | null
+  /** A to-one embed via the unique `booking_id`: one review, or none. */
+  reviews: { id: string; rating: number; comment: string | null } | null
 }
 
 /**
@@ -161,6 +199,9 @@ type TripRow = {
  */
 function toTrip(row: TripRow, today: Date): TripData {
   const cover = row.listings ? coverPhotoOf(row.listings.listing_photos) : null
+  const review = row.reviews
+    ? { id: row.reviews.id, rating: row.reviews.rating, comment: row.reviews.comment }
+    : null
 
   return {
     id: row.id,
@@ -181,6 +222,11 @@ function toTrip(row: TripRow, today: Date): TripData {
         }
       : null,
     canCancel: canCancelBooking(row, today),
+    review,
+    // The listing being gone does not stop a review: the INSERT policy carries
+    // no `is_published` condition, the stay happened, and `createReview` derives
+    // `listing_id` from the booking rather than from anything rendered here.
+    canReview: canReviewBooking(row, review !== null, today),
   }
 }
 

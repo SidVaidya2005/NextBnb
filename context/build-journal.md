@@ -2583,3 +2583,186 @@ component, `database.types.ts` untouched.**
 - **A host-side notion of "arriving today" is not built.** An in-progress stay sits in
   Upcoming with nothing distinguishing it, which is `tripSection`'s definition working as
   designed — but a host would plausibly want it called out. Out of scope; F18 if anywhere.
+
+---
+
+## Phase 5 · Feature 15 — Reviews & ratings  *(2026-07-27)*
+
+**Scope built (13 files, 7 new):** the review **write** path. New
+`lib/validations/reviews.ts` (`createReviewSchema`, `deleteReviewSchema`,
+`MAX_REVIEW_COMMENT`), `lib/actions/reviews.ts` (`createReview`, `deleteReview`),
+`components/ui/RatingInput.tsx`, `components/ui/StarRating.tsx`,
+`components/trips/TripReview.tsx`, plus `reviews.spec.ts` and a schema test file. New
+`canReviewBooking()` in `lib/utils.ts`; `getGuestBookings` grew a `reviews(...)` embed and
+two fields; `TripCard` renders the new leaf; `ReviewsSection` was reduced to the shared
+`StarRating`. **No migration, no new route, no seed change, `database.types.ts` untouched.**
+
+### Decisions
+
+- **The read half was already built, and saying so shaped the whole feature.** The build
+  plan's UI line ("reviews and average rating rendered on the listing page and cards") has
+  been true since F05/F07 — `averageRating`, `toListingCard` and `ReviewsSection` render
+  the 7 seeded reviews today. F15 is the write path plus making a trip card aware of its
+  own review state. Nothing about how a rating *displays* changed.
+
+- **The write lives inline on the `/trips` past card.** The booking is the unit of review
+  and `getGuestBookings` already loads exactly those rows in exactly that order — F13
+  sorted `past` newest-first and recorded it as "the order F15's leave-a-review prompt will
+  want", which turned out to be the whole design. Build stays at **15 routes**, and no
+  route that can 404 was added, so F07's `loading.tsx` rule is untouched. Agreed with the
+  developer before build, against a dedicated `/trips/[id]/review` route.
+
+- **An INSERT raises where an UPDATE filters — and F15 needs both behaviours.** This is
+  the entry's most useful line. F13's key decision is that RLS refuses a write by
+  *filtering*, so `cancelBooking` must check the row count. That is true of UPDATE and
+  DELETE and **not** of INSERT: a failed `WITH CHECK` raises `42501`. So the two halves of
+  this one feature are opposite shapes — `createReview` maps error codes to sentences and
+  has no zero-row branch at all, while `deleteReview` has the zero-row branch and no code
+  mapping. Writing them the same way would have left one of them silently broken.
+
+- **`canReviewBooking` mirrors the INSERT policy exactly rather than widening.** F10 and
+  F11 widened their cutoffs by a day because refusing was the harmless error. Here
+  refusing is *also* harmless, so widening is what would offer a form the database
+  rejects — and because the refusal raises, a form offered a minute early produces an
+  honest retryable sentence while a hidden one takes the option away with nothing said.
+  Same trade `canCancelBooking` documents, reached from the opposite direction.
+
+- **`listing_id` is derived from the booking, never accepted from the client.** The policy
+  requires `reviews.listing_id = bookings.listing_id`, so a client-supplied value could
+  only ever match or be refused — a value to forge for no gain. Reading the booking for it
+  is **not F06's trap**: a caller who is not the guest/host/admin reads zero rows and is
+  refused, so absence infers a restriction, not a permission.
+
+- **The comment is optional, capped at 1 000, and blank normalises to `null`.** A star-only
+  review is real signal, and requiring prose biases the average toward guests with
+  something to say. `MAX_REVIEW_COMMENT` lives in the validations module (following
+  `MAX_BLOCK_DAYS` and the `MAX_TITLE` family) rather than `constants.ts`, which holds
+  values the *database* also depends on — but it is **exported**, because the textarea's
+  `maxLength` is set from it and there is no resolver here to catch an overlong comment.
+
+- **`useState` + `useTransition`, not react-hook-form**, matching `CancelTripButton` beside
+  it and `BookingWidget`. A radio group cannot emit a rating outside 1–5 and `maxLength`
+  caps the comment, so a resolver would mount a form instance per reviewable trip to
+  surface errors the markup already prevents.
+
+- **`RatingInput` is a native radio group.** DESIGN.md specs a star *display* but no star
+  *input*, so the mechanism was a free choice — and radios bring arrow-key navigation, a
+  single tab stop, `radiogroup` semantics and "3 of 5" announcements for nothing. That
+  matters more here than usual: `progress-tracker.md` already carries eight features of
+  unaudited keyboard paths into F18, and this was the cheapest way not to add a ninth.
+
+- **`StarRating` was extracted and `ReviewsSection` rewired to it**, deviating from the
+  plan's "ReviewsSection untouched" claim. The trip card reads a review back, so the
+  five-star loop would otherwise exist twice — two places to drift on DESIGN.md's
+  deliberate ink-not-gold rule. It is not a Client Component, so it serves the server-side
+  `ReviewsSection` and the client-side `TripReview` alike.
+
+### Gotchas
+
+- **The first gate proof passed, which is the finding.** Removing `hasReview` from
+  `canReviewBooking` should have made the already-reviewed spec fail. It did not:
+  `TripReview` tested `if (review)` **before** `canReview`, so the component's branch
+  ordering was silently enforcing one-per-booking and `canReviewBooking`'s `hasReview`
+  argument was dead code that no test could reach. **Two implementations of one rule, and
+  the gate proof only found it because it was actually run.** The component now asks
+  `canReview` first (`if (!canReview && review)`), leaving one implementation — and the
+  proof then failed correctly. This is F08's "prove the test fails before trusting that it
+  passes" catching a *redundancy*, not a bug: nothing was misbehaving, but the rule had
+  quietly moved out of the function that documents it.
+
+- **A loop-based assertion passes vacuously.** The unit test proving "a reviewable stay is
+  never in Upcoming" iterated bookings and asserted inside an `if`. With nothing
+  reviewable, the body never runs and the test is green while proving nothing — F08 in
+  miniature, caught during writing rather than by a proof. It now filters first and asserts
+  the filtered set has the expected length before looping.
+
+- **`getByRole('radio')` measures the wrong box.** The responsive tap-floor assertion read
+  1px, not 44: `RatingInput` keeps its radios visually hidden but focusable, so the
+  `<input>` is 1px and the `<label>` is what a finger lands on. The spec now reads the
+  label through `input.labels`, following the same relationship the accessibility tree
+  does rather than a brittle selector. **A tap-target assertion has to measure the element
+  that receives the tap, which is not always the one that carries the role.**
+
+- **`postgrest-js` types this embed as nullable, unlike F08's and F13's.**
+  `reviews_booking_id_fkey` carries `isOneToOne: true`, so `reviews(...)` on `bookings`
+  infers as a nullable *object*, not an array — and TypeScript genuinely demands the null
+  check here, where the `listings` embed on the same query needs a hand-written one. The
+  assumption was recorded in the plan as something to verify at build rather than assume,
+  and `tsc` confirmed it: an array would not have assigned to `TripRow`.
+
+- **"4.0" is ambiguous on a listing page** — the header rating line and the 64px
+  `rating-display-card` both render it, so an unscoped `getByText` is a strict-mode
+  violation. Scoping it to the reviews region turned a broken locator into a better
+  assertion: both surfaces are now checked separately, plus the comment rendering publicly.
+
+- **`deleteReview`'s zero-row branch is reachable through the UI after all.** The plan
+  recorded it as an accepted untested branch needing a forged request, by analogy with
+  `cancelBooking`'s. That was wrong: a **stale page** reaches it with no forging — a second
+  tab, or an admin, removing the review while the page sits open. It is now gate-proved.
+
+### Verified
+
+- `npx tsc --noEmit` and `npm run lint` — clean.
+- `npm run test` — **255/255** (was 235; +12 schema, +8 `canReviewBooking`).
+- `npm run test:e2e` — **345 passed / 3 skipped** (was 330/3). The +15 is exactly the new
+  work: 10 in `reviews.spec.ts`, 5 responsive (1 × 5 breakpoints).
+- `npm run build` — green, **15 routes**, `ƒ Proxy (Middleware)` printing.
+- Security advisors — **7 WARNs**, the same intentional set; no eighth. Migrations **8/8**.
+- Gate proofs executed and reverted, three of them:
+  1. `hasReview` dropped from `canReviewBooking` → the already-reviewed spec fails (only
+     after the component ordering was fixed; see Gotchas).
+  2. `deleteReview`'s `!data` branch replaced with `{ ok: true }` → the stale-review spec
+     fails ("could not be removed" never appears).
+  3. `RatingInput`'s star target shrunk 44px → 32px → all five responsive specs fail with
+     `Received: 32`.
+- Responsive verified at 320 / 375 / 744 / 1128 / 1440 by spec: no horizontal scroll with
+  the form open, with the review posted, and with the two-step delete's two controls on
+  one row; star targets ≥ 44px at every width.
+- **`seed-verification.sql` — 45/46.** See below; not an F15 regression.
+
+### The one failing gate, diagnosed
+
+`temporal: at least one in-progress stay exists` fails. Seeded booking **14** was written
+`current_date - 2 → current_date + 3` on 2026-07-24, fixing it at **2026-07-22 → 2026-07-27**.
+Today is 2026-07-27, so its checkout is *today* and `check_out > current_date` is false: the
+stay has aged out of the in-progress window.
+
+This is the file's own documented failure mode — its section 9 header reads *"must survive
+every future re-run, since all dates are relative. If this ever fails, the seed has aged out
+and needs re-running."* **It is not an F15 regression**, and that was checked rather than
+asserted: F15's diff contains no SQL, no migration and no seed file, and the assertion reads
+only `30000000-…` booking rows, which nothing in this feature writes. It would fail
+identically on an untouched checkout today.
+
+**Deliberately not fixed here.** Re-running `supabase/seed.sql` begins with
+`delete from auth.users where id in (…)`, which cascades — a destructive database action,
+and the developer's own Google account holds a real stay (F13's note). Left for them to
+schedule. `e2e/trips.spec.ts`' in-progress spec builds its own fixture row, which is why the
+suite is unaffected.
+
+**Not verified:**
+- **The Supabase-error branches of both actions** — the generic `console.error` paths in
+  `createReview` (booking read and insert) and `deleteReview`. Same shape as every other
+  action's error branch (`progress-tracker.md` → Untested branches).
+- **`createReview`'s `42501` branch.** `canReviewBooking` never offers the form where the
+  policy would refuse, so reaching it needs a forged request or a stay whose checkout
+  boundary crosses while the page is open. Its `23505` sibling is likewise unreachable
+  through a fresh page — but *is* reachable from a stale one, exactly as `deleteReview`'s
+  zero-row branch turned out to be, and is worth a spec if this is revisited.
+- **The 1 000-character comment cap** is unit-tested only; `maxLength` makes it
+  unreachable through the textarea.
+- **`createReview`'s "that stay could not be found"** branch — needs a booking id that is
+  well-formed but not the caller's.
+
+**Deferred / follow-ups:**
+- **F16 must prune a Key Decision** before adding its own; F15 pruned F02 (now a standing
+  hard rule in `architecture.md` → Invariants and its Column-level grants section, and in
+  `code-standards.md`) and the list is back at the cap.
+- **The seed needs re-running** before the temporal assertions are trustworthy again — see
+  above. Whoever does it should re-run `seed-verification.sql` and expect 46/46.
+- **`/admin` inherits `deleteReview` unchanged.** `reviews_delete_own_or_admin` already
+  names `is_admin()`, so F17's moderation needs no new action — only a caller. Its
+  zero-row branch is the same guard F13 and F15 both landed on.
+- **No review appears on a host surface.** `/host/reservations` shows no rating for a
+  finished stay, which is F14's read-only posture holding. Plausible F18 polish; out of
+  scope here.

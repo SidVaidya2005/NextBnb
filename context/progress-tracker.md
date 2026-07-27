@@ -10,32 +10,46 @@
 
 ## Current Status
 
-**Phase:** Phase 4 — Booking (complete)
-**Last completed:** 14 Host reservations
-**Next:** 15 Reviews & ratings (Phase 5 — Engagement)
+**Phase:** Phase 5 — Engagement (in progress)
+**Last completed:** 15 Reviews & ratings
+**Next:** 16 Guest ↔ host messaging (Phase 5 — Engagement)
 
-F14 closed the booking loop from the host's side and finished Phase 4:
-`/host/reservations` lists every stay booked across the listings a user hosts,
-guest-first, in the same two temporal sections `/trips` uses. It is read-only —
-not by choice but because a host has **no write path to `bookings` at all** — and
-its one load-bearing line is the `listing_id` scoping, since the SELECT policy
-also admits the guest and admins. Full detail: `build-journal.md` → F14.
+F15 built the review **write** path — the read half (`averageRating`,
+`ReviewsSection`, the card rating) has shipped since F05/F07. A finished stay's
+card in `/trips` → Past carries a star radio group and an optional comment, and
+once posted reads the review back with the delete that is the only way to change
+one (`0006` revokes UPDATE outright). Its useful finding: **an INSERT raises
+where an UPDATE filters**, so F13's zero-row rule applies to `deleteReview` and
+not to `createReview`, and the two actions are deliberately opposite shapes.
+Full detail: `build-journal.md` → F15.
 
-### Live baselines (F14 close, 2026-07-26)
+### Live baselines (F15 close, 2026-07-27)
 
 Treat any deviation from these as a finding, not a new normal.
 
 | Gate | Value |
 | ---- | ----- |
 | `npx tsc --noEmit` / `npm run lint` | clean |
-| `npm run test` (unit) | 235/235 |
-| `npm run test:e2e` | 330 passed / 3 skipped |
+| `npm run test` (unit) | 255/255 |
+| `npm run test:e2e` | 345 passed / 3 skipped |
 | `npm run build` | green, **15 routes**, `ƒ Proxy (Middleware)` printing |
-| `seed-verification.sql` | 46/46 |
+| `seed-verification.sql` | **45/46 — the seed has aged out, see below** |
 | Seed rows | 26 listings (24 published) / 130 photos / 17 bookings / 7 reviews / 5 blocks / 0 favorites |
-| Fixture residue after a full run | 0 listings, 0 bookings, **exactly one admin** (developer's Google account) |
+| Fixture residue after a full run | 0 listings, 0 bookings, 0 reviews, **exactly one admin** (developer's Google account) |
 | Security advisors | **7 WARNs — an 8th is a finding** |
 | Migrations vs remote | 8/8 matching |
+
+**`seed-verification.sql` is 45/46 and the failure is not a code defect.**
+`temporal: at least one in-progress stay exists` fails because seeded booking 14
+was written `current_date - 2 → current_date + 3` on 2026-07-24, fixing it at
+2026-07-22 → 2026-07-27 — so as of 2026-07-27 its checkout is *today* and it has
+aged out of the window. This is the file's own documented failure mode (section
+9: *"if this ever fails, the seed has aged out and needs re-running"*), it
+predates F15 (whose diff contains no SQL, migration or seed file), and the E2E
+suite is unaffected because `trips.spec.ts` builds its own in-progress row.
+**Fixing it means re-running `supabase/seed.sql`, which begins with a cascading
+`delete from auth.users` — a destructive action left for the developer to
+schedule.** Expect 46/46 afterwards.
 
 **`bookings` now totals 18, and the extra row is real.** The developer's own Google
 account holds a genuine upcoming stay (Jul 27–30 on a seeded listing), booked
@@ -58,13 +72,20 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 **Untested branches** (written, reasoned, never executed)
 - **The `{ ok: false }` Supabase-error branch of every action** — `setFavorite`
   (F08), `updateListing`/`deleteListing` (F10), `addBlock`/`removeBlock` (F11),
-  `createBooking` (F12), `cancelBooking` (F13). Guard refusals and not-found
-  paths *are* covered; a genuine database error is not. Same shape as F05's
-  untriggered `error.tsx`. **F13's zero-row branch is the exception** — it is a
-  refusal, not an error, and it is gate-proved. F14 adds the read-side twin:
-  `getHostReservations`' two error branches, and its `hostsNothing: false`
-  distinction between "hosts nothing" and "the query failed", are reasoned about
-  rather than executed.
+  `createBooking` (F12), `cancelBooking` (F13), `createReview`/`deleteReview`
+  (F15). Guard refusals and not-found paths *are* covered; a genuine database
+  error is not. Same shape as F05's untriggered `error.tsx`. **The zero-row
+  branches are the exception** — they are refusals, not errors, and both F13's
+  and F15's are gate-proved. F14 adds the read-side twin: `getHostReservations`'
+  two error branches, and its `hostsNothing: false` distinction between "hosts
+  nothing" and "the query failed", are reasoned about rather than executed.
+- **`createReview`'s `42501` branch** (F15) — `canReviewBooking` never offers the
+  form where the policy would refuse, so reaching it needs a forged request or a
+  checkout boundary crossing while the page sits open. Its `23505` sibling is
+  unreachable from a *fresh* page but **is** reachable from a stale one, exactly
+  as `deleteReview`'s zero-row branch turned out to be — worth a spec if F15 is
+  revisited. The 1 000-char comment cap is unit-tested only; `maxLength` makes it
+  unreachable through the textarea.
 - **`getHostReservations`' null-listing branch is unreachable by construction**
   (F14). Every id it filters on came from a listing the caller hosts, so the
   embed cannot be RLS-filtered away. It logs rather than skipping silently,
@@ -118,7 +139,10 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
   `role="dialog"` with **no focus trap and no focus restore** — and F13's
   two-step cancel, which moves focus nowhere when it swaps controls). **F18 owns it.**
   F14 adds nothing to this list: `/host/reservations` renders no interactive
-  control at all beyond one link per card.
+  control at all beyond one link per card. **F15 adds one two-step control (the
+  review delete, with F13's same focus gap) but subtracts risk elsewhere:**
+  `RatingInput` is a native radio group, so its keyboard behaviour is the
+  browser's rather than something F18 must audit.
 - **A host cannot cancel or decline a reservation, and adding it is a migration**
   (F14) — `bookings_update_cancel_own_or_admin` names only the guest and
   `is_admin()`. Out of scope for this build; recorded because "read-only for the
@@ -158,7 +182,7 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 - [x] 14 Host reservations
 
 ### Phase 5 — Engagement
-- [ ] 15 Reviews & ratings
+- [x] 15 Reviews & ratings
 - [ ] 16 Guest ↔ host messaging
 
 ### Phase 6 — Admin & Polish
@@ -169,9 +193,8 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 
 ## Key Decisions
 
-> At the ~10-bullet cap. **F15 must prune one into `build-journal.md` before adding.**
+> At the ~10-bullet cap. **F16 must prune one into `build-journal.md` before adding.**
 
-- **F02** — **RLS filters rows, not columns.** Rules of the form "may update, but only this column" (`profiles.is_admin`, booking price snapshots, message bodies) are enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because RLS with no matching policy silently updates zero rows and reports success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all passing).
 - **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waited in F12's booking widget — and was sharper there, because *any* signed-in guest reads zero rows for a listing they do not host.
 - **F08** — **a green assertion is not a gating assertion; run every new spec against a deliberately broken build.** `toHaveURL('/')` passes instantly when the page is already at `/`, so the spec guarding "the heart must not navigate" passed against the exact markup it existed to reject. Two further F08 traps rhyme with it: postgrest-js types a to-one embed on a NOT NULL FK as never-null while RLS returns null at runtime (the `toFavoriteCards` filter is load-bearing and TS would never demand it), and a spec that snapshots whole-user state races the parallel workers sharing that user. **Generalises: prove the test fails before trusting that it passes.**
 - **F09** — **a validation schema used on both sides of a boundary must accept its own output.** The form validates with `createListingSchema`, posts the *result* to the server action, and the action re-validates with the same schema — so `parse(parse(x))` has to succeed. It did not: the optional-text fields emitted `null` but accepted only `string | undefined`, and every listing with a blank description passed on the client then failed on the server with a message naming no field. **Generalises: whenever one schema guards both a form and the action behind it, test it against its own output** — the two directions are each correct in isolation, which is exactly why nothing else catches it.
@@ -181,10 +204,24 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 - **F12** — **a guard the database also enforces cannot be gated by a test, and the test will pass anyway.** The spec proving `createBooking` refuses taken dates was written against a *booking* overlap — and it **passed with the availability check deleted**, because `bookings_no_overlap` refused the insert and `23P01` maps to the same sentence the guard produces. The gate had to move to the case no constraint can reach: a booking over a host's `blocked_dates`, where nothing in Postgres expresses a rule spanning two tables. **Generalises: when writing a gate proof, first ask which layer would catch the defect if this layer were missing** — if a lower one would, the spec is measuring that instead. The same reasoning re-priced F12's fixture listing: at $123.00 the service fee is 51660 cents whether you round or truncate, so the cents assertion passed against `Math.floor`; at $123.33 the two answers differ and the spec gates the rounding rule end to end. **F13's cancel window (also DB-enforced, via the UPDATE policy) is the next place this applies.**
 - **F13** — **RLS refuses a write by filtering, not by raising — so a refused UPDATE is indistinguishable from a successful one.** The cancellation window lives entirely in `bookings_update_cancel_own_or_admin`'s USING clause, so `cancelBooking` re-checking it would buy nothing; what only the action can do is notice that **zero rows changed**, because Postgres returns `{ error: null }` either way. Gate-proved: with the `!data` branch removed, cancelling an in-progress stay showed the guest no refusal at all while the row stayed `confirmed`. **Generalises: after any RLS-scoped UPDATE or DELETE, the row count *is* the authorization result — `.select()` it and treat empty as refusal.** F17's admin cancel and unpublish are the next place this applies, and its delete has the same shape. Its sibling finding: `/trips` needed an explicit `guest_id` filter because the `bookings` SELECT policy also admits hosts and admins — **the inverse of `getFavorites`, where leaning on RLS is correct** — so "does the policy answer exactly my question?" has to be asked per table, not per project.
 - **F14** — **a policy that admits three principals answers a question none of them asked.** `bookings_select_participant_or_admin` is `guest OR host OR is_admin()`, so the *same row* is legitimately readable by two screens that must never show it to each other — and every query over that table has to say which reader it is for. F13 filtered `guest_id`; F14 filters `listing_id` to owned listings, and its gate proof is F13's inverted: a stay where the fixture user is the **guest** must not surface among their reservations. It failed exactly as intended with the filter deleted, and RLS never would have caught it. **Generalises: RLS scopes to a union of principals, not to a role — so "which of these principals am I rendering for?" is a question the query must answer, never the policy.** Corollary found the same way: read the policy before deciding what a screen *can't* do. "Read-only for the host" looked like scope, but the UPDATE policy names only the guest and `is_admin()`, so a host has no write path to `bookings` at all and a cancel button would need a migration, not a component. **F17 is where both bite hardest** — an admin satisfies every branch of every policy, so its queries have nothing left to scope them but intent.
+- **F15** — **"RLS refuses by filtering, not raising" is true of UPDATE and DELETE and false of INSERT — and one feature can need both.** F13's rule sent `cancelBooking` looking for a zero row count, because a refused UPDATE returns `{ error: null }` and looks like success. A refused INSERT does not: a failed `WITH CHECK` **raises `42501`**. So F15's two actions are deliberately opposite shapes — `createReview` maps error codes to sentences (`23505` → already reviewed, `42501` → not finished yet) and has no zero-row branch, while `deleteReview` has the zero-row branch and no code mapping. Writing them alike would have left one silently broken. **Generalises: before reusing a write-path pattern, ask which verb it was learned from** — the three DML verbs fail in genuinely different ways, and only DELETE/UPDATE fail quietly. Its sibling finding came from actually *running* a gate proof: the one for "a stay cannot be reviewed twice" **passed**, because `TripReview` tested `review` before `canReview` and was enforcing one-per-booking a second time, leaving `canReviewBooking`'s `hasReview` argument unreachable. Nothing misbehaved — but the rule had quietly moved out of the function that documents it, and only a proof that was *executed* rather than assumed could show that. **F16's mark-as-read is the next INSERT/UPDATE pair where the distinction bites.**
 
 ---
 
 ## Pruned from Key Decisions (kept for the record)
+
+> - **F02** — **RLS filters rows, not columns.** Rules of the form "may update, but only
+>   this column" (`profiles.is_admin`, booking price snapshots, message bodies) are
+>   enforced by column-level `GRANT`s alongside the policies; "none" cells are revoked
+>   outright, because RLS with no matching policy silently updates zero rows and reports
+>   success. Verified by `supabase/tests/schema-verification.sql` (37 assertions, all
+>   passing). *(Pruned in F15 at the ~10-bullet cap — no longer a pending decision but a
+>   standing hard rule, stated in three places: `architecture.md` → Invariants, its
+>   dedicated "Column-level grants — RLS filters rows, not columns" section with the full
+>   writable-columns table, and `code-standards.md`. F15 is a live instance of it —
+>   reviews are immutable because `0006` **revokes UPDATE**, not because a policy forbids
+>   it — and F15's own Key Decision carries the half of this that is still load-bearing:
+>   that a policy miss on UPDATE/DELETE is silent, and on INSERT is not.)*
 
 > - **F07** — a route `loading.tsx` and a real HTTP 404 cannot coexist. The implicit
 >   `<Suspense>` it creates makes the response stream, and the status commits to **200

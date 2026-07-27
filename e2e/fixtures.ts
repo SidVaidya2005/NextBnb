@@ -1011,3 +1011,73 @@ export async function readBlockedDates(
     endDate: row.end_date,
   }))
 }
+
+// -----------------------------------------------------------------------------
+// Reviews (F15)
+// -----------------------------------------------------------------------------
+
+/**
+ * The review on one booking, straight from the table — or null.
+ *
+ * **The oracle for every review assertion**, because the page cannot distinguish
+ * the claims that matter. Rendered stars prove a number reached a component;
+ * they do not prove the row carries the right `listing_id` (which
+ * `reviews_insert_own_completed_booking` requires to equal the booking's) or the
+ * right `reviewer_id`. Both are read here for exactly that reason.
+ *
+ * **No cleanup helper accompanies this, and that was checked rather than
+ * assumed** (F10's rule about reading FK actions first): `reviews.booking_id`
+ * and `reviews.listing_id` are both `on delete cascade` and nothing references
+ * `reviews`, so a fixture review dies with the listing that `deleteListing` and
+ * `global-teardown.ts` already sweep.
+ */
+export async function readReviewForBooking(
+  bookingId: string,
+): Promise<{
+  id: string
+  listingId: string
+  reviewerId: string
+  rating: number
+  comment: string | null
+} | null> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('reviews')
+    .select('id, listing_id, reviewer_id, rating, comment')
+    .eq('booking_id', bookingId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read a review: ${error.message}`)
+  }
+  if (!data) return null
+
+  return {
+    id: data.id,
+    listingId: data.listing_id,
+    reviewerId: data.reviewer_id,
+    rating: data.rating,
+    comment: data.comment,
+  }
+}
+
+/**
+ * Remove a review out of band, behind the page's back.
+ *
+ * Not cleanup — reviews cascade with their listing (see above). This exists to
+ * make **`deleteReview`'s zero-row branch reachable**, which is the one thing
+ * that action uniquely does (F13: RLS filters a DELETE rather than raising, so
+ * a refused delete returns `{ error: null }` and looks identical to a
+ * successful one). A page whose review was removed elsewhere — a second tab, or
+ * an admin — is that branch arriving through ordinary use rather than a forged
+ * request.
+ */
+export async function deleteReviewRow(reviewId: string): Promise<void> {
+  const supabase = serviceClient()
+
+  const { error } = await supabase.from('reviews').delete().eq('id', reviewId)
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not delete a review: ${error.message}`)
+  }
+}

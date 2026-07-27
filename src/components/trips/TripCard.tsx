@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import { CancelTripButton } from '@/components/trips/CancelTripButton'
+import { TripReview } from '@/components/trips/TripReview'
 import { ListingImage } from '@/components/ui/ListingImage'
 import { formatDateRange, formatPrice } from '@/lib/utils'
 import type { TripData } from '@/lib/queries/bookings'
@@ -88,6 +89,16 @@ export function TripCard({ trip, section }: Props) {
             {formatPrice(trip.total)} total
           </p>
         </div>
+
+        {/* The review slot renders nothing at all on a stay that is neither
+            reviewable nor reviewed, which is every upcoming card. It sits above
+            the cancel control because a finished stay never has one. */}
+        <TripReview
+          bookingId={trip.id}
+          review={trip.review}
+          canReview={trip.canReview}
+          tripLabel={tripLabel}
+        />
 
         {trip.canCancel ? (
           <CancelTripButton bookingId={trip.id} tripLabel={tripLabel} />

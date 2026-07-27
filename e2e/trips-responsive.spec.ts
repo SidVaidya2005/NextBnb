@@ -60,6 +60,23 @@ async function upcomingTrip() {
   return listing
 }
 
+/** A finished, unreviewed trip owned by this account — the review form's card. */
+async function reviewableTrip() {
+  const hostId = await secondUserId()
+  const guestId = await testUserId()
+  const listing = await createDraftListing({ hostId })
+  await addListingPhotoRow(listing.id, { isCover: true })
+  await publishFixtureListing(listing.id, true)
+
+  await createBookingRow(listing.id, {
+    checkIn: addDay(todayISO(), -20),
+    checkOut: addDay(todayISO(), -15),
+    guestId,
+  })
+
+  return listing
+}
+
 for (const { name, width, height } of WIDTHS) {
   test.describe(`${name} (${width}px)`, () => {
     test.use({ viewport: { width, height } })
@@ -93,6 +110,63 @@ for (const { name, width, height } of WIDTHS) {
         await cancel.click()
         await expect(
           card.getByRole('button', { name: /^Confirm cancelling / }),
+        ).toBeVisible()
+        await expectNoHorizontalScroll(page)
+      } finally {
+        await deleteListing(listing.id)
+      }
+    })
+
+    test('the review form fits and its stars clear the tap floor', async ({ page }) => {
+      // The star row is five side-by-side 44px targets plus a textarea — the
+      // widest fixed-size thing on the card, and the one most likely to push a
+      // 320px column out. Asserted after posting too, because the two-step
+      // delete puts two controls on one row exactly as the cancel confirm does.
+      const listing = await reviewableTrip()
+
+      try {
+        await page.goto('/trips')
+
+        const card = page
+          .getByRole('list', { name: 'Past trips' })
+          .getByRole('listitem')
+          .filter({ hasText: listing.title })
+
+        await expect(card).toBeVisible()
+        await expectNoHorizontalScroll(page)
+
+        const star = card.getByRole('radio', { name: '5 stars' })
+
+        // **Measure the label, not the input.** `RatingInput` keeps its radios
+        // visually hidden but focusable — the standard pattern, and what buys
+        // arrow-key navigation and radiogroup semantics for free — so the input
+        // is 1px and the `<label>` is what a finger actually lands on. Read via
+        // `input.labels` rather than a selector, so the assertion follows the
+        // same relationship the accessibility tree does.
+        const labelBox = await star.evaluate((input) => {
+          const label = (input as HTMLInputElement).labels?.[0]
+          if (!label) return null
+          const { width, height } = label.getBoundingClientRect()
+          return { width, height }
+        })
+        expect(labelBox, 'the star control has no label to tap').not.toBeNull()
+        expect(
+          Math.min(labelBox!.width, labelBox!.height),
+          'a star target is below the tap floor',
+        ).toBeGreaterThanOrEqual(TAP_FLOOR)
+
+        const post = card.getByRole('button', { name: /^Post your review of / })
+        await waitForHydration(post)
+        await star.check()
+        await post.click()
+
+        const remove = card.getByRole('button', { name: /^Delete your review of / })
+        await expect(remove).toBeVisible()
+        await expectNoHorizontalScroll(page)
+
+        await remove.click()
+        await expect(
+          card.getByRole('button', { name: /^Confirm deleting your review of / }),
         ).toBeVisible()
         await expectNoHorizontalScroll(page)
       } finally {

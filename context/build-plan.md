@@ -530,6 +530,49 @@ Let guests review completed stays and show ratings on listings.
 - `createReviewSchema`; `actions/reviews.createReview` (guest of the booking only, checkout passed, one per booking via DB unique), revalidate listing.
 - Reviews are **immutable** once posted — no edit action; `deleteReview` (reviewer or admin) lets a reviewer remove and re-post if needed.
 
+**As built (deviations worth knowing):**
+- **The UI line above was already true before F15 started.** `averageRating`,
+  `toListingCard` and `ReviewsSection` have rendered ratings on the listing page and the
+  cards since F05/F07. F15 built the **write** path and made a trip card aware of its own
+  review state; nothing about how a rating displays changed.
+- **Both halves live inline on the `/trips` past card**, not on the listing page and not on
+  a new route. The booking is the unit of review and `getGuestBookings` already loaded
+  exactly those rows in exactly that order (F13 sorted `past` newest-first for this). Build
+  stays at **15 routes**, so F07's no-`loading.tsx` rule is untouched.
+- **An INSERT raises where an UPDATE filters, so the two actions are opposite shapes.**
+  F13's rule — RLS refuses a write by filtering, so check the row count — holds for UPDATE
+  and DELETE but **not** INSERT, where a failed `WITH CHECK` raises `42501`. `createReview`
+  therefore maps error codes (`23505` → already reviewed, `42501` → not finished yet) and
+  has no zero-row branch; `deleteReview` has the zero-row branch and no code mapping.
+- **`canReviewBooking` mirrors the INSERT policy exactly** (`confirmed` **and**
+  `check_out < current_date`, **and** not already reviewed), inverting F10/F11's widened
+  cutoffs: refusing is the harmless error here, so widening is what would offer a form the
+  database rejects.
+- **`listing_id` is derived from the booking, never sent by the client** — the policy
+  requires the two to match, so a supplied value could only match or be refused. Reading
+  the booking for it is not F06's trap: a non-participant reads zero rows and is refused.
+- **The comment is optional, capped at 1 000 chars, and blank normalises to `null`** (F09's
+  accept-its-own-output rule; the schema is unit-tested against `parse(parse(x))`).
+  `MAX_REVIEW_COMMENT` is **exported** from the validations module because the textarea's
+  `maxLength` comes from it — there is no resolver here to catch an overlong comment.
+- **`useState`/`useTransition`, not react-hook-form**, matching `CancelTripButton` on the
+  same card and `BookingWidget`. A radio group cannot emit an out-of-range rating.
+- **`RatingInput` is a native radio group** (visually hidden, focusable inputs + 44px star
+  labels): arrow-key navigation, one tab stop and `radiogroup` semantics for free, which is
+  the cheapest way not to add a ninth feature to F18's keyboard debt. DESIGN.md specs a
+  star *display* but no star *input*.
+- **`StarRating` was extracted to `components/ui/` and `ReviewsSection` rewired to it** —
+  the trip card reads a review back, so the five-star loop would otherwise exist twice and
+  be two places to drift on the ink-not-gold rule.
+- **Gate proof found a redundancy, not a bug.** `TripReview` originally tested `review`
+  before `canReview`, so the component was enforcing one-per-booking a second time and
+  `canReviewBooking`'s `hasReview` argument was unreachable — the proof passed when it
+  should have failed. Order reversed so one implementation owns the rule.
+- **No migration, no new route, no seed change**, `database.types.ts` untouched, advisors
+  still 7 WARNs. `seed-verification.sql` reads **45/46** — seeded booking 14 has aged out
+  of the in-progress window (its own section-9 documented failure mode), which predates
+  F15 and needs a seed re-run, not a code fix. See `build-journal.md` → F15.
+
 ### 16 Guest ↔ host messaging
 
 In-app conversations with live delivery.

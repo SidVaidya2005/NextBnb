@@ -1,6 +1,7 @@
 import { Star } from 'lucide-react'
 
 import { Avatar } from '@/components/ui/Avatar'
+import { StarRating } from '@/components/ui/StarRating'
 import { formatMonthYear } from '@/lib/utils'
 import type { ListingReview } from '@/lib/queries/listings'
 
@@ -76,20 +77,7 @@ function ReviewCard({ review }: { review: ListingReview }) {
         </div>
       </div>
 
-      <div
-        className="mt-3 flex items-center gap-0.5 text-ink"
-        aria-label={`Rated ${review.rating} out of 5`}
-      >
-        {Array.from({ length: 5 }, (_, index) => (
-          <Star
-            key={index}
-            className={
-              index < review.rating ? 'size-3.5 fill-current' : 'size-3.5 text-hairline'
-            }
-            aria-hidden
-          />
-        ))}
-      </div>
+      <StarRating rating={review.rating} className="mt-3" />
 
       {review.comment && (
         <p className="mt-2 text-base leading-relaxed text-body">{review.comment}</p>
