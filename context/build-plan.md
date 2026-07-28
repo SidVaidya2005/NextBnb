@@ -583,6 +583,60 @@ In-app conversations with live delivery.
 **Logic:**
 - `actions/messages.getOrCreateThread`, `sendMessage` (validate, insert, bump `last_message_at`); client subscribes to Realtime `postgres_changes` on `messages` filtered by `thread_id`; mark-as-read on open.
 
+**Planned shape (agreed before build, 2026-07-28):**
+- **The database half already exists; F16 is application code only.** `message_threads`
+  and `messages` shipped in `0001` with their indexes, all six policies in `0003`, the
+  column grants (`last_message_at` / `read_at`) alongside them, and `0004` put
+  **`messages` and only `messages`** in the `supabase_realtime` publication.
+  `schema-verification.sql` already proves send / read-receipt / non-participant-hidden /
+  body-not-editable. **No migration, no seed change, `database.types.ts` untouched.**
+- **A conversation is its own route — `/messages/[threadId]`**, taking the build to
+  **16 routes**. A thread that is not yours returns zero rows under RLS and must
+  `notFound()`, so **F07's rule applies and this route gets no `loading.tsx`**.
+- **The guest initiates, from the listing page only** — the UI line above, no wider.
+  The control hides when the viewer is the host (`isOwnListing` is already computed
+  there; `guest_id <> host_id` is a table check regardless). **Accepted consequence: a
+  host can never start a conversation**, only reply. Widening it would re-open
+  `/host/reservations`, which F14 deliberately shipped with zero interactive controls.
+- **The thread row is created on click, not on first send.** The unique
+  `(guest_id, host_id, listing_id)` constraint (`nulls not distinct`) makes
+  `getOrCreateThread` idempotent for free, so two clicks converge the way F08's
+  `setFavorite` does. **Accepted cost: a guest who clicks and never types leaves an
+  empty thread in both inboxes**, rendered as "No messages yet".
+- **Realtime covers the open thread only** (`filter: thread_id=eq.<id>`, `removeChannel`
+  on unmount). The inbox stays server-rendered and revalidated. **Known limitation: a
+  new message does not reorder or badge the inbox until it is revisited.**
+- **Mark-as-read inverts F13's rule, and this is the feature's most useful line.** F15
+  flagged this as the next place the INSERT/UPDATE distinction bites, and the answer is
+  the *opposite* of `cancelBooking`'s. `markThreadRead` filters `sender_id <> me and
+  read_at is null`, so **zero rows is the common case — "nothing was unread" — and must
+  be silent**. A genuine Supabase error logs and is swallowed: a failed receipt must not
+  stop the thread rendering. F13's shape here would false-alarm on most opens.
+- **`getThreads` leans on RLS and does *not* re-filter by participant — the inverse of
+  `/trips`.** `message_threads_select_participant` is exactly `guest_id = uid or
+  host_id = uid`, which is precisely the question the inbox asks. That is
+  `getFavorites`' situation, not `getGuestBookings`' (guest **OR** host **OR** admin).
+  F13's rule is "ask per table, not per project" — asked, answered no filter.
+- **Desktop keeps the inbox as a rail**: thread full-width below `desktop:` with a back
+  link, thread list returning beside it at 1128px. The thread route re-runs the list
+  query rather than sharing it through a `layout.tsx`, which cannot know whether a child
+  route is active.
+- **No seed change.** E2E builds its own threads through fixtures (F15's posture), and an
+  empty inbox is an honest first-run state — which also avoids `seed.sql`'s opening
+  cascading `delete from auth.users`, already parked for the developer to schedule.
+- **`global-teardown.ts` needs a new thread sweep, and this was checked rather than
+  assumed** (F10's read-the-FK-actions rule): threads do **not** cascade with listings —
+  `listing_id` is `on delete set null` and the participants cascade from `profiles`. The
+  existing teardown sweeps listings only, so fixture threads would survive every run.
+- **Two schema hazards recorded, neither fixed here** (both need a migration): the
+  `message_threads` INSERT policy admits `guest_id = uid OR host_id = uid`, so a forged
+  request could name an arbitrary counterpart as guest (the action never does); and
+  `on delete set null` can collide with `nulls not distinct` — a guest with threads about
+  two listings by one host sees the *second* listing delete raise a unique violation once
+  both rows collapse to `(guest, host, null)`. **F17's admin delete has the same exposure.**
+- **Admins cannot read threads** (`0003` says so deliberately), so F17's moderation
+  excludes messages.
+
 ---
 
 ## Phase 6 — Admin & Polish

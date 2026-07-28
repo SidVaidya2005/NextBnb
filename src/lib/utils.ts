@@ -1,4 +1,11 @@
-import { differenceInCalendarDays, format, parseISO, subDays } from 'date-fns'
+import {
+  differenceInCalendarDays,
+  format,
+  isSameDay,
+  isSameYear,
+  parseISO,
+  subDays,
+} from 'date-fns'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
@@ -396,6 +403,74 @@ export function canReviewBooking(
 ): boolean {
   if (hasReview) return false
   return booking.status === 'confirmed' && booking.check_out < toISODate(today)
+}
+
+/**
+ * How many messages in a thread the viewer has not read.
+ *
+ * **Both conditions are load-bearing, and only one of them is the database's.**
+ * `read_at is null` is the obvious half. `sender_id !== viewerId` is the half
+ * nothing below this function enforces for *counting*: the
+ * `messages_update_read_receipt` policy stops a user **stamping** their own
+ * message read, which means a sent message's `read_at` stays null until the
+ * other person opens the thread — so counting naively would show every message
+ * you send as unread mail to yourself, growing as you talk. The policy causes
+ * the problem; it cannot fix it, because it governs writes and this is a read.
+ *
+ * Deliberately a count rather than a boolean: the inbox renders the number, and
+ * `> 0` is a cheaper question any caller can ask of the result.
+ */
+export function unreadCount(
+  messages: readonly { sender_id: string; read_at: string | null }[],
+  viewerId: string,
+): number {
+  return messages.filter(
+    (message) => message.sender_id !== viewerId && message.read_at === null,
+  ).length
+}
+
+/**
+ * The other person in a thread — whose name and avatar the inbox shows.
+ *
+ * `guest` and `host` are roles **on the thread**, not on the person: the same
+ * user is the guest in a conversation about someone else's place and the host in
+ * one about their own. So neither field can be assumed to be "them", and every
+ * surface that names a participant has to ask this question.
+ *
+ * A viewer who is neither participant is unreachable — `message_threads_select_participant`
+ * is `guest_id = uid or host_id = uid`, so a thread only reaches this function
+ * once RLS has already established the viewer is in it.
+ */
+export function threadPartner<P extends { id: string }>(
+  thread: { guest: P; host: P },
+  viewerId: string,
+): P {
+  return thread.guest.id === viewerId ? thread.host : thread.guest
+}
+
+/**
+ * A message timestamp as the inbox and thread print it: the time for today, the
+ * date within this year, the month and year before that.
+ *
+ * The rule is "show the smallest unit that still disambiguates" — a time alone
+ * is useless on a message from March, and a year is noise on one from an hour
+ * ago. `now` is injected so the three branches are testable without freezing the
+ * clock.
+ *
+ * Returns null on an unparseable value rather than throwing, following
+ * `formatMonthYear`: `format` throws on an invalid Date, and a bad timestamp
+ * should cost the line, not the page.
+ */
+export function formatThreadTimestamp(
+  iso: string,
+  now: Date = new Date(),
+): string | null {
+  const at = parseISO(iso)
+  if (Number.isNaN(at.getTime())) return null
+
+  if (isSameDay(at, now)) return format(at, 'h:mm a')
+  if (isSameYear(at, now)) return format(at, 'MMM d')
+  return format(at, 'MMM yyyy')
 }
 
 /**

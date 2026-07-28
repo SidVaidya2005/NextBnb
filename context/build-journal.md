@@ -2766,3 +2766,206 @@ suite is unaffected.
 - **No review appears on a host surface.** `/host/reservations` shows no rating for a
   finished stay, which is F14's read-only posture holding. Plausible F18 polish; out of
   scope here.
+
+---
+
+## Phase 5 · Feature 16 — Guest ↔ host messaging  *(2026-07-28)*
+
+**Scope built (13 files, 8 new):** the whole application half of messaging. New
+`lib/validations/messages.ts` (`startThreadSchema`, `sendMessageSchema`,
+`markThreadReadSchema`, `threadIdSchema`, `MAX_MESSAGE_BODY`),
+`lib/queries/messages.ts` (`getThreads`, `getThreadById`), `lib/actions/messages.ts`
+(`getOrCreateThread`, `sendMessage`, `markThreadRead`),
+`components/messages/ThreadList.tsx`, `components/messages/MessageThread.tsx`,
+`components/listings/MessageHostButton.tsx`, `app/messages/[threadId]/page.tsx`, plus
+`messages.spec.ts` and `messages-responsive.spec.ts`. Three new pure helpers in
+`lib/utils.ts` (`unreadCount`, `threadPartner`, `formatThreadTimestamp`);
+`app/messages/page.tsx` replaced its `FeaturePlaceholder`; `HostCard` gained three
+props and the contact control its docblock has promised since F07.
+**No migration, no seed change, `database.types.ts` untouched.** Build **15 → 16 routes**.
+
+### Decisions
+
+- **The database half was already finished, and saying so shaped the feature.**
+  `message_threads` and `messages` shipped in `0001` with every index, all six policies
+  in `0003`, the column grants beside them (`last_message_at`, `read_at`), and `0004`
+  added **`messages` and only `messages`** to the realtime publication.
+  `schema-verification.sql` had been proving send / read-receipt / non-participant-hidden
+  / body-not-editable since F02. F16 wrote no SQL at all — the third consecutive feature
+  to need none.
+
+- **Mark-as-read inverts F13's rule, and this is the entry's most useful line.** F15
+  predicted this would be "the next INSERT/UPDATE pair where the distinction bites" and
+  it was — but the answer came out *opposite* to `cancelBooking`'s. F13's rule is that
+  RLS refuses a write by filtering, so a zero-row UPDATE must be treated as a refusal.
+  `markThreadRead` narrows to `sender_id <> me AND read_at is null`, which means **zero
+  rows is the ordinary outcome** — every open of an already-read thread legitimately
+  matches nothing. Reporting that as a refusal would cry wolf on most opens, so this is
+  the one RLS-scoped UPDATE in the project with **no zero-row branch**, and the omission
+  is documented in the action rather than left to look like a forgotten guard.
+  **Generalises: F13's rule is about what zero rows can *only* mean, not about row
+  counts.** Ask whether the statement's own filters make emptiness normal before
+  treating it as a refusal.
+
+- **`getThreads` leans on RLS with no participant filter — the exact inverse of
+  `/trips`.** `message_threads_select_participant` is `guest_id = uid or host_id = uid`,
+  which *is* the question an inbox asks, so a filter would restate the policy. That is
+  `getFavorites`' situation, not `getGuestBookings`', whose policy admits guest **OR**
+  host **OR** admin and therefore forced an explicit `guest_id`. F13 said to ask this per
+  table rather than per project; asked here, the answer was no filter — the first time
+  since F13 that the answer came back "none".
+
+- **Both participants are derived, and here that is a guard rather than tidiness.**
+  `message_threads_insert_participant` is an **OR** (`guest_id = uid OR host_id = uid`),
+  so the policy would accept a row naming the caller as host and an arbitrary stranger as
+  guest — planting a conversation in someone else's inbox. `getOrCreateThread` takes only
+  a `listingId` and reads `host_id` off the listing. **The policy is looser than the app,
+  which inverts this project's usual arrangement** and is recorded as needing a migration.
+
+- **Created on click, not on first send.** `message_threads_unique_participants` is
+  `unique nulls not distinct (guest_id, host_id, listing_id)`, so idempotency is free: the
+  select finds the thread, and a click that races past that select gets `23505` and reads
+  the winner's row back. Two clicks converge, F08's `setFavorite` shape. Accepted cost: a
+  guest who clicks and never types leaves an empty thread in both inboxes, rendered as
+  "No messages yet".
+
+- **`/messages/[threadId]` is a real route with a real 404**, and it is the first route
+  since `/listings/[id]` where F07's `loading.tsx` rule actually bites. `getThreadById`
+  applies no participant filter, so the policy is what returns nothing to a stranger —
+  and a thread that does not exist is indistinguishable from one that is not yours.
+
+- **The unread badge is ink, not Rausch.** DESIGN.md reserves the accent for primary
+  CTAs, the search orb and the saved heart; a fourth use would erode exactly the scarcity
+  the invariant protects. Same restraint that puts star ratings in ink rather than gold.
+  DESIGN.md specs **no** messaging component at all — no inbox, thread, bubble or
+  composer — so the whole surface is composed from existing tokens and primitives.
+
+- **The desktop rail is a second query, not a `layout.tsx`.** A layout cannot know
+  whether a child route is active, so it could neither mark the open conversation nor
+  hide itself on mobile. `/messages/[threadId]` runs `getThreads()` alongside
+  `getThreadById()` in one `Promise.all`, which is cheap and honest.
+
+### Gotchas
+
+- **Realtime authorizes the *socket*, and getting it wrong fails completely silently.**
+  Live delivery did not work at all on the first build, with no error anywhere — no
+  console warning, no failed request, no rejected subscription. Postgres Changes
+  evaluates the table's SELECT policy against whatever token the connection carries, and
+  `messages_select_participant` is `to authenticated`; the browser client adopts its
+  session from cookies *asynchronously*, so a channel opened on mount can connect as
+  **anon**, match nothing, and report success. The fix is to await
+  `auth.getSession()` and call `supabase.realtime.setAuth(token)` **before** subscribing.
+  Isolated with a standalone Node probe (delivered) versus the app (did not), which is
+  what separated "Realtime is misconfigured" from "our client is unauthenticated".
+  **Generalises: an authorization failure in a push channel arrives as silence, not as an
+  error** — there is no request to inspect, so it looks identical to a feature nobody
+  wired up.
+
+- **Then the spec failed for a *different* reason, and the fix was a real feature.**
+  Even with `setAuth`, the spec inserted its message before the channel finished joining
+  — subscribing is a round trip (read session → set token → join) that outlasts
+  hydration, and **Postgres Changes does not replay what it missed**. Waiting on
+  `waitForHydration` waits for the wrong thing. Rather than add a sleep, the component
+  now tracks `liveStatus` from `.subscribe()`'s status callback, renders "Live updates are
+  unavailable" on `CHANNEL_ERROR`/`TIMED_OUT`, and exposes `data-live` for the spec to
+  wait on. F12's posture — showing unverified state is worse than showing none — arriving
+  as a test-flakiness fix that turned out to be missing UI.
+
+- **An unscoped `getByText` on a message body is a strict-mode violation that fires
+  intermittently.** At `desktop:` the rail renders the same string as that conversation's
+  snippet, so whether there are one or two matches depends on whether
+  `revalidatePath('/messages')` has landed — it passed in isolation and failed in the
+  full run. **F15's "4.0 is ambiguous on a listing page", arriving again**, and fixed the
+  same way: the message list became `<ul aria-label="Messages">` and assertions scope to
+  it, which also matches how every other list in the project is located.
+
+- **`.first()` on the inbox races the parallel workers.** The ordering spec asserted "the
+  top row is my conversation" against per-user global state shared by `fullyParallel`
+  workers — `favorites.spec.ts`' documented trap, walked into anyway. It now compares the
+  *relative* positions of two known rows taken from **one** DOM snapshot, so it cannot
+  straddle a re-render either.
+
+- **A count badge cannot be located by its digit.** `getByText('2', { exact: true })`
+  found nothing: the badge's text is `2` plus an `sr-only` " unread messages", so the
+  element's content is the whole phrase. Locating by the accessible phrase is also the
+  better assertion — a bare digit would match a timestamp or a title containing a 2.
+
+- **Threads are the first fixture rows that do not cascade with their listing**, and
+  reading the FK actions first (F10's rule) is what caught it. `listing_id` is `on delete
+  set null` and the participants cascade from `profiles`, which the suite never deletes —
+  so `deleteListing` and the existing teardown sweep both miss them entirely. A thread
+  sweep was added, and it runs **before** the listing sweep for a second reason: see below.
+
+- **`on delete set null` can collide with `nulls not distinct`, and it can fail a
+  delete.** Nulling `listing_id` collapses a thread onto `(guest, host, null)`; the unique
+  constraint treats those nulls as equal, so a guest holding threads about *two* listings
+  by the same host makes the **second** listing delete raise a unique violation.
+  `deleteListing` would surface its generic error. Reachable through ordinary use, narrow,
+  and **not fixed** — the fix is a migration. In the teardown it is made unreachable by
+  clearing threads first. **F17's admin delete has the same exposure.**
+
+### Verified
+
+- `npx tsc --noEmit` and `npm run lint` — clean.
+- `npm run test` — **280/280** (was 255; +12 schema, +13 helper).
+- `npm run test:e2e` — **375 passed / 3 skipped** (was 345/3). The +30 is exactly the new
+  work: 10 in `messages.spec.ts`, 20 responsive (4 × 5 breakpoints).
+- `npm run build` — green, **16 routes**, `ƒ Proxy (Middleware)` printing.
+- Security advisors — **7 WARNs**, the same intentional set; no eighth. Migrations **8/8**.
+- Row state after a full run: 26 listings (24 published), 18 bookings, 7 reviews,
+  **0 threads, 0 messages**, 0 fixture-owned rows, exactly one admin. The zero threads are
+  the new sweep working — it was observed removing a leftover thread on the run before.
+- Gate proofs executed and reverted, three of them, each aimed at a rule **no lower layer
+  enforces** (F12's test):
+  1. `sendMessage`'s `last_message_at` bump removed → the inbox-ordering spec fails. No
+     trigger maintains that column, so nothing else would have noticed.
+  2. `markThreadRead`'s call removed from the client leaf → the unread-clearing spec fails.
+  3. `sender_id !== viewerId` dropped from `unreadCount` → **2 unit tests and the E2E badge
+     assertion** all fail.
+- **Deliberately not used as a gate proof:** removing `sender_id <> me` from
+  `markThreadRead`'s own filter. `messages_update_read_receipt` enforces it, so the
+  assertion would pass regardless — F12's trap, spotted while writing rather than after.
+- Responsive verified at 320 / 375 / 744 / 1128 / 1440 by spec: no horizontal scroll on
+  inbox or thread, an unbroken 74-character "word" wrapping inside its bubble, the
+  conversation row and Send control both ≥ 44px, and the rail/back-link swap asserted in
+  **both** directions at every width.
+- **`seed-verification.sql` — still 45/46, same single failure, and it was re-checked
+  rather than assumed.** Queried directly: of the seeded bookings, 9 completed, 6
+  upcoming, 2 cancelled (both with `cancelled_at`), 0 inverted — and **0 in progress**,
+  which is the one failing assertion. Booking 14's window (2026-07-22 → 2026-07-27) closed
+  the day before F15 and is now a day further past. F16's diff contains no SQL, migration
+  or seed file. Still needs a seed re-run, which is still destructive and still the
+  developer's to schedule.
+
+**Not verified:**
+- **The Supabase-error branches of all three actions** — the generic `console.error`
+  paths. Same shape as every other action's error branch
+  (`progress-tracker.md` → Untested branches).
+- **`sendMessage`'s `42501`/`23503` branch.** Reaching it needs a forged request or a
+  thread deleted while the composer sits open — the latter is genuinely reachable and
+  worth a spec if this is revisited, exactly as `deleteReview`'s zero-row branch turned
+  out to be in F15.
+- **`getOrCreateThread`'s `23505` retry.** The unique constraint fires only if two clicks
+  interleave past the select, which needs contrived timing; the ordinary double-click is
+  caught by the select and *is* covered.
+- **`markThreadRead`'s swallowed-error path** and the `liveStatus === 'offline'` notice —
+  both need the database or the websocket to fail, which nothing in the suite induces.
+- **The 2 000-character body cap** is unit-tested only; `maxLength` makes it unreachable
+  through the textarea.
+- **A thread whose listing was deleted** (`listing_id` null → "Listing no longer
+  available"). The unpublished-listing half of that branch is reachable and reasoned
+  about, but neither is covered by a spec.
+
+**Deferred / follow-ups:**
+- **F17 must prune a Key Decision** before adding its own; F16 pruned F09's
+  accept-its-own-output rule and the list is back at the cap.
+- **The two schema hazards above are F17's problem too** — its admin delete inherits the
+  `set null` / `nulls not distinct` collision, and admins are deliberately excluded from
+  both messaging policies (`0003` says so), so moderation cannot reach conversations
+  without a migration.
+- **The inbox does not live-update.** Realtime is thread-scoped by design, so a new
+  message neither reorders nor badges the inbox until it is revisited. Plausible F18
+  polish.
+- **A host still cannot start a conversation**, only reply. Out of scope by agreement,
+  and unlike F14's read-only reservations this one needs **no** migration — only an entry
+  point, since the policies already admit either participant as the creator.

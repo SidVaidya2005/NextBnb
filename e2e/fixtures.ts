@@ -1081,3 +1081,213 @@ export async function deleteReviewRow(reviewId: string): Promise<void> {
     throw new Error(`[e2e/fixtures] could not delete a review: ${error.message}`)
   }
 }
+
+// -----------------------------------------------------------------------------
+// Messaging (F16)
+//
+// **Threads need their own cleanup, and that was checked rather than assumed**
+// (F10's read-the-FK-actions rule). Every other child row in this file dies with
+// its listing: photos, blocks, bookings and reviews are all `on delete cascade`.
+// `message_threads` is NOT — `listing_id` is `on delete set null`, and the
+// participants cascade from `profiles`, which the suite never deletes. A fixture
+// thread therefore survives `deleteListing` AND `global-teardown.ts`'s listing
+// sweep, and would accumulate on every run.
+//
+// Messages cascade from their thread, so removing the thread is enough.
+// -----------------------------------------------------------------------------
+
+/**
+ * A thread written straight to the table.
+ *
+ * Setup only. Specs that mean to test *starting* a conversation drive the real
+ * "Message host" button; this is for the ones that need a conversation to
+ * already exist before they can test something else — and for the one that needs
+ * a thread the fixture user is deliberately **not** in.
+ */
+export async function createThreadRow(options: {
+  guestId: string
+  hostId: string
+  listingId: string
+}): Promise<{ id: string }> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('message_threads')
+    .insert({
+      guest_id: options.guestId,
+      host_id: options.hostId,
+      listing_id: options.listingId,
+    })
+    .select('id')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`[e2e/fixtures] could not create a thread: ${error?.message}`)
+  }
+
+  return data
+}
+
+/**
+ * A message written behind the page's back.
+ *
+ * Two spec shapes need this and neither can use the composer: **live delivery**
+ * (a message must arrive from someone who is not driving this browser) and the
+ * **unread badge** (the fixture user has to receive mail they did not send).
+ *
+ * Deliberately does NOT bump `last_message_at` — that is `sendMessage`'s job and
+ * the thing its gate proof removes. A fixture that bumped it too would hide the
+ * defect the proof exists to find.
+ */
+export async function createMessageRow(options: {
+  threadId: string
+  senderId: string
+  body: string
+}): Promise<{ id: string }> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({
+      thread_id: options.threadId,
+      sender_id: options.senderId,
+      body: options.body,
+    })
+    .select('id')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`[e2e/fixtures] could not create a message: ${error?.message}`)
+  }
+
+  return data
+}
+
+export type ThreadRowFixture = {
+  id: string
+  guestId: string
+  hostId: string
+  listingId: string | null
+  lastMessageAt: string
+}
+
+/**
+ * A thread straight from the table — the oracle for "the conversation was
+ * created with the right two participants", which the page cannot show, and for
+ * `last_message_at`, which nothing in the database maintains.
+ */
+export async function readThread(threadId: string): Promise<ThreadRowFixture | null> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('message_threads')
+    .select('id, guest_id, host_id, listing_id, last_message_at')
+    .eq('id', threadId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read a thread: ${error.message}`)
+  }
+  if (!data) return null
+
+  return {
+    id: data.id,
+    guestId: data.guest_id,
+    hostId: data.host_id,
+    listingId: data.listing_id,
+    lastMessageAt: data.last_message_at,
+  }
+}
+
+/**
+ * Every thread between a (guest, host, listing) triple — the oracle for
+ * `getOrCreateThread`'s idempotency, where the claim is about the row *count*
+ * and the page can only ever show one conversation either way.
+ */
+export async function readThreadsFor(options: {
+  guestId: string
+  hostId: string
+  listingId: string
+}): Promise<string[]> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('message_threads')
+    .select('id')
+    .eq('guest_id', options.guestId)
+    .eq('host_id', options.hostId)
+    .eq('listing_id', options.listingId)
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read threads: ${error.message}`)
+  }
+
+  return (data ?? []).map((row) => row.id)
+}
+
+/**
+ * A thread's messages, oldest first, with every column the assertions turn on.
+ *
+ * **`readAt` is why this reads the table rather than the page.** The receipt rule
+ * is an asymmetry — incoming messages are stamped, your own are not, because
+ * `messages_update_read_receipt` requires `sender_id <> auth.uid()` — and
+ * nothing rendered distinguishes the two.
+ */
+export async function readMessages(threadId: string): Promise<
+  { id: string; senderId: string; body: string; readAt: string | null }[]
+> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('id, sender_id, body, read_at, created_at')
+    .eq('thread_id', threadId)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not read messages: ${error.message}`)
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    senderId: row.sender_id,
+    body: row.body,
+    readAt: row.read_at,
+  }))
+}
+
+/**
+ * Every thread either fixture account participates in — the teardown's oracle.
+ *
+ * Both roles, because the accounts sit on opposite ends by design: the primary
+ * user is the guest and the second hosts the listing (F12/F13's arrangement), so
+ * a sweep scoped to one column would miss every thread.
+ */
+export async function threadsInvolvingFixtureUsers(): Promise<string[]> {
+  const supabase = serviceClient()
+  const ids = await fixtureUserIds()
+  const list = ids.join(',')
+
+  const { data, error } = await supabase
+    .from('message_threads')
+    .select('id')
+    .or(`guest_id.in.(${list}),host_id.in.(${list})`)
+
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not list fixture threads: ${error.message}`)
+  }
+
+  return (data ?? []).map((row) => row.id)
+}
+
+/** Removes threads and, by cascade, their messages. */
+export async function deleteThreads(threadIds: string[]): Promise<void> {
+  if (threadIds.length === 0) return
+
+  const supabase = serviceClient()
+
+  const { error } = await supabase.from('message_threads').delete().in('id', threadIds)
+  if (error) {
+    throw new Error(`[e2e/fixtures] could not delete threads: ${error.message}`)
+  }
+}

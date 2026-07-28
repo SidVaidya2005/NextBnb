@@ -200,7 +200,14 @@ export default async function ListingDetailPage({ params, searchParams }: Props)
           {listing.host && (
             <>
               <Divider />
-              <HostCard host={listing.host} />
+              <HostCard
+                host={listing.host}
+                listingId={listing.id}
+                isSignedIn={viewerId !== null}
+                // Same comparison the booking widget makes: a host can neither
+                // book nor message their own listing.
+                isOwnListing={viewerId !== null && viewerId === listing.host_id}
+              />
             </>
           )}
         </div>

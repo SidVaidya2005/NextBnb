@@ -12,6 +12,7 @@ import {
   formatInclusiveRange,
   formatMonthYear,
   formatPrice,
+  formatThreadTimestamp,
   formatTimeOfDay,
   hostEarnings,
   humanizeToken,
@@ -22,9 +23,11 @@ import {
   rangesOverlap,
   reorderedPositions,
   safeNextPath,
+  threadPartner,
   toFavoriteCards,
   toISODate,
   tripSection,
+  unreadCount,
 } from '@/lib/utils'
 
 describe('formatPrice', () => {
@@ -997,5 +1000,104 @@ describe('hostEarnings', () => {
     // No division anywhere in this helper, so this can only fail if a caller ever
     // hands it a non-integer — which the DB's int columns make impossible today.
     expect(Number.isInteger(hostEarnings({ total: 86_150, serviceFee: 10_150 }))).toBe(true)
+  })
+})
+
+describe('unreadCount', () => {
+  const VIEWER = 'viewer-id'
+  const OTHER = 'other-id'
+
+  const msg = (senderId: string, readAt: string | null) => ({
+    sender_id: senderId,
+    read_at: readAt,
+  })
+
+  it('counts incoming messages that have not been read', () => {
+    expect(
+      unreadCount([msg(OTHER, null), msg(OTHER, null), msg(OTHER, '2026-07-28T09:00:00Z')], VIEWER),
+    ).toBe(2)
+  })
+
+  it('never counts the viewer’s own messages, however long they stay unread', () => {
+    // **The half no lower layer enforces, and the gate proof targets this.**
+    // `messages_update_read_receipt` stops a user stamping their OWN message
+    // read, so an outgoing message's `read_at` stays null until the other person
+    // opens the thread. Counting naively would show a growing pile of unread
+    // mail from yourself. The policy causes this; it cannot fix it, because it
+    // governs writes and this is a read.
+    expect(unreadCount([msg(VIEWER, null), msg(VIEWER, null)], VIEWER)).toBe(0)
+  })
+
+  it('counts only the incoming half of a mixed conversation', () => {
+    expect(
+      unreadCount(
+        [msg(VIEWER, null), msg(OTHER, null), msg(VIEWER, null), msg(OTHER, null)],
+        VIEWER,
+      ),
+    ).toBe(2)
+  })
+
+  it('is zero for an empty thread', () => {
+    // `getOrCreateThread` creates the row on the first click, so a conversation
+    // with no messages is an ordinary state rather than an edge case.
+    expect(unreadCount([], VIEWER)).toBe(0)
+  })
+})
+
+describe('threadPartner', () => {
+  const guest = { id: 'guest-id', name: 'Guest' }
+  const host = { id: 'host-id', name: 'Host' }
+
+  it('returns the host when the viewer is the guest', () => {
+    expect(threadPartner({ guest, host }, 'guest-id')).toBe(host)
+  })
+
+  it('returns the guest when the viewer is the host', () => {
+    // The same user is the guest in one thread and the host in another, so
+    // neither field can be assumed to be "them" — this is why every surface that
+    // names a participant has to ask.
+    expect(threadPartner({ guest, host }, 'host-id')).toBe(guest)
+  })
+
+  it('never names the viewer as their own counterpart', () => {
+    // Holds for both roles, which is the property that actually matters — a bug
+    // here would render "Hosted by you" style nonsense on one side only.
+    expect(threadPartner({ guest, host }, 'guest-id').id).not.toBe('guest-id')
+    expect(threadPartner({ guest, host }, 'host-id').id).not.toBe('host-id')
+  })
+})
+
+describe('formatThreadTimestamp', () => {
+  const now = new Date('2026-07-28T14:00:00')
+
+  it('shows the time for a message from today', () => {
+    expect(formatThreadTimestamp('2026-07-28T09:42:00', now)).toBe('9:42 AM')
+  })
+
+  it('shows the date for an earlier message this year', () => {
+    // A bare time is useless on a message from March; a year is noise on one
+    // from an hour ago. Show the smallest unit that still disambiguates.
+    expect(formatThreadTimestamp('2026-03-04T09:42:00', now)).toBe('Mar 4')
+  })
+
+  it('shows the month and year for a message from a previous year', () => {
+    expect(formatThreadTimestamp('2025-11-20T09:42:00', now)).toBe('Nov 2025')
+  })
+
+  it('treats the same calendar day as today even at the boundaries', () => {
+    expect(formatThreadTimestamp('2026-07-28T00:00:00', now)).toBe('12:00 AM')
+    expect(formatThreadTimestamp('2026-07-28T23:59:00', now)).toBe('11:59 PM')
+  })
+
+  it('distinguishes yesterday from today rather than falling back on the hour', () => {
+    // Same clock time, different day — the branch cannot be keyed on time alone.
+    expect(formatThreadTimestamp('2026-07-27T14:00:00', now)).toBe('Jul 27')
+  })
+
+  it('returns null on an unparseable timestamp instead of throwing', () => {
+    // `format` throws on an invalid Date, and a bad timestamp should cost the
+    // line, not the page — `formatMonthYear`'s posture.
+    expect(formatThreadTimestamp('not-a-date', now)).toBeNull()
+    expect(formatThreadTimestamp('', now)).toBeNull()
   })
 })

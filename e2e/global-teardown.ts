@@ -1,8 +1,10 @@
 import {
   deleteListing,
+  deleteThreads,
   fixtureAdmins,
   listingsOwnedByFixtureUser,
   setUserAdmin,
+  threadsInvolvingFixtureUsers,
 } from './fixtures'
 
 /**
@@ -24,6 +26,29 @@ import {
  * are inserted directly by fixtures.
  */
 export default async function globalTeardown() {
+  // **Threads first, and the order is load-bearing.** Two independent reasons:
+  //
+  // 1. Threads do NOT cascade with listings. `message_threads.listing_id` is
+  //    `on delete set null` and the participants cascade from `profiles`, which
+  //    this suite never deletes — so the listing sweep below cannot reach them
+  //    and a fixture thread would survive every run.
+  // 2. Deleting the listings first can actually *fail*. Nulling `listing_id`
+  //    collapses a thread onto `(guest, host, null)`, and
+  //    `message_threads_unique_participants` is `unique nulls not distinct` — so
+  //    a fixture user holding threads about two listings with the same
+  //    counterpart would see the second listing delete raise a unique violation.
+  //    Clearing the threads first makes that unreachable here. (The same hazard
+  //    is live in the app and is recorded in `build-plan.md` → F16.)
+  //
+  // Messages cascade from their thread, so they need no pass of their own.
+  const threads = await threadsInvolvingFixtureUsers()
+  if (threads.length > 0) {
+    console.log(
+      `[e2e/global-teardown] removing ${threads.length} message thread(s) left by the suite`,
+    )
+    await deleteThreads(threads)
+  }
+
   const leaked = await listingsOwnedByFixtureUser()
 
   if (leaked.length > 0) {
