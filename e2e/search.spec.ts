@@ -219,23 +219,30 @@ test.describe('availability', () => {
   })
 
   test('an incomplete or past range filters nothing', async ({ page }) => {
-    const all = await countAt(page, '/')
+    // **Measured against the seeded catalogue, not a live count of `/`.** This
+    // was `const all = await countAt(page, '/')` compared against four later
+    // navigations — five separately-timed reads of a page any concurrent worker
+    // can change by publishing or deleting a fixture listing. F13 re-based two
+    // assertions in this file for exactly that reason and the note below the
+    // `URL contract` describe block spells it out; this was a third instance,
+    // missed then and **found by running the suite against a production build**
+    // (F18), where the faster navigations tightened the window enough to make it
+    // fail on two consecutive runs.
+    //
+    // The claim is that each of these params applies NO date filter, so every
+    // seeded listing must still be present. `>=` rather than `toBe` because a
+    // sibling worker's published fixture listing legitimately adds to the grid.
+    const seeded = snapshot.listings.length
 
-    expect(await countAt(page, `/?checkIn=${addDay(todayISO(), 12)}`)).toBe(all)
-    expect(await countAt(page, `/?checkOut=${addDay(todayISO(), 12)}`)).toBe(all)
-    expect(
-      await countAt(
-        page,
-        `/?checkIn=${addDay(todayISO(), -10)}&checkOut=${addDay(todayISO(), 12)}`,
-      ),
-    ).toBe(all)
-    // Inverted.
-    expect(
-      await countAt(
-        page,
-        `/?checkIn=${addDay(todayISO(), 17)}&checkOut=${addDay(todayISO(), 12)}`,
-      ),
-    ).toBe(all)
+    for (const url of [
+      `/?checkIn=${addDay(todayISO(), 12)}`,
+      `/?checkOut=${addDay(todayISO(), 12)}`,
+      `/?checkIn=${addDay(todayISO(), -10)}&checkOut=${addDay(todayISO(), 12)}`,
+      // Inverted.
+      `/?checkIn=${addDay(todayISO(), 17)}&checkOut=${addDay(todayISO(), 12)}`,
+    ]) {
+      expect(await countAt(page, url), url).toBeGreaterThanOrEqual(seeded)
+    }
   })
 })
 

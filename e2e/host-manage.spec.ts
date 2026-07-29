@@ -55,8 +55,41 @@ async function waitForOwnListings(page: Page) {
 
   // Every control on this screen is a client button; without this the first
   // click can land on server HTML and do nothing.
+  //
+  // **This covers the FIRST row only, which is not necessarily the row a spec is
+  // about** — see `hydratedRowFor` below, which is what specs should use before
+  // clicking anything. Kept as-is because it is also the "the page is ready at
+  // all" wait, and for a host with no listings there is no row to hydrate.
   const anyRow = ownListings(page).getByRole('listitem').first()
   if (await anyRow.count()) await waitForHydration(anyRow.getByRole('button').first())
+}
+
+/**
+ * The card for one listing, waited on until *its own* controls will respond.
+ *
+ * **Why this is not `rowFor` plus a click.** `waitForOwnListings` hydrates the
+ * first row, and for most of this file's history the fixture listing *was* the
+ * first row — `getOwnListings` orders `created_at DESC` and the spec had just
+ * created it. Under `fullyParallel` load that stops being true: other workers
+ * create newer listings, the row under test slides down, and nothing waits for
+ * the hydration of the button the spec is about to click. The click then lands on
+ * server HTML and does nothing — F10's exact failure, which is silent, because a
+ * button that is present but inert looks identical to one that was pressed and
+ * had no effect.
+ *
+ * **Added in F18 as a correctness improvement, NOT as a proven fix.** It was
+ * written to explain three tests in this file that fail against a **production**
+ * build under load (see `progress-tracker.md` → Outstanding actions). It did not
+ * fix them — they still fail with it in place. It is kept because waiting on the
+ * row actually under test is strictly more correct than waiting on whichever row
+ * happens to be first, but do not read it as the diagnosis. The real cause is
+ * still open.
+ */
+async function hydratedRowFor(page: Page, title: string): Promise<Locator> {
+  const row = rowFor(page, title)
+  await row.waitFor()
+  await waitForHydration(row.getByRole('button').first())
+  return row
 }
 
 /** The editor, waited on until its fields will actually keep what is typed. */
@@ -149,7 +182,7 @@ test.describe('signed in', () => {
       await page.goto('/host/listings')
       await waitForOwnListings(page)
 
-      const row = rowFor(page, listing.title)
+      const row = await hydratedRowFor(page, listing.title)
       // `exact` matters: getByText is a case-insensitive substring match, and
       // the fixture titles literally read "E2E draft <hex>". Sixth time this
       // project has met a locator coupled to text outside the thing under test.
@@ -176,7 +209,7 @@ test.describe('signed in', () => {
       await page.goto('/host/listings')
       await waitForOwnListings(page)
 
-      const row = rowFor(page, listing.title)
+      const row = await hydratedRowFor(page, listing.title)
       await row.getByRole('button', { name: `Publish ${listing.title}` }).click()
 
       await expect(row.getByRole('alert')).toHaveText(
@@ -202,7 +235,7 @@ test.describe('signed in', () => {
       await page.goto('/host/listings')
       await waitForOwnListings(page)
 
-      const row = rowFor(page, listing.title)
+      const row = await hydratedRowFor(page, listing.title)
       await row.getByRole('button', { name: `Unpublish ${listing.title}` }).click()
       // `exact` is load-bearing: getByRole matches the accessible name as a
       // SUBSTRING by default, so "Publish <title>" also matches the *Unpublish*
@@ -325,7 +358,7 @@ test.describe('signed in', () => {
       await page.goto('/host/listings')
       await waitForOwnListings(page)
 
-      const row = rowFor(page, listing.title)
+      const row = await hydratedRowFor(page, listing.title)
       await row.getByRole('button', { name: `Delete ${listing.title}` }).click()
       // Two steps, in place — no dialog to handle, and nothing destructive
       // happens on the first click.
@@ -348,7 +381,7 @@ test.describe('signed in', () => {
       await page.goto('/host/listings')
       await waitForOwnListings(page)
 
-      const row = rowFor(page, listing.title)
+      const row = await hydratedRowFor(page, listing.title)
       await row.getByRole('button', { name: `Delete ${listing.title}` }).click()
       await row.getByRole('button', { name: `Keep ${listing.title}` }).click()
 
@@ -374,7 +407,7 @@ test.describe('signed in', () => {
       await page.goto('/host/listings')
       await waitForOwnListings(page)
 
-      const row = rowFor(page, listing.title)
+      const row = await hydratedRowFor(page, listing.title)
 
       // Disabled AND explained — a dead control with no reason is what users
       // report as broken.
@@ -409,7 +442,7 @@ test.describe('signed in', () => {
       await page.goto('/host/listings')
       await waitForOwnListings(page)
 
-      const row = rowFor(page, listing.title)
+      const row = await hydratedRowFor(page, listing.title)
       await expect(
         row.getByRole('button', { name: `Delete ${listing.title}`, exact: true }),
       ).toBeEnabled()
@@ -448,7 +481,7 @@ test.describe('signed in', () => {
       await page.goto('/host/listings')
       await waitForOwnListings(page)
 
-      const row = rowFor(page, listing.title)
+      const row = await hydratedRowFor(page, listing.title)
       // A cancelled booking frees its dates and holds nobody's plans.
       await expect(
         row.getByRole('button', { name: `Delete ${listing.title}` }),
