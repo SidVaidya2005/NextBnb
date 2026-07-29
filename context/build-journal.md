@@ -3492,6 +3492,13 @@ onto `Pill`; `fixtures.ts` gained `createReviewRow` and `BookingRow.cancelledAt`
 > exactly as intended: it was added to confirm a theory and it refuted it, which is the
 > cheaper outcome.
 
+> → **Attributed and fixed, same day. See F19 follow-up 2 below.** It was none of the
+> three candidates above: **the spec polled the wrong write.** `sendMessage` INSERTs the
+> message and *then* UPDATEs `last_message_at`; the spec gated on the message row, so it
+> proceeded the moment the first statement committed and read the column before the
+> second landed. A test defect, not a product defect — the exact inverse of what this
+> entry concluded for two features.
+
 ---
 
 ### Phase 6 · Feature 18 — Responsive QA, polish & deploy  *(2026-07-29)*
@@ -3952,3 +3959,70 @@ cleared. Confirm it in the network trace by looking for a `200` on
 - Post-state, read back rather than assumed: 26 listings (24 published) / 130 photos /
   17 bookings / 7 reviews / 5 blocks / 0 threads / 4 surviving real users / **1 admin** /
   **0 E2E fixture residue**.
+
+---
+
+### Phase 6 · F19 follow-up 2 — the messages inbox flake, attributed at last  *(2026-07-29)*
+
+**Open since F16, suspected in F17, unresolved in F18, refuted this morning, and
+solved this afternoon.** The flake was `messages.spec.ts:233` — *"a reply moves its
+conversation to the top of the inbox"* — failing intermittently under full-suite
+load, roughly half of all runs.
+
+#### Decisions
+
+- **Root cause: the spec polled the wrong write.** `sendMessage` performs two
+  statements — INSERT the message, then UPDATE `message_threads.last_message_at`.
+  The spec gated on the first:
+
+  ```ts
+  await expect.poll(async () => (await readMessages(olderThread.id)).length).toBe(1)
+  const bumped = await readThread(olderThread.id)          // races the UPDATE
+  expect(bumped!.lastMessageAt > untouched!.lastMessageAt).toBe(true)
+  ```
+
+  `click()` returns when the click dispatches, not when the action finishes, and the
+  poll reads the database directly — so it goes green the instant the INSERT commits,
+  while the UPDATE is still in flight. The spec then reads `last_message_at` at its
+  original creation value and compares it against a thread created *later*.
+- **The fix polls the condition being asserted**, both threads read together, and the
+  message-delivery poll is kept because it still means something. Measured settle time
+  is ~130–220ms after the message commits.
+- **It stays a gate proof, which was the thing to get right.** Polling until the
+  asserted condition holds *looks* tautological. It is not, because nothing else in the
+  system writes that column — delete the bump and the poll cannot pass slowly, it times
+  out. Verified by doing exactly that rather than by arguing it (below).
+
+#### Gotchas
+
+- **This is the third recorded explanation for the same failure, and the first one
+  supported by an observation.** F17 called it *"a product defect… the bump did not
+  land"*, with a `sendMessage` docblock reasoning from the bump being *"guarded by
+  nothing"*. F19's morning run refuted that with `938c84a`'s log line, and then listed
+  three fresh candidates — both threads bumped, equal timestamps, stale read. **The
+  answer was none of those either.** Every one of them was a theory about the
+  *product*, because the failure had been filed as a product defect from the start, and
+  that framing survived four features without anyone re-reading the eight lines of test
+  around the assertion.
+- **The signature was distinctive once looked for**, and it is worth recording because
+  it generalises: *an assertion that fails while its own precondition is provably
+  satisfied is usually reading too early, not reading wrong.* The bump landed every
+  time — F17 already had that evidence in the form of a passing message-count poll and
+  simply read it as "the message sent, so the bump should have too".
+- **1 in 8 at low load, ~1 in 2 under full-suite load.** A standalone diagnostic that
+  ran the same sequence eight times caught it once and logged
+  `WOULD_FAIL=true stillOriginalValue=true settledAfterMs=135` — the column still at
+  its creation value at the moment of assertion, moving 135ms later. That single line
+  is the whole diagnosis.
+
+#### Verified
+
+- **Gate proof, both directions.** With the bump replaced by a no-op `select`, rebuilt:
+  the spec **fails** at the new poll. With it restored: **12/12 passed** across
+  `--repeat-each=10`.
+- `npx tsc --noEmit` clean; `src/` byte-identical to before the gate proof (the bump was
+  restored from a backup, and `git diff src/` is empty).
+- Full suite against a production build: see `progress-tracker.md` → Live baselines.
+- **`sendMessage` is unchanged.** The two-statement shape, the swallowed bump error and
+  the zero-row log from `938c84a` are all still correct and all still wanted — the
+  product was never the problem here.
