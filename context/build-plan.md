@@ -763,6 +763,64 @@ Make it feel finished, verified across devices, and live on Render.
 - Full green suite: `npm run test` (unit) + `npm run test:e2e` (Playwright core flows) + `npx tsc --noEmit` + `npm run lint` all pass.
 - Deploy to Render as a Web Service (`npm run build` → `npm start`); set all env vars in the dashboard; register redirect URLs per `architecture.md` → Redirect URL responsibilities (Google → Supabase callback; Supabase → Render `/auth/callback`); set `NEXT_PUBLIC_SITE_URL` to the Render URL.
 
+**Planned shape (agreed before build, 2026-07-29):**
+- **Two of the three workstreams above are not in the state this entry implies, and
+  exploration is what said so.** *Responsive QA is largely already banked* — 11
+  `*-responsive.spec.ts` files already sample the four DESIGN.md bands at their lower
+  boundaries, so that half is confirmation rather than construction. *The accessibility
+  half is worse than the tracker's Outstanding-actions list reads*: there is *no
+  `.focus()` call anywhere in `src/`*, so the project has **zero focus management**, and
+  both `aria-modal="true"` surfaces have no trap, no Escape and no focus restore. Only
+  `AccountMenu` handles Escape at all. *Deploy is entirely undone* — no `render.yaml`, no
+  Dockerfile, no CI.
+- **Two items this plan and the tracker assign to F18 needed re-basing.**
+  `sendMessage`'s zero-row bump guard is **already done** (commit `938c84a`, 6.17.5,
+  landed after F17 closed), and `README.md` still says *"Status: Pre-build … application
+  code has not been written yet"* with 17 features shipped.
+- **`DateRangePicker`'s day cells stay plain buttons — no `role="grid"`, no roving
+  tabindex.** The tracker's phrase *"F06's calendar `role="grid"` roving focus"* reads as
+  though that exists; it does not — there is no `role`, no `tabIndex` and no `onKeyDown`
+  in the primitive. Adding the correct ARIA grid pattern is a rewrite of a component
+  sitting under **three** features (`SearchBar`, `BookingWidget`, `AvailabilityManager`)
+  and ~6 spec files, at the finish line. A botched roving tabindex is worse for a keyboard
+  user than verbose-but-working buttons, so the ~60-tab-stop cost across two months is
+  **recorded as a known limitation instead of fixed**. Deliberately inverts nothing: the
+  cells are already operable, which is what makes deferring legitimate rather than lazy.
+- **The two calendar *popovers* do get Escape + focus restore**, separable from the
+  decision above because they are non-modal positioned `div`s — the change is a keydown
+  handler and a trigger ref, touching no day-cell rendering and no existing spec selector.
+  Today a keyboard user who opens the calendar and clicks "Done" is returned to the top of
+  the document.
+- **Verification is hand-written Playwright focus specs, not `@axe-core/playwright`.** No
+  new dependency, and the choice is not only about dependency count: axe finds *static*
+  ARIA violations and **structurally cannot see** "the dialog never restores focus", which
+  is the entirety of the debt here. The trap test asserts the *cycle* (focus last element
+  → Tab → back at the first), because asserting focus is merely *somewhere* would pass
+  against no trap at all — F08's rule.
+- **A focus trap is hand-rolled, not Radix.** `code-standards.md` pre-authorises the
+  conversation about a headless a11y primitive; it is declined on churn grounds — adopting
+  Radix at feature 18 means restyling two working dialogs to DESIGN.md and re-verifying the
+  33 responsive tests that drive them.
+- **Two hooks, not one** (`src/lib/hooks/`): `useDismissable` (Escape + focus restore +
+  optional Tab trap) for the 5 dismissable surfaces, and `useFocusWhen` for the 5 two-step
+  confirm controls, which otherwise repeat the same two-line effect five times. Extracting
+  at five copies follows this project's own precedent — `Pill` was extracted at four,
+  `StarRating` at two.
+- **The production build gets one verification run.** All 387 tests have only ever run
+  against `npm run dev` (`playwright.config.ts`'s `webServer`), so a deploy feature closes
+  that gap once against `npm run build && npm start`; the committed config stays on dev so
+  every future run does not pay for a build.
+- **Scope explicitly excludes** the separate Supabase project for E2E (large enough to
+  rival the rest of F18 — it stays an open tracker action, so the open-signup finding stays
+  open), admin pagination, inbox live-update, and any dedicated investigation of the
+  `messages.spec.ts` flake. The full-suite runs will show whatever they show post-`938c84a`
+  and that gets **recorded, not explained away**.
+- **F18 closes only when the live Render URL works**, Google sign-in included — not when
+  the runbook lands. The three redirect allow-lists and the eight env vars are entered by
+  the developer; the dashboards are not reachable from the build session.
+- **No migration, no new route, no new dependency.** The build stays at **16 routes**, so
+  F07's no-`loading.tsx` rule is untouched, and advisors should stay at **8 WARNs**.
+
 ---
 
 ## Feature Count

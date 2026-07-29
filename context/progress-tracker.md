@@ -12,7 +12,23 @@
 
 **Phase:** Phase 6 — Admin & Polish (in progress)
 **Last completed:** 17 Admin dashboard
-**Next:** 18 Responsive QA, polish & deploy — the final feature
+**In progress:** 18 Responsive QA, polish & deploy — **code and docs complete; the
+deploy itself is pending and F18 does not close until the live URL works.**
+
+F18's code half is done: the accessibility pass (ten surfaces that had no focus
+management at all), the date-fragility sweep F17 handed forward, and the deploy
+artifacts (`render.yaml` + `docs/deploy-render.md`). **What remains is the part
+that needs dashboard credentials** — applying the Blueprint, and registering the
+redirect URLs in Google Cloud and Supabase. The runbook is written to be executed
+top to bottom; its step 3 is the one that fails silently if skipped.
+
+Two findings worth the space. **Three of the five focus-restore tests passed
+against a build with the restore deleted**, because for a non-modal popover focus
+never leaves the trigger in the first place — the assertions were measuring the
+wrong thing, and F08's rule is the only reason that surfaced. And **this file was
+wrong about the calendar**: it listed "F06's calendar `role="grid"` roving focus"
+as a surface needing an audit, and that pattern was never built. Full detail:
+`build-journal.md` → F18.
 
 F17 put the moderation dashboard behind F04's route gate: three tables (users,
 listings, bookings) and three verbs (unpublish, delete, cancel). It needed
@@ -27,7 +43,7 @@ not RLS — is the only thing stopping an ordinary host erasing their own listin
 live reservations, **proved by impersonation in SQL rather than argued**. Full
 detail: `build-journal.md` → F17.
 
-### Live baselines (F17 close, 2026-07-29)
+### Live baselines (F18 code-complete, 2026-07-29)
 
 Treat any deviation from these as a finding, not a new normal.
 
@@ -35,12 +51,13 @@ Treat any deviation from these as a finding, not a new normal.
 | ---- | ----- |
 | `npx tsc --noEmit` / `npm run lint` | clean |
 | `npm run test` (unit) | 288/288 |
-| `npm run test:e2e` | 387 total — **383 passed / 3 skipped / 1 intermittent**, see the messages-ordering note below. Isolated and at low parallelism it is 387/387; under full-suite load one inbox-ordering test failed in 2 of 3 runs |
+| `npm run test:e2e` (dev server — the committed config) | **395 total — 392 passed / 3 skipped / 0 failed** (was 387 at F17; F18's `keyboard.spec.ts` adds 8). See the messages-ordering note below — this run was clean, which is *data*, not a verdict |
+| `npm run test:e2e` **against a production build** | **3 failed**, all in `host-manage.spec.ts`. **Pre-existing, not F18's** — proved by reverting `src/` to `938c84a` and re-running. Root cause **not identified**. See Outstanding actions |
 | `npm run build` | green, **16 routes**, `ƒ Proxy (Middleware)` printing |
 | `seed-verification.sql` | **45/46 — the seed has aged out, see below** |
 | Seed rows | 26 listings (24 published) / 130 photos / 17 seeded bookings / 7 reviews / 5 blocks / 0 favorites |
-| Whole-table counts | 26 listings / **19 bookings** / 7 reviews / **1 thread** — the extras are all the developer's own, itemised below |
-| Fixture residue after a full run | 0 listings, 0 bookings, 0 reviews, **0 fixture-owned threads**, **exactly one admin** (developer's Google account) |
+| Whole-table counts | 26 listings / **19 bookings** / 7 reviews / **1 thread** — the extras are all the developer's own, itemised below. **Re-confirmed at F18 close**, unchanged from F17 |
+| Fixture residue after a full run | 0 listings, 0 bookings, 0 reviews, **0 fixture-owned threads**, **exactly one admin** (developer's Google account). **Re-confirmed at F18 close**: `title like 'E2E%' or city like 'Testerton%'` returns **0**. A mid-run count reads higher (30 listings was observed while the suite was live) — that is workers' in-flight fixtures, not leakage, and `global-teardown.ts` sweeps them |
 | Security advisors | **8 WARNs — a 9th is a finding** |
 | Migrations vs remote | 9/9 matching |
 
@@ -92,6 +109,15 @@ function grants EXECUTE to `authenticated` only, and the absence of a matching
 Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 
 **Untested branches** (written, reasoned, never executed)
+- **The two admin two-step confirms have no focus assertion of their own** (F18).
+  `AdminListingActions` and `AdminCancelBookingButton` use the identical
+  `useFocusWhen` pairing that `e2e/keyboard.spec.ts` gate-proves on
+  `ListingActions`, so the hook is covered — but "the hook works and these
+  components call it" is an argument, not a test. `keyboard.spec.ts` cannot reach
+  them because `admin.spec.ts` owns `profiles.is_admin` exclusively (F17's race),
+  so the assertion belongs *inside* `admin.spec.ts`. Worth adding if F17 or F18 is
+  revisited. The admin listing delete is the one where it matters most: its confirm
+  step also renders the `role="alert"` naming the reservations the delete erases.
 - **The `{ ok: false }` Supabase-error branch of every action** — `setFavorite`
   (F08), `updateListing`/`deleteListing` (F10), `addBlock`/`removeBlock` (F11),
   `createBooking` (F12), `cancelBooking` (F13), `createReview`/`deleteReview`
@@ -228,11 +254,49 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
   (2026-07-29): the dashboard has three tables and no fourth.
 
 **Outstanding actions**
+- **Three `host-manage.spec.ts` tests fail against a PRODUCTION build under load,
+  and they are pre-existing — F18 found them, did not cause them, and has not
+  fixed them.** This is the single most important thing F18's production-build run
+  bought, and it is recorded unresolved rather than tidied away.
+
+  | Question | Answer, and how it was established |
+  | --- | --- |
+  | Which tests? | `badges a draft…` (:172), `unpublishing takes a live listing out of search and back` (:222), `deleting removes the listing and its photo rows` (:348) |
+  | Caused by F18? | **No.** `git stash push -- src/` back to `938c84a`, rebuilt, re-ran — still fails. The e2e half of F18's diff was kept, so only the product code varied |
+  | Only in production? | **Yes.** The full suite against `npm run dev` is **392 passed / 0 failed**. Against `npm run build && npm start` it is 3–4 failed on every run |
+  | Deterministic? | **No.** Each passes in isolation against the same production server; it needs concurrency. Two consecutive prod runs failed an overlapping core of 3 |
+  | Is the *product* broken? | **Not demonstrably.** A temporary diagnostic drove the real publish flow against the production build under load and reported `DB after click: is_published=true` with the Unpublish control rendered — i.e. the action and `router.refresh()` both worked. So the evidence points at a test-side race, but the mechanism is **not identified** |
+
+  **What was tried and did not work:** `hydratedRowFor` (waiting for hydration on
+  the row actually under test, rather than on whichever row is first — the rows
+  reorder under load because `getOwnListings` sorts `created_at DESC`). It is
+  kept because it is strictly more correct, but it is **not** the fix and its
+  docblock says so.
+
+  **Why it matters beyond the suite:** every one of these tests is about a host
+  mutation being reflected on screen. Until the mechanism is known, "publish /
+  unpublish / delete always updates the UI in production" is **asserted only
+  against a dev server**. Worth resolving before or shortly after the deploy —
+  and worth checking by hand during the runbook's step 5.
+- **The suite has only ever run against `npm run dev`**, and `playwright.config.ts`
+  still points there deliberately (a build on every run is too slow to work with).
+  F18 ran it against a production build once, which is how the item above
+  surfaced. **Doing that occasionally is now known to be worth it.**
 - **No keyboard or screen-reader pass**, now eight features running (F06's
   calendar `role="grid"` roving focus, F08's heart, F09's form, F10's two-step
   delete, F11's calendar, F12's stepper/popover/sheet — the sheet is a
   `role="dialog"` with **no focus trap and no focus restore** — and F13's
   two-step cancel, which moves focus nowhere when it swaps controls). **F18 owns it.**
+  > **Corrected 2026-07-29 (F18 exploration):** two things above are wrong, and
+  > both understate the problem. **The calendar has no `role="grid"` and no roving
+  > focus** — `DateRangePicker` carries no `role`, no `tabIndex` and no
+  > `onKeyDown` at all; its days are plain `<button>`s with `aria-label` +
+  > `aria-pressed`, so this line names a pattern that was never built rather than
+  > one needing an audit. And the focus gap is not confined to the sheet: **there
+  > is no `.focus()` call anywhere in `src/`**, so *nothing* in the project manages
+  > focus. Two surfaces are `aria-modal="true"` with no trap (F12's sheet and
+  > F06's search overlay), two calendar popovers strand focus at the document top
+  > on close, and only `AccountMenu` handles Escape.
   F14 adds nothing to this list: `/host/reservations` renders no interactive
   control at all beyond one link per card. **F15 adds one two-step control (the
   review delete, with F13's same focus gap) but subtracts risk elsewhere:**
@@ -247,6 +311,17 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
   gap (nothing moves focus when the controls swap), plus a `role="alert"` holding
   the deletion-impact copy, which is the first live region in the project that
   appears *beside* the control that triggered it rather than elsewhere on the page.
+  → **Largely closed by F18** (2026-07-29). All ten surfaces now manage focus, via
+  two shared hooks (`src/lib/hooks/`), and `e2e/keyboard.spec.ts` gate-proves each
+  behaviour. **Two things are deliberately still open**, and neither is an
+  oversight: (a) `DateRangePicker`'s day cells remain plain buttons — no
+  `role="grid"`, no roving tabindex — so a two-month calendar is ~60 tab stops;
+  the primitive sits under three features and ~6 spec files and a botched roving
+  tabindex is worse than verbose-but-working buttons. (b) **No screen-reader pass
+  has been run.** F18 covered keyboard operability and focus, which is what was
+  broken; how the live regions actually *announce* — especially F16's asynchronous
+  message announcement interacting with the sheet and menu — is still unverified
+  by anything but reading.
 - **`messages.spec.ts` › "a reply moves its conversation to the top of the inbox"
   fails intermittently under full-suite load, and the honest verdict is *not
   conclusively attributed*.** What was actually measured, at F17 close:
@@ -263,6 +338,16 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
   survive one". **F17's diff touches nothing in messaging** — that much is
   certain — but the correlation is real and should not be written off.
 
+  **F18 update (2026-07-29), reported as data rather than as a resolution.**
+  Post-`938c84a`, the full suite passed **392 / 3 skipped / 0 failed** against the
+  dev server, with this test green. That is *not* evidence the flake is fixed:
+  F17's own measurement was **1 clean run in 3**, so a clean run is exactly what a
+  still-present intermittent failure looks like a fair fraction of the time.
+  `938c84a` also never claimed to fix it — it made a lost bump *visible in the
+  log*, which is a different thing. **Still open. If it recurs, the log now says
+  so**, and the line to look for is
+  `[actions/messages] sendMessage bump matched no row for thread …`.
+
   **The mechanism is understood and it is a product defect, not only a test one.**
   It fails at the `lastMessageAt` comparison *after* the message-count poll has
   passed, i.e. the message sent and the **bump did not land**. `sendMessage`'s own
@@ -275,6 +360,23 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
   **Recommended for F18: give the bump the `.select().maybeSingle()` zero-row
   branch F13 established, logging (not surfacing) a miss.** Left unfixed here
   because it is F16 code and the call is the developer's.
+  → **Closed by commit `938c84a` (6.17.5, 2026-07-29)**, after F17 closed and
+  before F18 began. The bump now `.select('id').maybeSingle()`s and logs when it
+  matched no row. **The flake itself is still not attributed** — the commit
+  message says so explicitly and does not claim to fix it. F18 does not
+  investigate it further by agreement; its full-suite runs will show whatever
+  they show, and that gets recorded rather than explained away.
+- **The date-fragility sweep is done** (F18). `host-availability.spec.ts` held
+  **six** more bare `dayCell` assertions of the same class, at `today+10…15` —
+  latent only because that file runs at the default 1280px viewport where two
+  months render. All six now use `revealDay`. Separately,
+  `search-responsive.spec.ts`' past-dates test **silently skipped its only
+  assertion on the 1st of every month** via a bare `if (sameMonth)`; both branches
+  now assert. The suspected `todayISO()`-local / `addDay()`-UTC mismatch in
+  `fixtures.ts` was **investigated and is not a defect** — `addDay` parses *and*
+  formats in UTC, so it is a pure calendar-date shift, verified against an
+  independent oracle at offsets +14 through −11. That reasoning is recorded in the
+  function's docblock so it is not "simplified" into a real bug later.
 - **`e2e/host-availability-responsive.spec.ts` was date-fragile, and it took until
   2026-07-29 to show.** Its "calendar scrolls inside its own container" test
   measured `todayISO() + 3` with a bare `dayCell`, so on the last three days of any
@@ -341,7 +443,7 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 - **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waited in F12's booking widget — and was sharper there, because *any* signed-in guest reads zero rows for a listing they do not host.
 - **F08** — **a green assertion is not a gating assertion; run every new spec against a deliberately broken build.** `toHaveURL('/')` passes instantly when the page is already at `/`, so the spec guarding "the heart must not navigate" passed against the exact markup it existed to reject. Two further F08 traps rhyme with it: postgrest-js types a to-one embed on a NOT NULL FK as never-null while RLS returns null at runtime (the `toFavoriteCards` filter is load-bearing and TS would never demand it), and a spec that snapshots whole-user state races the parallel workers sharing that user. **Generalises: prove the test fails before trusting that it passes.**
 - **F10** — **an FK cascade is a destructive path with no error, no test and no type pointing at it.** `bookings.listing_id` is `on delete cascade`, so a host deleting a listing does not *cancel* its reservations — it erases them, leaving the guest nothing in `/trips` and no record a stay ever existed. It is now guarded in the action (refuse while a confirmed stay is still coming, steer to unpublish), stated in the UI rather than only disabled, and the cutoff is widened by a day so the JS/`current_date` boundary can only ever err toward refusing. **Generalises: before shipping a delete, read the FK actions on every table that references the row — the blast radius is in the schema, not in the feature.** F17's admin delete is the same cascade with the guard deliberately absent.
-- **Phase 3 close-out** — **a suite with one account can only ask RLS half of every question, and the half it can ask returns the reassuring answer.** Three gaps stayed open from F04 to F11 because the Playwright fixture user was the only principal that could sign in: it was always the host of anything it unpublished, always the sole writer of its own favorites, and never safely flippable to admin. A second account closed all three at once, and the shape generalises past testing: **whenever behaviour depends on who is asking, one identity cannot verify it.** F14's host reservations need a guest who is not the host, and F16's messaging needs two participants — both are this same requirement arriving as a feature. Corollary: a fixture account granted `is_admin` must give it back in a `finally` **and** in global teardown, because fixture passwords are committed and a timeout skips the `finally`.
+- **F18** — **an accessibility assertion can pass because the behaviour was never exercised, not because it works — and three of five did.** The focus-restore tests opened a surface, pressed Escape, and asserted focus was on the trigger. For a non-modal popover or a menu that passes with **the restore code deleted**, because clicking a trigger leaves focus *on* it and opening moves nothing: the assertion was measuring "focus was never stolen", not "focus was restored". Only moving focus *into* the surface first (`await done.focus()`) makes close-without-restore fall to `<body>` and the test fail. Its twin arrived from the opposite direction: the "this popover is *not* trapped" test passed against a build with the trap wrongly enabled, because a wrapped Tab lands on the popover's **first** control — which is also not the one the assertion named. Asking *containment* ("did focus leave at all") is the only form a trap can fail. **Generalises: for any test of where focus went, ask where focus would be if the feature did nothing — if that is the same place, the test is scenery.** This is F08's rule ("prove the test fails before trusting that it passes") meeting a state that is invisible in the DOM, which is why seventeen features of responsive specs and screenshots never caught that the project had **no `.focus()` call anywhere in `src/`**. Sibling finding, from reading rather than running: this tracker's own Outstanding-actions list named "F06's calendar `role="grid"` roving focus" as a surface to audit, and that pattern **was never built** — a to-do describing work as existing is worse than one describing it as missing.
 - **F17** — **an OR-shaped policy can be *wider* than the action it backs, and then the action is the only guard — the inverse of this project's usual arrangement.** F17 met it twice in one feature, in opposite directions. `listings_delete_own_or_admin` is `host_id = uid OR is_admin()`, so `adminDeleteListing` — which deliberately drops F10's upcoming-booking guard to keep the spam escape hatch — would otherwise let any *host* route their own listing through it and erase live reservations. Proved by impersonation in SQL, not argued: non-admin host, one upcoming confirmed stay, `delete` returned OK and left zero rows. Meanwhile `listings_update_own` is `host_id = uid` with **no admin branch at all**, so an admin unpublish was an UPDATE matching zero rows and returning `{ error: null }` — F13's trap, sitting in the verb this dashboard is meant to *prefer*, and the build plan had asserted the opposite. **Generalises: for every admin write, ask both halves — "who else does this policy admit?" and "does it admit the admin at all?" The answers are independent, and neither is visible from the action.** The fix for the second was a narrow definer function rather than `or is_admin()` on the policy, because **no column grant restricts listing writes** — widening would have handed an admin `host_id`, i.e. the power to reassign someone's listing. Sibling finding, from actually running the suite: `second-user.spec.ts` had been asserting on `FeaturePlaceholder` copy since F04, so the only test of `/admin` was pinned to scaffolding rather than to behaviour.
 - **F12** — **a guard the database also enforces cannot be gated by a test, and the test will pass anyway.** The spec proving `createBooking` refuses taken dates was written against a *booking* overlap — and it **passed with the availability check deleted**, because `bookings_no_overlap` refused the insert and `23P01` maps to the same sentence the guard produces. The gate had to move to the case no constraint can reach: a booking over a host's `blocked_dates`, where nothing in Postgres expresses a rule spanning two tables. **Generalises: when writing a gate proof, first ask which layer would catch the defect if this layer were missing** — if a lower one would, the spec is measuring that instead. The same reasoning re-priced F12's fixture listing: at $123.00 the service fee is 51660 cents whether you round or truncate, so the cents assertion passed against `Math.floor`; at $123.33 the two answers differ and the spec gates the rounding rule end to end. **F13's cancel window (also DB-enforced, via the UPDATE policy) is the next place this applies.**
 - **F13** — **RLS refuses a write by filtering, not by raising — so a refused UPDATE is indistinguishable from a successful one.** The cancellation window lives entirely in `bookings_update_cancel_own_or_admin`'s USING clause, so `cancelBooking` re-checking it would buy nothing; what only the action can do is notice that **zero rows changed**, because Postgres returns `{ error: null }` either way. Gate-proved: with the `!data` branch removed, cancelling an in-progress stay showed the guest no refusal at all while the row stayed `confirmed`. **Generalises: after any RLS-scoped UPDATE or DELETE, the row count *is* the authorization result — `.select()` it and treat empty as refusal.** F17's admin cancel and unpublish are the next place this applies, and its delete has the same shape. Its sibling finding: `/trips` needed an explicit `guest_id` filter because the `bookings` SELECT policy also admits hosts and admins — **the inverse of `getFavorites`, where leaning on RLS is correct** — so "does the policy answer exactly my question?" has to be asked per table, not per project.
@@ -352,6 +454,26 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 ---
 
 ## Pruned from Key Decisions (kept for the record)
+
+> - **Phase 3 close-out** — **a suite with one account can only ask RLS half of every
+>   question, and the half it can ask returns the reassuring answer.** Three gaps stayed
+>   open from F04 to F11 because the Playwright fixture user was the only principal that
+>   could sign in: it was always the host of anything it unpublished, always the sole
+>   writer of its own favorites, and never safely flippable to admin. A second account
+>   closed all three at once, and the shape generalises past testing: **whenever behaviour
+>   depends on who is asking, one identity cannot verify it.** F14's host reservations need
+>   a guest who is not the host, and F16's messaging needs two participants — both are this
+>   same requirement arriving as a feature. Corollary: a fixture account granted `is_admin`
+>   must give it back in a `finally` **and** in global teardown, because fixture passwords
+>   are committed and a timeout skips the `finally`. *(Pruned in F18 at the ~10-bullet cap
+>   — no longer a pending decision but a structural fact of the suite. `SECOND_USER` exists,
+>   `e2e/constants.ts` documents when to reach for it, `code-standards.md` → Testing states
+>   the rule and the `finally`/teardown requirement, and F12, F14, F16 and F17 have all used
+>   it without incident. F17 extended the corollary rather than rediscovering it: because
+>   `fullyParallel: true` orders nothing **between** files, one file must own the `is_admin`
+>   flag outright — which is why F18's `keyboard.spec.ts` deliberately asserts its two-step
+>   confirm on a host control rather than an admin one. Reasoning preserved in
+>   `build-journal.md` → Phase 3 close-out.)*
 
 > - **F11** — **a negative assertion needs a positive control, or it passes for the wrong
 >   reason.** The spec proving `/host/listings/[id]/availability` 404s for a non-owner

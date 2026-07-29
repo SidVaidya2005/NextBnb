@@ -3180,3 +3180,233 @@ onto `Pill`; `fixtures.ts` gained `createReviewRow` and `BookingRow.cancelledAt`
 >   `.select().maybeSingle()` zero-row branch F13 established, logging a miss rather
 >   than surfacing it.** Not done here — it is F16 code, and changing it during F17's
 >   verification would have altered the very thing being measured.
+
+> → **Closed by commit `938c84a`** (6.17.5, 2026-07-29), between F17's close and
+> F18's start. The bump now `.select('id').maybeSingle()`s and logs when it matched
+> no row. **The flake itself remains unattributed** — the commit message says so
+> explicitly and declines to claim it as the fix.
+
+---
+
+## Phase 6 · Feature 18 — Responsive QA, polish & deploy  *(2026-07-29)*
+
+The last feature. Three workstreams under one number, and exploration found two
+of the three were not in the state the plan and tracker described.
+
+### Decisions
+
+- **Scope was cut to what was actually undone.** *Responsive QA is largely already
+  banked* — 11 `*-responsive.spec.ts` files already sample the four DESIGN.md bands
+  at their lower boundaries, so that half is confirmation, not construction. What
+  was genuinely undone: the accessibility pass, the deploy, and the date-fragility
+  sweep F17 handed forward. Excluded by agreement: the separate Supabase project for
+  E2E (large enough to rival the rest of F18 — the open-signup finding therefore
+  **stays open**), admin pagination, inbox live-update, and any dedicated
+  investigation of the messages flake.
+
+- **`DateRangePicker`'s day cells stay plain buttons — and the tracker was wrong
+  about what exists.** Its Outstanding-actions list names "F06's calendar
+  `role="grid"` roving focus" as a surface needing an audit. There is no
+  `role="grid"`, no `tabIndex` and no `onKeyDown` in that component; the pattern was
+  never built. Adding it is a rewrite of a primitive sitting under **three**
+  features (`SearchBar`, `BookingWidget`, `AvailabilityManager`) and ~6 spec files,
+  at the finish line, and a botched roving tabindex is worse for a keyboard user
+  than verbose-but-working buttons. The ~60 tab stops across two months are recorded
+  as a known limitation. The *popovers* were fixed, because they are separable —
+  Escape and focus restore touch no day-cell rendering and no existing selector.
+
+- **Verification is hand-written Playwright focus specs, not `@axe-core/playwright`.**
+  No new dependency, but the real reason is sharper: axe finds *static* ARIA
+  violations and structurally cannot see "the dialog never restores focus", which is
+  the entirety of this debt. A green axe run over these surfaces before F18 would
+  have reported nothing wrong.
+
+- **Two hooks, not one** (`src/lib/hooks/`, a new folder added to
+  `architecture.md`'s boundaries table). `useDismissable` covers Escape + focus
+  restore + an optional Tab cycle for the five dismissable surfaces;
+  `useFocusWhen` covers the five two-step confirms, which otherwise repeat the same
+  two-line effect five times. Extracting at five follows this project's own
+  precedent — `Pill` at four, `StarRating` at two. One hook covering both would have
+  been an abstraction over three genuinely different behaviours.
+
+- **`useDismissable` captures the trigger rather than taking a ref.** It reads
+  `document.activeElement` on open. Threading a ref from five call sites is more
+  code at each *and* less correct: `AccountMenu` closes on outside click and
+  `BookingWidget`'s sheet trigger unmounts when the sheet swaps to its confirmation
+  panel, so the element a ref would name is not always the element that had focus.
+
+### Gotchas
+
+- **Three of the five focus-restore tests passed against a build with the restore
+  deleted, and that is F08's rule catching F18 in the act.** For a non-modal popover
+  or a menu, clicking the trigger leaves focus *on* the trigger and opening moves
+  nothing — so `Escape` → close → focus is still on the trigger whether or not any
+  restore code exists. The assertions were measuring "focus was never stolen", not
+  "focus was restored". Fixed by moving focus *into* the surface before dismissing
+  (`await done.focus()`), which makes close-without-restore fall to `<body>`. The
+  `focus()` calls carry comments saying they are load-bearing, because they read as
+  redundant and deleting one silently un-gates its test.
+
+- **The "is not trapped" test also passed against the defect it existed to reject.**
+  Written as `expect(landed).not.toBe('Done')`, it passed with `trapFocus: true`
+  wrongly set on the search popover — because a *wrapped* Tab lands on the popover's
+  **first** control, which is also not "Done". Rewritten to ask containment ("did
+  focus leave the popover at all"), which is the only form of the question a trap
+  can fail. Same lesson as the paragraph above, arriving through a positive control
+  rather than a negative one.
+
+- **A trap that only wraps Tab does nothing until focus is inside it.** On open,
+  focus stays on the trigger *behind* the scrim, so the first Tab leaves through the
+  page and never reaches the wrap logic. Moving focus in on open is what makes the
+  rest of the hook true — it is not a nicety.
+
+- **`offsetParent` is the wrong visibility test here.** Both modal surfaces are
+  `position: fixed`, for which `offsetParent` is `null` — so an `offsetParent`-based
+  focusable filter reports the entire dialog as invisible and the trap silently
+  degrades to nothing. `getClientRects().length > 0` is correct for fixed elements.
+
+- **Both modals are `tablet:hidden`, so they can be mounted-but-unrendered.**
+  Widening the viewport past 744px leaves `open` true with nothing painted. The trap
+  therefore **yields** rather than `preventDefault()`s when it finds no focusable
+  descendants — trapping against an invisible surface would strand focus with
+  nothing to land on. An empty surface is not a trap.
+
+- **An unscoped `getByRole('button', { name: 'Add dates' })` matches the nav search
+  bar, not the booking widget.** `SearchBar` renders on every route and comes
+  earlier in the DOM, so the first draft of the booking-calendar test drove the
+  wrong component on the right page and failed for a reason that had nothing to do
+  with the assertion. Fixed by using `booking-responsive.spec.ts`' existing ARIA
+  locators (`complementary` named "Reservation" / "Reservation summary").
+
+- **The suspected `todayISO()` / `addDay()` timezone mismatch is not a defect —
+  checked rather than assumed, and the check is the deliverable.** `todayISO()`
+  reads local date components; `addDay()` parses `T00:00:00Z`. That *looks* like a
+  local/UTC mix, but `addDay` parses **and** formats in UTC, making it a pure
+  string→string calendar-date shift whose round trip is exact at any host offset.
+  Verified against an independent local-time oracle at offsets +14 through −11
+  (Kiritimati, Midway, Kolkata, Los Angeles, UTC) across n = −20…300 — all agreed.
+  UTC is also the *safer* basis, since midnight UTC never falls inside a DST
+  transition. Recorded in `fixtures.ts` so the next reader does not "simplify" it
+  into a real bug.
+
+- **`e2e/global-setup.ts` reads `.env.local` from disk** (`process.loadEnvFile`), so
+  it cannot run anywhere that supplies variables through the process environment.
+  Irrelevant to the Render deploy — the suite does not run there — but it is the
+  first thing to fix if CI is ever added. Recorded in the deploy runbook.
+
+### Verified
+
+- **Gate proof — focus restore.** With `if (trigger?.isConnected) trigger.focus()`
+  disabled, **5 of 10** keyboard tests fail (all five restore assertions, after the
+  fix described above; **2 of 10** before it, which is how the weak assertions were
+  found).
+- **Gate proof — the Tab trap.** With both halves disabled (the wrap and the
+  move-focus-in), the two modal cycle tests fail and nothing else does.
+- **Gate proof — `useFocusWhen`.** With the focus call disabled, the two-step
+  confirm test fails and nothing else does.
+- **Inverse gate proof — over-applying the trap.** Setting `trapFocus: true` on the
+  non-modal search popover fails the "is not trapped" test, and only that test.
+- **Gate proof — the un-skipped past-dates branch.** Inverting the month comparison
+  in `search-responsive.spec.ts` forces the new `else` branch to run on a day where
+  yesterday *is* rendered; it fails with `Expected: 0, Received: 1`, proving the
+  branch asserts something real rather than being vacuous on the 1st.
+- **Regression control, run before any surface was touched**: `booking-responsive` +
+  `search-responsive` = **35 passed**. Re-run after all ten surfaces were wired,
+  alongside `nav-responsive`, `booking`, `trips`, `admin`, `host-manage`: **125
+  passed**.
+- **Six bare `dayCell` sites converted** in `host-availability.spec.ts` (today+10…15,
+  the same class F17 fixed in the responsive twin; latent only because that file
+  runs at the default 1280px viewport where two months render).
+- Build green at **16 routes** with `ƒ Proxy (Middleware)`; migrations **9/9**;
+  security advisors **8 WARNs** — the documented set exactly, no ninth.
+
+
+### The production-build run, and what it found
+
+**Running the suite against `npm run build && npm start` was the highest-value
+hour of F18, and its finding is recorded open rather than closed.**
+
+All 387 tests had only ever run against `npm run dev`. Against a production build,
+**three `host-manage.spec.ts` tests fail under load** — `badges a draft…` (:172),
+`unpublishing takes a live listing out of search and back` (:222), and `deleting
+removes the listing and its photo rows` (:348) — on every prod run, while the dev
+run is 392/0.
+
+What was established, and how:
+
+- **Not caused by F18.** `git stash push -- src/` reverted the product code to
+  `938c84a`, rebuilt, re-ran: still fails. The e2e half of the diff was left in
+  place so only `src/` varied. This mattered because F18 modifies
+  `ListingActions` — the component these tests drive — so "did I break it" was the
+  first hypothesis and had to be killed with an experiment rather than an argument.
+- **Production-only and concurrency-dependent.** Each test passes alone against the
+  same production server. Two consecutive full prod runs failed an overlapping core
+  of three.
+- **The product itself was not shown to be broken.** A temporary diagnostic
+  (`e2e/zz-diag.spec.ts`, deleted after) drove the real publish flow against the
+  production build under concurrent load and logged `DB after click:
+  is_published=true` with the Unpublish control present — the action and
+  `router.refresh()` both did their job. So the evidence points to a test-side race.
+  **The mechanism is not identified**, and that is stated rather than papered over.
+
+Two related things the same run *did* fix, both gate-proved:
+
+- **`search.spec.ts:221` was a third instance of F13's live-count race.** It took
+  `const all = await countAt(page, '/')` and compared four later navigations against
+  it — five separately-timed reads of a page any concurrent worker can change. F13
+  re-based two assertions in this file for exactly this reason, and the `URL
+  contract` block three tests below carries the comment explaining it; this one was
+  missed. Re-based onto `snapshot.listings`. **Gate-proved** by pointing one URL at
+  a filter that *is* honoured (`?city=Kyoto`): `Expected: >= 24, Received: 3`.
+- **`hydratedRowFor` was added and did not fix the three failures.** The reasoning
+  was sound — `waitForOwnListings` hydrates only the *first* row, and under load the
+  row under test slides down because `getOwnListings` orders `created_at DESC` — but
+  the failures survive it. Kept because waiting on the correct row is strictly
+  better; its docblock explicitly says it is not the diagnosis. **Recording a fix
+  that did not work is the point**; the next person should not re-derive it.
+
+A smaller trap met on the way: `getByRole('button', { name })` matches the
+accessible name as a **substring**, so `name: 'Publish <title>'` also matches
+**"Unpublish <title>"**. The diagnostic's "Publish still=1" reading was this, not a
+stale DOM — and `host-manage.spec.ts:242` already carries an `exact: true` with a
+comment about the same trap. It is now the seventh time this project has met a
+locator coupled to text outside the thing under test.
+
+### Verified (final, F18 code-complete 2026-07-29)
+
+- `npx tsc --noEmit` clean · `npm run lint` clean · `npm run test` **288/288**.
+- `npm run test:e2e` against the dev server (the committed config):
+  **395 total — 392 passed / 3 skipped / 0 failed**. Was 387 at F17;
+  `keyboard.spec.ts` adds 8.
+- `npm run build` green at **16 routes**, `ƒ Proxy (Middleware)` printing — F18
+  adds no route, so F07's no-`loading.tsx` rule is untouched.
+- Migrations **9/9** matching remote. Security advisors **8 WARNs** — the exact
+  documented set (anon+authenticated on `unavailable_listing_ids` and
+  `listing_occupied_ranges`; authenticated on `is_admin`, `admin_list_users`,
+  `admin_unpublish_listing`; leaked-password protection off). **No ninth.**
+- Whole-table counts unchanged from F17: 26 listings / 24 published / 19 bookings
+  / 7 reviews / 1 thread / 5 blocks / 0 favorites / 1 admin. **Fixture residue 0**
+  (`title like 'E2E%' or city like 'Testerton%'`). A mid-run reading of 30
+  listings was observed and is in-flight worker fixtures, not leakage.
+- **The messages inbox-ordering flake did not appear** in any F18 run. Recorded as
+  data, not as a resolution: F17's own measurement was 1 clean run in 3, so this
+  does not discriminate. `938c84a` never claimed to fix it — it made a lost bump
+  visible in the log.
+
+**Not verified / open:**
+- **The three production-build `host-manage` failures** (above). Pre-existing,
+  reproducible only against a production build under load, root cause unknown.
+- **No screen-reader pass.** F18 covered keyboard operability and focus — what was
+  broken — not how the live regions announce. F16's asynchronous message
+  announcement interacting with the sheet and the account menu remains verified by
+  reading only.
+- **The two admin two-step confirms have no focus assertion**, because
+  `admin.spec.ts` owns `profiles.is_admin` exclusively and `keyboard.spec.ts`
+  must not race it. The hook is proved; those two call sites are argued.
+- **`DateRangePicker` day cells remain plain buttons** — no `role="grid"`, no
+  roving tabindex, ~60 tab stops across two months. Deliberate, per the planned
+  shape.
+- **The deploy itself.** `render.yaml` and `docs/deploy-render.md` are written and
+  the Blueprint schema was checked against Render's docs, but nothing has been
+  applied — the three dashboards need credentials. **F18 does not close until the
+  live URL serves the app and Google sign-in completes.**
