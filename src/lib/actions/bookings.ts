@@ -271,6 +271,11 @@ export async function cancelBooking(input: unknown): Promise<ActionResult> {
   // The host's copy of this reservation moves to Past and loses its earnings
   // figure — a cancellation they would otherwise never see.
   revalidatePath('/host/reservations')
+  // The admin bookings table shows the same row, and F17's admin cancel delegates
+  // to this function — so this covers the admin's own write as well as leaving
+  // /admin correct after an ordinary guest cancels. F14's reasoning for adding
+  // /host/reservations here, one surface later.
+  revalidatePath('/admin')
 
   return { ok: true, data: undefined }
 }

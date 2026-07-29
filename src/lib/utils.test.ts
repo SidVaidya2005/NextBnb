@@ -6,6 +6,7 @@ import {
   canCancelBooking,
   canReviewBooking,
   coverPhotoOf,
+  deletionImpact,
   findBlockConflict,
   formatCapacity,
   formatDateRange,
@@ -537,6 +538,120 @@ describe('blocksListingDeletion', () => {
         TODAY,
       ),
     ).toBe(false)
+  })
+})
+
+describe('deletionImpact', () => {
+  // The same fixed day blocksListingDeletion uses above — the two helpers share a
+  // cutoff and these assertions are what proves they still agree.
+  const TODAY = new Date('2026-07-26T12:00:00')
+
+  const booking = (status: string, check_out: string) => ({ status, check_out })
+
+  it('reports nothing to erase for an untouched listing', () => {
+    const impact = deletionImpact({ bookings: [], reviews: [] }, TODAY)
+
+    expect(impact).toEqual({
+      upcomingStays: 0,
+      pastStays: 0,
+      reviews: 0,
+      sentence: null,
+    })
+  })
+
+  it('counts an upcoming confirmed stay as upcoming', () => {
+    const impact = deletionImpact(
+      { bookings: [booking('confirmed', '2026-08-10')], reviews: [] },
+      TODAY,
+    )
+
+    expect(impact.upcomingStays).toBe(1)
+    expect(impact.pastStays).toBe(0)
+    expect(impact.sentence).toBe('Also erases 1 upcoming reservation.')
+  })
+
+  it('counts a finished stay as past', () => {
+    const impact = deletionImpact(
+      { bookings: [booking('confirmed', '2026-06-01')], reviews: [] },
+      TODAY,
+    )
+
+    expect(impact.upcomingStays).toBe(0)
+    expect(impact.pastStays).toBe(1)
+  })
+
+  it('counts a cancelled stay as past however far in the future', () => {
+    // Same rule blocksListingDeletion applies: a cancelled booking holds
+    // nobody's plans, so it is lost history rather than a broken arrangement.
+    const impact = deletionImpact(
+      { bookings: [booking('cancelled', '2026-12-25')], reviews: [] },
+      TODAY,
+    )
+
+    expect(impact.upcomingStays).toBe(0)
+    expect(impact.pastStays).toBe(1)
+  })
+
+  it('shares blocksListingDeletion’s one-day-wide cutoff exactly', () => {
+    // A stay that checked out yesterday still counts as upcoming here, because
+    // it still blocks a *host* delete. Two different answers to "is this
+    // upcoming?" on one listing would be worse than either answer alone.
+    const yesterday = { bookings: [booking('confirmed', '2026-07-25')], reviews: [] }
+    expect(deletionImpact(yesterday, TODAY).upcomingStays).toBe(1)
+    expect(blocksListingDeletion(yesterday.bookings, TODAY)).toBe(true)
+
+    const dayBefore = { bookings: [booking('confirmed', '2026-07-24')], reviews: [] }
+    expect(deletionImpact(dayBefore, TODAY).upcomingStays).toBe(0)
+    expect(blocksListingDeletion(dayBefore.bookings, TODAY)).toBe(false)
+  })
+
+  it('names only the non-zero rows', () => {
+    const impact = deletionImpact(
+      { bookings: [booking('confirmed', '2026-06-01')], reviews: [{}, {}] },
+      TODAY,
+    )
+
+    expect(impact.sentence).toBe('Also erases 1 past reservation and 2 reviews.')
+    expect(impact.sentence).not.toContain('upcoming')
+  })
+
+  it('enumerates all three with distinct counts', () => {
+    // Distinct counts deliberately: 2/2/2 would pass against an implementation
+    // that read the wrong field for any of them.
+    const impact = deletionImpact(
+      {
+        bookings: [
+          booking('confirmed', '2026-08-30'),
+          booking('confirmed', '2026-09-09'),
+          booking('confirmed', '2026-10-01'),
+          booking('confirmed', '2026-01-05'),
+          booking('cancelled', '2026-12-25'),
+        ],
+        reviews: [{}, {}, {}, {}],
+      },
+      TODAY,
+    )
+
+    expect(impact.upcomingStays).toBe(3)
+    expect(impact.pastStays).toBe(2)
+    expect(impact.reviews).toBe(4)
+    expect(impact.sentence).toBe(
+      'Also erases 3 upcoming reservations, 2 past reservations and 4 reviews.',
+    )
+  })
+
+  it('pluralizes each row independently', () => {
+    const impact = deletionImpact(
+      {
+        bookings: [booking('confirmed', '2026-08-30'), booking('confirmed', '2026-01-05')],
+        reviews: [{}],
+      },
+      TODAY,
+    )
+
+    expect(impact.sentence).toBe(
+      'Also erases 1 upcoming reservation, 1 past reservation and 1 review.',
+    )
   })
 })
 

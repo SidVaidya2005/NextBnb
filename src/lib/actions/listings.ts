@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
-import { cloudinary } from '@/lib/cloudinary'
+import { destroyAsset } from '@/lib/cloudinary'
 import { MAX_PHOTOS_PER_LISTING } from '@/lib/constants'
 import { createClient } from '@/lib/supabase/server'
 import {
@@ -452,26 +452,6 @@ export async function deleteListing(input: unknown): Promise<ActionResult> {
 // -----------------------------------------------------------------------------
 // Shared internals
 // -----------------------------------------------------------------------------
-
-/**
- * Destroy one Cloudinary asset, never throwing.
- *
- * Called *after* the row it belongs to is already gone, so the database is
- * correct either way and failing here would report a deletion the user has
- * already seen succeed. The orphan is logged instead — and F09's journal notes
- * that an orphan is a real possibility, since a timed-out cleanup leaves one behind.
- */
-async function destroyAsset(publicId: string): Promise<void> {
-  try {
-    await cloudinary.uploader.destroy(publicId, { invalidate: true })
-  } catch (cause) {
-    console.error(
-      '[actions/listings] cloudinary destroy failed for',
-      publicId,
-      cause instanceof Error ? cause.message : cause,
-    )
-  }
-}
 
 type OwnPhoto = { id: string; position: number; is_cover: boolean }
 

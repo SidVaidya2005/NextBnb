@@ -317,6 +317,78 @@ export function blocksListingDeletion(
   )
 }
 
+/** What a listing delete takes with it. All counts, no judgement. */
+export type DeletionImpact = {
+  upcomingStays: number
+  pastStays: number
+  reviews: number
+  /** The rows enumerated for display, or null when the delete costs nothing. */
+  sentence: string | null
+}
+
+/**
+ * What deleting this listing would erase — the counts behind F17's confirm step.
+ *
+ * **This is `blocksListingDeletion`'s other half, and the pairing is the point.**
+ * That function answers a host's yes/no ("may I delete this?"); an admin is never
+ * refused, because `listings_delete_own_or_admin` deliberately keeps a hard-delete
+ * escape hatch for spam. So the admin surface owes the operator the thing the host
+ * surface owes them instead: the blast radius, before the click rather than after.
+ * F10's Key Decision is that **an FK cascade is a destructive path with no error,
+ * no test and no type pointing at it** — this is the sentence that points at it.
+ *
+ * **Cancelled stays count as past, not upcoming.** They hold nobody's plans, the
+ * same reason `blocksListingDeletion` lets them through. **The cutoff matches
+ * `blocksListingDeletion`'s widened one** (yesterday, not today) so the number
+ * shown and the number the host's guard would have counted never disagree by a
+ * stay at midnight — two different answers to "is this upcoming?" on one listing
+ * would be worse than either answer alone.
+ *
+ * Past stays are counted and named too. They are lost history rather than broken
+ * plans, but an admin deleting six months of a real host's bookings should not
+ * discover that afterwards.
+ */
+export function deletionImpact(
+  listing: {
+    bookings: readonly { status: string; check_out: string }[]
+    reviews: readonly unknown[]
+  },
+  today: Date = new Date(),
+): DeletionImpact {
+  const cutoff = toISODate(subDays(today, 1))
+
+  let upcomingStays = 0
+  let pastStays = 0
+  for (const booking of listing.bookings) {
+    const isUpcoming = booking.status === 'confirmed' && booking.check_out >= cutoff
+    if (isUpcoming) upcomingStays += 1
+    else pastStays += 1
+  }
+
+  const reviews = listing.reviews.length
+
+  // Only non-zero rows are named, so the sentence never pads itself with
+  // "and 0 reviews" — an operator reading a list of noughts stops reading it.
+  const parts = [
+    upcomingStays > 0 ? pluralize(upcomingStays, 'upcoming reservation') : null,
+    pastStays > 0 ? pluralize(pastStays, 'past reservation') : null,
+    reviews > 0 ? pluralize(reviews, 'review') : null,
+  ].filter((part): part is string => part !== null)
+
+  return {
+    upcomingStays,
+    pastStays,
+    reviews,
+    sentence: parts.length > 0 ? `Also erases ${joinClauses(parts)}.` : null,
+  }
+}
+
+/** `['a', 'b', 'c']` -> `'a, b and c'`. Serial comma omitted, matching the app's copy. */
+function joinClauses(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? ''
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+}
+
 /** The two sections `/trips` splits a guest's bookings into. */
 export type TripSection = 'upcoming' | 'past'
 
