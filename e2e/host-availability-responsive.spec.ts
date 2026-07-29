@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 
-import { dayCell, pickDay } from './calendar'
+import { pickDay, revealDay } from './calendar'
 import { AUTH_STATE_FILE } from './constants'
 import {
   addDay,
@@ -115,7 +115,15 @@ for (const { name, width, height } of WIDTHS) {
         // silently collapses into something untappable. Measured on a *future*
         // day: the first cell of the current month is usually in the past and
         // renders in the disabled style.
-        const dayBox = await dayCell(page, addDay(todayISO(), 3)).boundingBox()
+        //
+        // `revealDay`, not a bare `dayCell`: today + 3 crosses into next month
+        // for the last days of any month, and only `desktop:` and up render a
+        // second panel — so this hung for the full 30s timeout at 320/375/744 on
+        // 2026-07-29 while passing at 1128/1440. The helper exists for exactly
+        // this and its docblock says so; this call site had not used it.
+        const dayBox = await (
+          await revealDay(page, addDay(todayISO(), 3))
+        ).boundingBox()
         expect(dayBox!.height).toBeGreaterThanOrEqual(DAY_CELL)
 
         await expectNoHorizontalScroll(page)

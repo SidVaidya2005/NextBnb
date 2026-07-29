@@ -10,7 +10,6 @@ import {
   publishFixtureListing,
   readFavorites,
   secondUserId,
-  setUserAdmin,
   testUserId,
 } from './fixtures'
 
@@ -113,35 +112,8 @@ test.describe('the second account', () => {
     }
   })
 
-  test('reaches /admin only while is_admin is set', async ({ page }) => {
-    const userId = await secondUserId()
-
-    // NEGATIVE CONTROL FIRST, on the same account and the same route, so the
-    // 200 below can only mean "is_admin decided it".
-    await page.goto('/admin')
-    await expect(page).toHaveURL('/')
-
-    try {
-      await setUserAdmin(userId, true)
-
-      await page.goto('/admin')
-      await expect(page).toHaveURL('/admin')
-      await expect(
-        page.getByRole('heading', { name: 'Admin', level: 1 }),
-      ).toBeVisible()
-      await expect(
-        page.getByText('your profile has is_admin set'),
-      ).toBeVisible()
-    } finally {
-      // Never leave this set. The account's password is committed to this repo,
-      // so a standing admin is a privilege path, not a stray fixture row —
-      // global-teardown.ts repeats this for the run that is killed mid-spec.
-      await setUserAdmin(userId, false)
-    }
-
-    // And it is genuinely revoked, verified through the app rather than by
-    // trusting the write.
-    await page.goto('/admin')
-    await expect(page).toHaveURL('/')
-  })
+  // The /admin route gate moved to `admin.spec.ts` at F17. It grants and revokes
+  // `profiles.is_admin`, which is global per-user state, and the dashboard specs
+  // need the same flag — two files flipping it would race under
+  // `fullyParallel: true`, which orders nothing across files. One file owns it.
 })

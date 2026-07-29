@@ -656,6 +656,101 @@ Internal moderation for users, listings, and bookings.
 - Every admin mutation logs an audit line server-side with an `[admin]` prefix (actor id, action, target id). A dedicated audit table is out of scope for this build.
 - Deletes are **hard deletes** (with FK cascade); unpublish is the reversible/soft option — prefer unpublish for moderation, reserve delete for spam/abuse.
 
+**Planned shape (agreed before build, 2026-07-29):**
+- **The Logic line above is wrong for two verbs of three, and F17 is the first Phase 6
+  feature needing a migration.** "Reuse the existing `deleteListing` / `cancelBooking`
+  logic (they already accept an admin actor via RLS)" holds only for `cancelBooking`,
+  which carries no `guest_id` filter. `deleteListing` is `.eq('host_id', user.id)` in
+  **three** places, so RLS permits an admin the action's own filter refuses. And
+  `listings_update_own` is `using (host_id = uid) with check (host_id = uid)` with **no
+  admin branch in any of the eight migrations** — so an admin unpublish is an UPDATE
+  matching zero rows that returns `{ error: null }`. **F13's exact trap**: moderation
+  reported as successful that did nothing. `architecture.md`'s RLS matrix was right; this
+  plan's F17 entry was not.
+- **Unpublish gets a narrow definer function, not a widened policy.** `0009` adds
+  `admin_unpublish_listing(p_listing_id uuid) returns uuid`, self-guarded on `is_admin()`,
+  writing `is_published = false` and nothing else, returning the id so the caller keeps
+  F13's zero-row branch. Mirrors `admin_list_users()` — *the one function that bypasses
+  RLS exposes only the one thing RLS cannot reach*. Adding `or is_admin()` to
+  `listings_update_own` was rejected: **no column grant restricts listing writes**, so it
+  would also let an admin rewrite `title`, `price_per_night` or **`host_id`** —
+  reassigning a listing to another user. F16 already recorded one policy looser than its
+  app as a hazard; this would have been a second, deliberately. One direction only: the
+  admin has no republish, and the host's own republish keeps its ≥1-photo guard.
+- **`adminDeleteListing` is a separate action, and its own `is_admin` check is
+  load-bearing rather than defence in depth.** `listings_delete_own_or_admin` admits
+  *host **OR** admin*, so without that check an ordinary host could call the admin action
+  on their own listing and walk straight past F10's upcoming-booking guard — RLS would
+  permit it and nothing would error. It is not a widened `deleteListing` because the two
+  differ in their *central rule*, not their filter: the host action refuses while an
+  upcoming stay exists and this one must not. Merging them means a boolean that inverts
+  the guard the function exists for (F15: ask which verb a write pattern was learned from).
+- **Delete allows but states the blast radius**, rather than refusing. F10 left
+  `listings_delete_own_or_admin` open deliberately so moderation keeps a hard-delete
+  escape hatch for spam. The confirm step names what disappears ("also erases 3 upcoming
+  reservations and 7 reviews") and offers **Unpublish** as a third control beside
+  Confirm/Keep — F10's own state-the-reason pattern, applied to the thing F10's Key
+  Decision calls invisible: *an FK cascade is a destructive path with no error, no test
+  and no type pointing at it.*
+- **`cancelBooking` is reused unchanged as the transition**, gaining one line
+  (`revalidatePath('/admin')`, exactly as F14 added `/host/reservations` for the same
+  staleness reason). `adminCancelBooking` verifies admin, writes the audit line and
+  delegates, so one implementation owns the status transition. Note the admin branch of
+  `bookings_update_cancel_own_or_admin`'s USING carries **no** `status`/`check_in`
+  conditions — an admin can cancel an in-progress stay a guest could not.
+- **One route, three sections** — `/admin` stays a single page, so the build holds at
+  **16 routes** and F07's no-`loading.tsx` rule is untouched. Every read is an ordinary
+  RLS-scoped select, which makes these **the queries with nothing but intent to scope
+  them** (F14): an admin satisfies every SELECT policy on every table.
+- **Semantic `<table>` inside `overflow-x-auto`.** `code-standards.md`'s "grids drop
+  columns, never reflow rows" governs *card grids*; this is genuinely tabular data, so
+  `<caption>`/`<th scope>` earn their keep. Stated in the docblock so it does not later
+  read as a violation.
+- **`ui/Pill.tsx` is extracted** and `HostListingCard` + `ReservationCard` rewired. The
+  pill class string is already duplicated twice; F17 needs Draft / Cancelled / Unpublished
+  and would make it five. Same reasoning that extracted `StarRating` in F15.
+- **Advisor baseline moves 7 → 8 WARNs** (`authenticated` EXECUTE on the new definer
+  function). A ninth is a finding.
+- **`second-user.spec.ts` breaks and must be repointed**: its
+  `getByText('your profile has is_admin set')` asserts on the *placeholder's* copy.
+
+**As built (deviations from the plan above):**
+- **The `is_admin` check inside `adminDeleteListing` was proved load-bearing, not
+  assumed.** By impersonation in SQL (`set role authenticated` +
+  `request.jwt.claims`, `schema-verification.sql`'s technique): a **non-admin host**
+  with one upcoming confirmed stay ran `delete from listings` and it returned **OK**,
+  leaving **zero** rows. So the policy really does admit the caller the action refuses.
+- **The route-gate spec *moved* out of `second-user.spec.ts` rather than being
+  repointed there, and the responsive assertions live in `admin.spec.ts` rather than a
+  conventional `admin-responsive.spec.ts`.** `profiles.is_admin` is global per-user
+  state and `playwright.config.ts` sets `fullyParallel: true`, which orders nothing
+  *between* files — `mode: 'serial'` only orders tests within one. Two files granting
+  and revoking the same flag would race, and the failure would read as a flaky
+  redirect. One file owns the flag; the naming convention lost to the race.
+- **`Pill` found a fourth copy** — `TripCard` as well as `HostListingCard` and
+  `ReservationCard`.
+- **`destroyAsset` moved to `lib/cloudinary.ts`, and it had to.** A `'use server'`
+  module turns every export into a callable endpoint, so exporting it from
+  `actions/listings.ts` to share it would have published an unauthenticated route that
+  destroys any asset in the account given its `public_id`.
+- **Six parallel queries, not four.** The Users counts are read separately and
+  **uncapped**, because counting from the capped display reads would report "3 listings"
+  for a host holding 300 once the catalogue outgrows the cap — F14's scope-defining-read
+  rule, applied to a counting read.
+- **A pre-existing, unrelated spec bug surfaced and was fixed.**
+  `host-availability-responsive.spec.ts` measured `todayISO() + 3` with a bare
+  `dayCell`; on the last three days of any month that date is in the *next* month, which
+  only renders at `desktop:` and up. It timed out at 320/375/744 on 2026-07-29 and
+  passed at 1128/1440. `calendar.ts`'s `revealDay` already existed for exactly this.
+- **Verified:** unit 288/288, build green at **16 routes**, migrations **9/9**, advisors
+  **8 WARNs** (the 8th predicted before it appeared, and the absence of a matching `anon`
+  WARN is what confirms the revoke landed). E2E is **387 total — 383 passed / 3 skipped /
+  1 intermittent**: `messages.spec.ts`' inbox-ordering test failed in 2 of 3 full runs
+  while passing 12/12 isolated on both trees. **Not conclusively attributed** — see
+  `progress-tracker.md` and `build-journal.md` → F17 for the measurements and the
+  understood mechanism (`sendMessage`'s unguarded, error-swallowing `last_message_at`
+  bump, the one write in the project without F13's zero-row check).
+
 ### 18 Responsive QA, polish & deploy
 
 Make it feel finished, verified across devices, and live on Render.

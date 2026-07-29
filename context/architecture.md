@@ -324,7 +324,7 @@ is the current user. `is_admin()` is a `security definer` helper returning
 | Table | SELECT (read) | INSERT | UPDATE | DELETE |
 | ----- | ------------- | ------ | ------ | ------ |
 | `profiles` | anyone (public — safe: no email/sensitive columns) | via signup trigger only | own row (`id = auth.uid()`), **`full_name` + `avatar_url` columns only** | none (cascade from auth) |
-| `listings` | `is_published = true` **OR** `host_id = auth.uid()` **OR** `is_admin()` | `host_id = auth.uid()` | `host_id = auth.uid()` | `host_id = auth.uid()` **OR** `is_admin()` |
+| `listings` | `is_published = true` **OR** `host_id = auth.uid()` **OR** `is_admin()` | `host_id = auth.uid()` | `host_id = auth.uid()` — **no admin branch**, see below | `host_id = auth.uid()` **OR** `is_admin()` |
 | `listing_photos` | photo's listing is readable (published, or owner, or admin) | listing `host_id = auth.uid()` | listing `host_id = auth.uid()` | owner **OR** `is_admin()` |
 | `blocked_dates` | listing is readable | listing `host_id = auth.uid()` | listing `host_id = auth.uid()` | listing `host_id = auth.uid()` |
 | `bookings` | `guest_id = auth.uid()` **OR** listing `host_id = auth.uid()` **OR** `is_admin()` | `guest_id = auth.uid()`, listing `host_id <> auth.uid()` (no self-booking), and listing `is_published` | guest while `status='confirmed'` **AND** `check_in >= current_date` **OR** `is_admin()` — **`status` + `cancelled_at` columns only** | none (cancel is a status UPDATE) |
@@ -336,6 +336,31 @@ is the current user. `is_admin()` is a `security definer` helper returning
 - "Listing is readable" = the referencing listing satisfies the `listings` SELECT policy.
 - Ownership on child tables is checked by joining to the parent `listings.host_id` inside the policy (an `EXISTS (…)` subquery), never trusted from the client.
 - Unpublished listings and their photos are invisible to everyone except the owner and admins — this is enforced here, not only in queries.
+- **An admin can read, delete and moderate a listing but cannot UPDATE one.**
+  `listings_update_own` names only the host, in both USING and WITH CHECK. That
+  asymmetry is deliberate and it is why F17's admin unpublish is a definer
+  function (`admin_unpublish_listing()`, below) rather than a policy branch —
+  widening the policy would grant an admin *every* listing column, `host_id`
+  included, because no column grant restricts listing writes. An admin `.update()`
+  on `listings` matches zero rows and returns success; treat that as the failure
+  mode it is.
+
+### The three `security definer` functions, and what each exists to reach
+
+RLS is the authority, so a function that bypasses it needs a stated reason and a
+narrow return. There are three, each hardened the same way — `set search_path =
+''`, fully-qualified references, `EXECUTE` revoked from `PUBLIC`:
+
+| Function | Migration | Bypasses RLS to reach | Granted to |
+| -------- | --------- | --------------------- | ---------- |
+| `admin_list_users()` | `0002` | `auth.users.email` — `profiles` has no email column because it is publicly readable. Returns `(id, email)` and nothing else; self-guarded on `is_admin()` | `authenticated` |
+| `unavailable_listing_ids(check_in, check_out)` | `0007` | `bookings` rows an anon visitor cannot see. Returns **published listing ids only** | `anon`, `authenticated` |
+| `listing_occupied_ranges(listing_id)` | `0008` | the same, transposed — which nights are taken for one listing. Returns inclusive date spans, published listings only | `anon`, `authenticated` |
+| `admin_unpublish_listing(listing_id)` | `0009` | the `listings` UPDATE policy, which has no admin branch. Writes `is_published = false` and **no other column**; self-guarded on `is_admin()`, raises `42501` otherwise, returns the id or null | `authenticated` |
+
+Each shows up as a security-advisor WARN for every role it grants EXECUTE to.
+That is expected and the count is a tracked baseline (`progress-tracker.md`) —
+a *new* WARN beyond it is a finding.
 
 ### Column-level grants — RLS filters rows, not columns
 
@@ -597,6 +622,8 @@ Two domain rules this project's actions add on top:
 - Only listings with `is_published = true` are visible in search and to non-owners; a host always sees their own unpublished listings.
 - Messages and threads are readable and writable only by the thread's `guest_id` and `host_id`.
 - `/admin/**` and admin-only queries require `profiles.is_admin = true`; this is checked in the DB (RLS) as well as the route.
+- **An admin write that RLS also permits to a non-admin must re-check `is_admin` in the action.** `listings_delete_own_or_admin` is `host_id = auth.uid() OR is_admin()`, so `adminDeleteListing` — which deliberately omits `deleteListing`'s upcoming-booking guard — would otherwise be a route for any host to erase their own listing's live reservations. Here the action narrows the policy rather than the other way round.
+- An admin unpublishes a listing through `admin_unpublish_listing()`; a direct `.update()` on `listings` as an admin affects zero rows and reports success.
 - Row shapes come from `src/types/database.types.ts` (generated); do not hand-write types that duplicate table columns.
 - Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `CLOUDINARY_API_SECRET`) never reach client components or `NEXT_PUBLIC_*` variables.
 - All user image uploads go to Cloudinary via a **server-signed** request; the browser never holds the Cloudinary API secret, and every upload is preceded by an auth check.

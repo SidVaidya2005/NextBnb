@@ -2969,3 +2969,214 @@ props and the contact control its docblock has promised since F07.
 - **A host still cannot start a conversation**, only reply. Out of scope by agreement,
   and unlike F14's read-only reservations this one needs **no** migration — only an entry
   point, since the policies already admit either participant as the creator.
+
+---
+
+## Phase 6 · Feature 17 — Admin dashboard  *(2026-07-29)*
+
+**Scope built (16 files, 9 new):** the moderation dashboard behind F04's route gate.
+New migration `0009_admin_unpublish_rpc.sql`, `lib/queries/admin.ts`
+(`getAdminOverview`), `lib/actions/admin.ts` (`adminUnpublishListing`,
+`adminDeleteListing`, `adminCancelBooking`), `components/admin/` (three tables, two
+client controls, `adminTableStyles.ts`), `components/ui/Pill.tsx`, and `admin.spec.ts`.
+`app/admin/page.tsx` replaced its `FeaturePlaceholder`; `deletionImpact` added to
+`lib/utils.ts`; `destroyAsset` moved into `lib/cloudinary.ts`; `cancelBooking` gained
+`revalidatePath('/admin')`; `HostListingCard`, `ReservationCard` and `TripCard` rewired
+onto `Pill`; `fixtures.ts` gained `createReviewRow` and `BookingRow.cancelledAt`.
+**First migration since F12** — the three-feature no-SQL run ends here. Build stays at
+**16 routes**; advisors **7 → 8 WARNs**.
+
+### Decisions
+
+- **The build plan's F17 logic line was wrong for two verbs of three, and finding out
+  cost nothing because the policies were read before the code was written.** It said to
+  "reuse the existing `deleteListing` / `cancelBooking` action logic (they already accept
+  an admin actor via RLS)". `cancelBooking` genuinely does — no `guest_id` filter, and
+  `bookings_update_cancel_own_or_admin` names `is_admin()`. The other two do not:
+  `deleteListing` is `.eq('host_id', user.id)` in **three** places, and — the real find —
+  **`listings_update_own` is `using (host_id = uid) with check (host_id = uid)` with no
+  admin branch in any of the eight migrations**. So an admin unpublish was an UPDATE
+  matching zero rows and returning `{ error: null }`: F13's trap, sitting in the one verb
+  this dashboard is meant to *prefer*. `architecture.md`'s RLS matrix had it right all
+  along; the build plan did not.
+
+- **Unpublish became a definer function rather than a widened policy, and the reason is
+  a column grant that does not exist.** Adding `or public.is_admin()` to
+  `listings_update_own` was the symmetrical one-line fix — it is exactly how
+  `listings_delete_own_or_admin`, `bookings_update_cancel_own_or_admin` and
+  `reviews_delete_own_or_admin` are written. It was rejected because **no column grant
+  restricts listing writes**: `0006` revokes only for `anon`, and a host may write every
+  column of their own row (the WITH CHECK constrains *which* row, not which columns). So
+  widening the policy would have handed an admin `title`, `price_per_night` and
+  **`host_id`** — the power to reassign someone's listing to a different user. F16 had
+  just recorded one policy being looser than its app as a live hazard; this would have
+  been a second, deliberately. `admin_unpublish_listing()` writes one boolean in one
+  direction and nothing else.
+
+- **`adminDeleteListing`'s `is_admin` check is load-bearing, and this was *proved*
+  rather than argued.** `listings_delete_own_or_admin` is `host_id = uid OR is_admin()`,
+  so the policy admits an ordinary host — and this action deliberately omits
+  `deleteListing`'s upcoming-booking guard, because F10 left the hard delete open as a
+  spam escape hatch. Without the check, any host could route their own listing through
+  it and erase live reservations. Proved by impersonation in SQL
+  (`set role authenticated` + `request.jwt.claims`, the `schema-verification.sql`
+  technique): a non-admin host, one upcoming confirmed stay, `delete` returned **OK** and
+  left **zero** rows. **This inverts the project's usual arrangement — here the action
+  narrows the policy, and RLS is not the backstop but the wide part.**
+
+- **Delete states its blast radius instead of refusing it.** F10's Key Decision is that
+  an FK cascade is "a destructive path with no error, no test and no type pointing at
+  it". An admin cannot be refused (that is the escape hatch), so the confirm names what
+  goes: "Also erases 2 upcoming reservations, 1 past reservation and 3 reviews", plus the
+  sentence that guests see *no cancellation* — the rows are gone, not marked. **Unpublish
+  is offered inside the confirm**, on the theory that the moment an operator learns the
+  cost is the moment to offer the reversible verb, and making them back out to find it is
+  how the destructive one gets chosen by default.
+
+- **`deletionImpact` shares `blocksListingDeletion`'s deliberately-widened cutoff, and
+  the unit test asserts the two against each other.** Both count a stay that checked out
+  *yesterday* as still upcoming. Two different answers to "is this upcoming?" on one
+  listing — the host's delete refusing while the admin's count says zero — would be worse
+  than either answer alone.
+
+- **These are the first queries in the project with nothing but intent to scope them.**
+  F13 filtered `guest_id`, F14 filtered `listing_id`, and each could point at the policy
+  branch that answered its screen's question. An admin satisfies *every* branch of
+  *every* SELECT policy, so RLS narrows nothing and the **unscoped read is the correct
+  query** — F14's generalisation arriving at the case it named. The route gate is what
+  makes that legible: for a non-admin the same query returns their own rows, which is
+  harmless but is not a dashboard.
+
+- **The Users counts are read separately and uncapped, on purpose.** The display reads
+  carry ceilings, so counting hosts and guests from them would report "3 listings" for
+  someone holding 300 the moment the catalogue outgrows the cap — a wrong number that
+  looks like a right one. F14's rule about the scope-defining read, applied to a
+  *counting* read. Six parallel queries in one `Promise.all`.
+
+- **Semantic `<table>` in an `overflow-x-auto` wrapper.** `code-standards.md`'s "grids
+  drop columns, never reflow rows" governs *card* grids — dropping a column there loses a
+  decoration, here it would lose data being moderated on. Recorded in the docblock so it
+  does not later read as a violation. The responsive spec asserts **both** halves: the
+  page body never scrolls, *and* below 744px the wrapper itself does — a table that had
+  quietly dropped columns would pass the first assertion alone.
+
+- **`Pill` was extracted and found a fourth copy.** The survey said the class string
+  lived in `HostListingCard` and `ReservationCard`; `TripCard` had it too. F17 needed
+  three more. Same reasoning that pulled out `StarRating` in F15.
+
+- **`destroyAsset` had to leave `actions/listings.ts`, and that is a requirement rather
+  than tidiness.** A `'use server'` module turns every export into a callable endpoint,
+  so exporting it to share it would have published an unauthenticated route that destroys
+  any asset in the Cloudinary account given its `public_id`. It lives in
+  `lib/cloudinary.ts`, which is `server-only` and carries no directive.
+
+### Gotchas
+
+- **The admin fixture flag is global per-user state, and `mode: 'serial'` does not
+  protect it across files.** `playwright.config.ts` sets `fullyParallel: true`, which
+  orders nothing between files — so `admin.spec.ts` and `second-user.spec.ts` both
+  granting and revoking `is_admin` on the same account would race, and the failure would
+  read as a flaky redirect rather than as two specs fighting. The route-gate test
+  **moved** out of `second-user.spec.ts` so one file owns the flag, and the responsive
+  assertions live in `admin.spec.ts` rather than in the conventional
+  `admin-responsive.spec.ts` for the same reason. The convention lost to the race.
+
+- **`second-user.spec.ts` was asserting on placeholder copy.** Its
+  `getByText('your profile has is_admin set')` had been green since F04 because the
+  `FeaturePlaceholder` said exactly that. Any real dashboard breaks it — a spec pinned to
+  scaffolding rather than to behaviour, and worth noticing as a category.
+
+- **postgrest does not model a nullable scalar RPC return.** `admin_unpublish_listing`
+  returns `uuid` or null, and the generated type says `Returns: string`. TypeScript will
+  never ask for the `data === null` branch that distinguishes "no such listing" from
+  success. F08's trap, arriving in an RPC rather than in an embed.
+
+- **The degraded-email path fired during the suite and was not a defect.** A test's
+  `finally` revokes `is_admin` while a `router.refresh()` re-render is in flight, so the
+  page's gate read and `admin_list_users()` can land either side of the revoke —
+  producing `[queries/admin] admin_list_users failed: forbidden`. Emails degrade to null,
+  the rest of the table stands. Only reachable by revoking mid-render, which is a test
+  artefact, but it is exactly the branch that was designed for and it works.
+
+### Verified
+
+- **Gate proof — the zero-row unpublish.** With the action pointed at a plain
+  `.from('listings').update({ is_published: false })` instead of the RPC, the unpublish
+  spec fails: the row stays `is_published = true` while the action reports success. The
+  spec's oracle is the **database**, not the page, precisely because a UI that merely
+  stopped showing the control would look identical.
+- **Gate proof — the `is_admin` check.** Proved in SQL by impersonation (above):
+  non-admin host, 1 upcoming confirmed stay, `delete` → OK, 0 rows left.
+- **Gate proof — `deletionImpact`'s cutoff.** Narrowing it from `subDays(today, 1)` to
+  `today` fails the test that pins it to `blocksListingDeletion`, and only that test.
+- **Positive controls throughout** (F11, now habit): the unpublish spec asserts the row
+  starts published; the route-gate spec asserts the redirect *before* granting admin; the
+  delete spec backs out of the confirm and checks the listing survives before deleting it.
+- **Impact counts are distinct** — 2 upcoming / 1 past / 3 reviews — so a wrong field
+  cannot pass (F12's rule about what a green assertion would still accept).
+
+**Not verified / open:**
+- **The `{ ok: false }` Supabase-error branch of all three admin actions**, plus
+  `adminDeleteListing`'s zero-row branch, which is unreachable by construction (the read
+  above it proves the row exists and `is_admin()` satisfies the policy). It logs rather
+  than passing silently, because if it ever fires the gate and the policy have stopped
+  agreeing.
+- **`adminDeleteListing`'s Cloudinary `destroy`** — the suite never uploads, so a
+  successful multi-asset destroy is still reasoned about rather than observed. F10's
+  standing note, inherited.
+- **The `Unauthorized.` branch of each action has no spec**, because there is no UI path
+  to a server action a non-admin can reach — the route redirects first. The SQL gate
+  proof above is what stands in for it.
+- **The `failed: true` section states** in `getAdminOverview` are reasoned about, not
+  executed — the same shape as F14's `hostsNothing: false` and F05's untriggered
+  `error.tsx`.
+
+**Deferred / follow-ups:**
+- **F16's two schema hazards are now live on this surface.** The admin delete inherits
+  the `on delete set null` / `nulls not distinct` collision on `message_threads`, so
+  deleting the second of two listings a guest holds threads about can raise a unique
+  violation surfacing as the generic delete error. Needs a migration; not fixed.
+- **Admins still cannot read message threads** (`0003`, deliberately), so moderation
+  does not reach conversations.
+- **No role editing and no user deletion**, and neither is a UI choice: `0003` revokes
+  the `is_admin` column grant and DELETE on `profiles` outright.
+- **The admin tables are capped at 200 rows each with no pagination**, and the cap is
+  silent on the page. Fine at 26 listings / 18 bookings; F18 or a later feature owns
+  pagination.
+
+> **Added during F17 verification (2026-07-29) — two suite findings that are *not*
+> F17's, recorded here so they are not re-diagnosed from scratch:**
+>
+> - **`host-availability-responsive.spec.ts` was date-fragile.** Its "calendar
+>   scrolls inside its own container" test measured `todayISO() + 3` with a bare
+>   `dayCell`. On the last three days of any month that date is in the *next*
+>   month, and `DateRangePicker` renders one month below `desktop:` and two above —
+>   so it hung for the full 30s timeout at 320/375/744 while passing at 1128/1440.
+>   `calendar.ts`'s `revealDay` helper already existed for precisely this and its
+>   docblock spells out the hazard; that one call site had not used it. Fixed by
+>   using it. **This bug was invisible for ~90% of any month**, which is the part
+>   worth remembering — F18 should sweep for other date-sensitive fixtures.
+> - **`messages.spec.ts` › "a reply moves its conversation to the top of the
+>   inbox" fails intermittently under full-suite load — *not conclusively
+>   attributed*, and my first reading of it was wrong.** I recorded it mid-verification
+>   as "pre-existing, not F17's doing" on the strength of isolated re-runs. Then the
+>   control run arrived and did not support that: **F16 + the availability fix, full
+>   suite, gave 375 passed / 0 failed**, while F17 failed this one test in **2 of 3**
+>   full runs. Isolated it is 12/12 on both trees (×5) and 22/22 with `admin.spec.ts`
+>   alongside (×2), so it needs full-suite concurrency. One control run cannot separate
+>   "F17's ten extra tests tipped a load-sensitive flake" from "the control happened to
+>   survive one" — but F17's diff touches nothing in messaging, and the correlation is
+>   real. Recorded as open rather than closed either way.
+>
+>   **The mechanism is understood, and it is a product defect rather than only a test
+>   one.** The failure is at the `lastMessageAt` comparison *after* the message-count
+>   poll passes — the message sent, the **bump did not land**. `sendMessage`'s own
+>   docblock explains how: the `last_message_at` bump is a second write "guarded by
+>   nothing" whose error is **deliberately swallowed**, so a delivered message is never
+>   reported as unsent. It also carries **no zero-row check**, and an RLS-filtered
+>   UPDATE returns `{ error: null }` with zero rows — F13's rule, and the one write in
+>   the project that does not apply it. Visible consequence: the inbox silently
+>   mis-orders. **Recommended fix (F18, developer's call): give the bump the
+>   `.select().maybeSingle()` zero-row branch F13 established, logging a miss rather
+>   than surfacing it.** Not done here — it is F16 code, and changing it during F17's
+>   verification would have altered the very thing being measured.

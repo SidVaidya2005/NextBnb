@@ -820,6 +820,7 @@ export async function readBookings(listingId: string): Promise<BookingRow[]> {
     id: row.id,
     guestId: row.guest_id,
     status: row.status,
+    cancelledAt: row.cancelled_at,
     checkIn: row.check_in,
     checkOut: row.check_out,
     guestsCount: row.guests_count,
@@ -861,6 +862,7 @@ export async function readBooking(bookingId: string): Promise<BookingRow | null>
     cleaningFeeCents: data.cleaning_fee,
     serviceFeeCents: data.service_fee,
     totalCents: data.total,
+    cancelledAt: data.cancelled_at,
   }
 }
 
@@ -881,6 +883,12 @@ export type BookingRow = {
   cleaningFeeCents: number
   serviceFeeCents: number
   totalCents: number
+  /**
+   * Null until cancelled. Read because `0006` grants `status` and `cancelled_at`
+   * together, so a cancel that writes only the status is a half-done cancel the
+   * page cannot show — F17's admin cancel asserts on both.
+   */
+  cancelledAt: string | null
 }
 
 /**
@@ -1060,6 +1068,51 @@ export async function readReviewForBooking(
     rating: data.rating,
     comment: data.comment,
   }
+}
+
+/**
+ * A review row written out of band, skipping the action and its policy.
+ *
+ * Added at F17, whose delete-confirm names how many reviews a hard delete would
+ * erase — an assertion that needs a *known* count, and one that differs from the
+ * booking counts beside it so a wrong field cannot pass (F12's rule about asking
+ * what a green assertion would still pass against).
+ *
+ * Service-role, so it does not need the booking to have finished the way
+ * `reviews_insert_own_completed_booking` requires. That is the point: the caller
+ * is setting up a listing to delete, not exercising the review path, and dating
+ * a booking into the past to satisfy a policy would change the *other* counts
+ * the same assertion reads.
+ *
+ * No cleanup helper, for the reason recorded on `readReviewForBooking`: reviews
+ * cascade with their listing.
+ */
+export async function createReviewRow(options: {
+  listingId: string
+  bookingId: string
+  reviewerId: string
+  rating?: number
+  comment?: string | null
+}): Promise<{ id: string }> {
+  const supabase = serviceClient()
+
+  const { data, error } = await supabase
+    .from('reviews')
+    .insert({
+      listing_id: options.listingId,
+      booking_id: options.bookingId,
+      reviewer_id: options.reviewerId,
+      rating: options.rating ?? 5,
+      comment: options.comment ?? null,
+    })
+    .select('id')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`[e2e/fixtures] could not create a review: ${error?.message}`)
+  }
+
+  return data
 }
 
 /**
