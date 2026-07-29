@@ -87,6 +87,27 @@ it contains Airbnb-specific structure that NextBnb does **not** build. Take the
 - Touch targets: primary CTAs and the search orb ≥ 48×48px; never ship a tap target below 44px.
 - Test the mobile collapse behaviors explicitly (search overlay, sticky reserve bar, hamburger) — they are part of "done", not polish.
 
+### Accessibility rules that have already been broken here twice
+
+- **`aria-label` on a bare `<div>` or `<span>` is announced by nothing.** Those map to
+  `role="generic"`, where ARIA *prohibits* an accessible name. If a wrapper needs a name,
+  give it a role that accepts one — `role="img"` for a value drawn from icons,
+  `role="group"` for a set, or use the real element (`<aside>`, `<section>`, `<ul>`,
+  `<nav>`). `<section>`/`<ul>` **do** accept `aria-label`; a bare `div`/`span` does not.
+  Found and fixed three times: F12 (`BookingWidget`'s reservation summary), and the
+  2026-07-29 audit (`StarRating`, silent on every review; `PhotoGallery`'s strip).
+- **Do not gate an accessible name with Playwright's `getByLabel()`.** It matches the
+  `aria-label` *attribute*, not the computed accessible name, so it passes against markup
+  no screen reader can read — which is exactly how `StarRating` stayed green from F15 to
+  F19 while announcing nothing. **Assert `getByRole(role, { name })`**, which resolves the
+  real name and fails when the role is wrong.
+- **A live region must be in the DOM before it has content.** A polite region mounted
+  together with its text often never announces. The always-mounted `sr-only` span with
+  changing text (`MessageThread`, `SaveButton`) is the pattern to copy; `role="alert"` on
+  a conditionally-rendered error paragraph is the sanctioned exception.
+- Decorative icons carry `aria-hidden`; an icon-only control carries `aria-label` on the
+  **button**, never on a wrapping div.
+
 ---
 
 ## File and Folder Naming

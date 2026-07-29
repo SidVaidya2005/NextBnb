@@ -234,6 +234,20 @@ either, and a bullet that says so is the only thing standing between the two.
 
 ### Testing & verification
 
+- **A green assertion is not a gating assertion; run every new spec against a deliberately
+  broken build** (F08). `toHaveURL('/')` passes instantly when the page is already at `/`,
+  so the spec guarding "the heart must not navigate" passed against the exact markup it
+  existed to reject. Two further F08 traps rhyme with it: postgrest-js types a to-one embed
+  on a NOT NULL FK as never-null while RLS returns null at runtime (the `toFavoriteCards`
+  filter is load-bearing and TS would never demand it), and a spec that snapshots whole-user
+  state races the parallel workers sharing that user. **Generalises: prove the test fails
+  before trusting that it passes.**
+  *(Evicted from `progress-tracker.md` → Key Decisions in F20 at the 10-bullet cap. It is
+  not spent — it is the most-cited rule in this file, and F19 and F20 are both instances of
+  it: F19's `<Suspense>` specs and F20's `getByLabel` ratings each passed against markup
+  that did not work. It moves here because it has become a standing habit rather than a
+  pending decision, and `code-standards.md` → Testing now states it.)*
+
 - **Testing is Vitest (unit) + Playwright (E2E)**; a feature is done only when its tests
   pass. E2E runs against the seeded DB with a seed-verification step.
   `code-standards.md` → Testing specifies which logic is unit-tested and which flows are E2E.
@@ -4026,3 +4040,81 @@ load, roughly half of all runs.
 - **`sendMessage` is unchanged.** The two-statement shape, the swallowed bump error and
   the zero-row log from `938c84a` are all still correct and all still wanted — the
   product was never the problem here.
+
+---
+
+### Phase 6 · F20 — static accessibility audit, and two silent names  *(2026-07-29)*
+
+**Scope: a static ARIA/semantics audit, not a screen-reader pass.** The listening half
+of F18's outstanding item still needs a human with VoiceOver; what source *can* answer
+was answered, and it found two real defects.
+
+#### Decisions
+
+- **`StarRating` was announcing nothing at all, and it is now `role="img"`.** The
+  component put `aria-label` on a bare `<div>` with all five stars `aria-hidden`. A bare
+  `div` is `role="generic"`, where ARIA **prohibits** an accessible name — so a screen
+  reader read *silence*, not a wrong value, on every review on every listing page and on
+  every trip card. The component's intent was right (one name for the row, icons hidden);
+  it was on an element that cannot hold one.
+- **`PhotoGallery`'s strip gained `role="group"`** for the same reason. Milder: every
+  child image carries a real `alt`, so content was always reachable and only the grouping
+  was unnamed.
+- **Two findings were left unfixed and recorded instead** — no skip link, and no `<nav>`
+  landmark inside `TopNav`'s `<header>`. Both touch the layout shared by all 16 routes, so
+  they are a separate change with its own responsive verification, not a rider on this one.
+- **The rule is now in `code-standards.md`**, not in a component comment. That is the
+  actual fix: see below.
+
+#### Gotchas
+
+- **This is the third time this project has shipped `aria-label` on a generic element,
+  and the second time it has fixed it.** F07 shipped it latent in the reservation shell;
+  F12 found it and wrote the rule into `BookingWidget`'s docblock —
+  *"ARIA ignores an accessible name on a generic element, so `aria-label` on a bare div is
+  announced by nothing and matchable by nothing"* — and then **F15's extraction of
+  `StarRating` reintroduced it**. The rule was true, written down, and in the one place a
+  person building a *different* component would never read. Moving it to
+  `code-standards.md` is the part of this entry that matters in six months.
+- **Two specs asserted the rating's label and both passed the entire time.**
+  `reviews.spec.ts` used `getByLabel('Rated 4 out of 5')` — and Playwright's `getByLabel`
+  matches the **`aria-label` attribute**, not the computed accessible name, so it resolves
+  happily against markup no screen reader can read. F08's rule ("a green assertion is not
+  a gating assertion") in a new costume: the assertion named the right string and tested
+  the wrong layer. Both now use `getByRole('img', { name })`, which resolves the real name.
+  **Gate-proved:** with `role="img"` removed and rebuilt, `reviews.spec.ts:123` fails.
+- **The first sweep produced 14 findings and 12 were false.** A crude grep for
+  `aria-label` on non-`<button>` elements flags `<ul>` and `<section>`, both of which
+  legitimately accept a name (`<ul>` is `role="list"`; `<section>` becomes `role="region"`
+  *precisely when* it is named). Only a bare `div`/`span` prohibits it. Recorded because
+  the over-broad version would have generated a dozen pointless edits to correct markup.
+  The same happened on form labels: six inputs looked unlabelled, and all six were either
+  wrapped in an implicit `<label>` or were TypeScript generics my regex misread as JSX.
+
+#### Verified sound, and worth not re-auditing
+
+`sr-only` is Tailwind's clip-rect (not `display:none`), so every visually-hidden
+announcement is live. Both modal surfaces carry `role="dialog"` + `aria-modal` +
+`aria-label` + a focus trap. Every live region except one is **always mounted** with only
+its text changing — the correct pattern. Exactly one `<h1>` per route across all 13 page
+routes, no skipped heading levels. All images carry `alt`, decorative ones `alt=""`, with
+35 `aria-hidden` on decorative icons. `<html lang="en">` and `<main>` present. Form
+labelling is clean.
+
+#### Still needs a human, and static analysis cannot decide it
+
+- `BookingWidget`'s confirmation panel (`role="status"`) **mounts together with its
+  content**, which is the one case where a polite region may never announce. The only
+  such instance in the project.
+- F16's asynchronous incoming-message announcement, especially while F12's sheet or the
+  account menu holds trapped focus.
+- Whether the two-step delete/confirm swaps announce at all.
+  A seven-step VoiceOver script covering these is in the F20 audit hand-off.
+
+#### Verified
+
+- Gate proof both directions: `role="img"` removed → `reviews.spec.ts:123` fails;
+  restored → passes.
+- Full suite against a production build: **392 passed / 3 skipped / 0 failed.**
+- `npx tsc --noEmit` clean · `npm run lint` clean · `npm run build` green at **16 routes**.
+- No migration, no new route, no new dependency; `database.types.ts` untouched.
