@@ -3474,6 +3474,24 @@ onto `Pill`; `fixtures.ts` gained `createReviewRow` and `BookingRow.cancelledAt`
 > no row. **The flake itself remains unattributed** — the commit message says so
 > explicitly and declines to claim it as the fix.
 
+> → **The stated mechanism did not hold. Corrected 2026-07-29 (F19 follow-up).** The
+> flake recurred on the post-re-seed production-build run (391 passed / 1 failed, the
+> failure being this test at `messages.spec.ts:264`). `938c84a`'s whole purpose was to
+> make the suspected cause visible in the log if it ever happened again — and
+> **`[actions/messages] sendMessage bump matched no row for thread …` does not appear
+> anywhere in the server log for that run.** So the bump *did* land, and "the message
+> sent and the bump did not land" — recorded above as *"the mechanism is understood and
+> it is a product defect"* — **is not what happens.** It was a plausible reading of a
+> failure at the `lastMessageAt` comparison, never an observation.
+>
+> What is now known: the assertion `bumped.lastMessageAt > untouched.lastMessageAt`
+> failed while every `sendMessage` bump in the run matched a row. That points somewhere
+> else entirely — both threads bumped, equal timestamps, or the reader seeing a stale
+> value — and none of those has been investigated. **Still open, still unattributed, and
+> now with one fewer hypothesis.** The useful part is that the instrumentation worked
+> exactly as intended: it was added to confirm a theory and it refuted it, which is the
+> cheaper outcome.
+
 ---
 
 ### Phase 6 · Feature 18 — Responsive QA, polish & deploy  *(2026-07-29)*
@@ -3890,3 +3908,47 @@ cleared. Confirm it in the network trace by looking for a `200` on
   `npm run build` green at **16 routes**.
 - Not re-checked and not claimed: security advisors and migrations, neither of
   which this change touches (no SQL, no schema, no new route).
+
+---
+
+### Phase 6 · F19 follow-up — the seed re-run  *(2026-07-29)*
+
+#### Decisions
+
+- **Re-ran `supabase/seed.sql` via the Supabase MCP**, closing the tracker item that had
+  been parked since F15 as "a destructive action left for the developer to schedule".
+  `seed-verification.sql` now reports **46/46, no failures**, including the
+  `temporal: at least one in-progress stay exists` assertion that had aged out.
+- **It will age out again, and that is by design.** Every date in the seed is relative to
+  `current_date`, and booking 14 is `current_date - 2 → current_date + 3` — so the
+  in-progress window closes about three days after any run. Treat a future 45/46 on that
+  one assertion as "re-run the seed", not as a defect. Nothing else in the file is
+  time-sensitive in the same way.
+
+#### Gotchas
+
+- **"Begins with a cascading `delete from auth.users`" was true but incomplete, and the
+  incompleteness is what made this look risky enough to defer for four features.** The
+  statement is `delete from auth.users where id in (…)` naming **five sentinel ids** on the
+  `b000` prefix. The seed's own header says it plainly — *"A real Google account has neither
+  prefix and is never touched"* — so the scary-sounding half of the sentence had been
+  carried forward without the qualifying half. Checked against the live database *before*
+  running rather than argued from the file: 5 sentinel users deleted, **4 real users
+  survived, and the single `is_admin` account kept its flag**.
+- **What it does erase is anything hand-made that hangs off seeded data.** All 26 listings
+  were sentinel-owned, so the developer's 2 bookings and 1 empty message thread cascaded
+  away with their parents. Those were throwaway artifacts and losing them was the intent,
+  but the general shape is worth knowing: *the sentinel scope protects accounts, not the
+  rows those accounts created against seeded listings.* To keep such rows across a re-seed,
+  take ownership of a host's listings first — the recipe is at the bottom of `seed.sql`.
+- **A pleasant side effect: whole-table counts now equal seed counts exactly** (26 / 17 / 7
+  / 0) for the first time in the project's life. `progress-tracker.md` had carried a
+  standing paragraph explaining why they differed; that paragraph is now gone rather than
+  left to confuse.
+
+#### Verified
+
+- `seed-verification.sql`: **46/46, failures: none.**
+- Post-state, read back rather than assumed: 26 listings (24 published) / 130 photos /
+  17 bookings / 7 reviews / 5 blocks / 0 threads / 4 surviving real users / **1 admin** /
+  **0 E2E fixture residue**.

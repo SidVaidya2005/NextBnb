@@ -90,9 +90,9 @@ Current as of 2026-07-29. **Treat any deviation as a finding, not a new normal.*
 | `npm run test:e2e` (dev server — the committed config) | **395 total — 392 passed / 3 skipped / 0 failed** |
 | `npm run test:e2e` against a **production** build | **392 passed / 3 skipped / 0 failed** — matches the dev baseline exactly since F19. Was 3–4 failed in `host-manage.spec.ts`; root cause found and fixed |
 | `npm run build` | green, **16 routes**, `ƒ Proxy (Middleware)` printing |
-| `seed-verification.sql` | **45/46** — the seed has aged out, see below |
+| `seed-verification.sql` | **46/46** — re-seeded 2026-07-29 |
 | Seed rows | 26 listings (24 published) / 130 photos / 17 seeded bookings / 7 reviews / 5 blocks / 0 favorites |
-| Whole-table counts | 26 listings / 19 bookings / 7 reviews / 1 thread — the extras are the developer's own, see below |
+| Whole-table counts | 26 listings / 17 bookings / 7 reviews / 0 threads — **identical to the seed counts** since the 2026-07-29 re-seed |
 | Fixture residue after a full run | 0 listings, 0 bookings, 0 reviews, 0 fixture-owned threads, **exactly one admin** (developer's Google account) |
 | Security advisors | **8 WARNs — a 9th is a finding** |
 | Migrations vs remote | 9/9 matching |
@@ -104,20 +104,22 @@ anon + authenticated EXECUTE on each of `unavailable_listing_ids()` (F06) and
 `listing_occupied_ranges()` (F12) — occupancy is public in this product and both are
 narrowed to published listings.
 
-**`seed-verification.sql` is 45/46 and it is not a code defect.** `temporal: at least one
-in-progress stay exists` fails because seeded booking 14 was written
-`current_date - 2 → current_date + 3` on 2026-07-24, fixing it at 2026-07-22 → 2026-07-27.
-It has aged out of the window. This is the file's own documented failure mode (section 9),
-it predates F15, and the E2E suite is unaffected because `trips.spec.ts` builds its own
-in-progress row. Fixing it means re-running `supabase/seed.sql` — see Open work.
+**`seed-verification.sql` is 46/46 as of the 2026-07-29 re-seed.** It had been 45/46 since
+2026-07-27: seeded booking 14 is written `current_date - 2 → current_date + 3`, so the
+`temporal: at least one in-progress stay exists` assertion ages out a few days after every
+run. That is the file's own documented failure mode (section 9), not a code defect — **and
+it will age out again.** Re-running the seed is the fix, and it is cheap; see below.
 
-**Why whole-table counts exceed seed counts.** `seed-verification.sql` scopes every
-assertion to the `30000000-…` id prefix, so it still reads 17 bookings and passes; a
-whole-table count does not, and should not be read as leakage. Verified row by row at F17
-close and unchanged since: two bookings by the developer (one in progress, one cancelled
-through the UI), and one message thread with zero messages — a "Message host" click with
-nothing typed, which is exactly F16's documented accepted cost. `global-teardown.ts` sweeps
-only fixture-user threads, correctly, so that thread survives by design.
+**Re-seeding is safer than this file used to imply.** The note that it "begins with a
+cascading `delete from auth.users`" was true but incomplete: the delete is
+`where id in (…)` naming **five sentinel ids** on the `b000` prefix, and the script says so
+itself — *"A real Google account has neither prefix and is never touched."* Confirmed
+against the live database before running: 5 sentinel users deleted, **4 real users survived,
+the single `is_admin` account kept its flag**. What it does erase is any hand-made row
+hanging off seeded data — the developer's 2 bookings and 1 empty message thread went with
+it, which is why whole-table counts now equal seed counts exactly for the first time. Those
+were throwaway test artifacts; if you want to keep such rows, take ownership of a host's
+listings first (the recipe is at the bottom of `supabase/seed.sql`).
 
 Verification of the deployment itself — anon route gates, the real-404 rule, the anon
 availability RPC, search filters, branding — is recorded in
@@ -128,6 +130,26 @@ availability RPC, search filters, branding — is recorded in
 ## Open work
 
 Four items. **None blocks the build**; all are recorded rather than tidied away.
+
+1. **`messages.spec.ts` › "a reply moves its conversation to the top of the inbox" still
+   fails intermittently, and its recorded mechanism has just been refuted.** It recurred on
+   the 2026-07-29 post-re-seed production run (391 passed / 1 failed). The suspected cause
+   was that `sendMessage`'s `last_message_at` bump silently matched no row — and commit
+   `938c84a` added a log line precisely so a recurrence would prove it. **That line does not
+   appear anywhere in the server log for the failing run**, so the bump landed and the
+   theory is dead. The assertion that fails is
+   `bumped.lastMessageAt > untouched.lastMessageAt` (`messages.spec.ts:264`); candidates now
+   are both threads bumping, equal timestamps, or a stale read — none investigated.
+   Detail: `build-journal.md` → F17, under the corrected note.
+   *(This item was wrongly dropped from Open work during the 2026-07-29 doc re-base: it
+   carried a "Closed by commit `938c84a`" marker and was read as resolved, when the same
+   entry also said the flake itself was never attributed. Restored.)*
+
+> **Done 2026-07-29** — *"re-run `supabase/seed.sql` to restore `seed-verification.sql` to
+> 46/46"*. Run via the Supabase MCP; verification is **46/46, no failures**, including the
+> `temporal: in-progress stay` assertion that had aged out. It will age out again in a few
+> days — that is the seed's design (all dates are relative to `current_date`), so treat a
+> 45/46 as "re-run the seed", not as a defect.
 
 > **Closed by F19** (2026-07-29) — *"three `host-manage.spec.ts` tests fail against a
 > production build under load"*, F18's largest open item. It was **not** a flaky suite and
@@ -140,15 +162,12 @@ Four items. **None blocks the build**; all are recorded rather than tidied away.
 > is four tests whose membership varies. `hydratedRowFor` remains in the suite, still not
 > the fix, still strictly more correct. Full detail: `build-journal.md` → F19.
 
-1. **No screen-reader pass.** Keyboard operability and focus are done and gate-proved (F18);
+2. **No screen-reader pass.** Keyboard operability and focus are done and gate-proved (F18);
    how the live regions *announce* is unverified. Detail in Standing Constraints →
    Accessibility.
-2. **A separate Supabase project for E2E**, so production can disable the email/password
+3. **A separate Supabase project for E2E**, so production can disable the email/password
    provider outright. This is the real fix for the open-signup finding; F18 scoped it out as
    large enough to rival the rest of the feature. Detail in Standing Constraints → Auth.
-3. **Re-run `supabase/seed.sql`** to restore `seed-verification.sql` to 46/46. Deferred
-   because the file opens with a cascading `delete from auth.users` — a destructive action
-   left for the developer to schedule.
 4. **Disable the GitHub integration** in the Supabase dashboard (Project Settings →
    Integrations); no MCP tool exists for it. The branch now reports
    `FUNCTIONS_DEPLOYED`/`ACTIVE_HEALTHY` rather than F02's `MIGRATIONS_FAILED`, but what
