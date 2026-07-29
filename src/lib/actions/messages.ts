@@ -146,8 +146,19 @@ async function findThread(
  * the worse of the two wrong answers.
  *
  * **A refused INSERT raises; it does not filter.** That is F15's rule, and it is
- * why this action maps error codes to sentences and has no zero-row branch, while
- * `markThreadRead` below — an UPDATE — has neither.
+ * why the insert below maps error codes to sentences and has no zero-row branch,
+ * while `markThreadRead` — an UPDATE whose filters make emptiness normal — has
+ * neither. **The bump is the third case and it needs both**: it is an UPDATE, so
+ * a refusal arrives as zero rows rather than as an error, but unlike
+ * `markThreadRead` nothing legitimate makes it match nothing. See the note on the
+ * bump itself.
+ *
+ * > Added at F17 (2026-07-29). The bump previously checked only `bumpError`, so a
+ * > refused or lost UPDATE was silently indistinguishable from a successful one —
+ * > the single write in the project that did not apply F13's rule. It surfaced as
+ * > an intermittent failure of `messages.spec.ts`' inbox-ordering spec under
+ * > full-suite load: the message sent, the timestamp did not move, and nothing
+ * > anywhere said so.
  *
  * The created row is returned so the composer can paint it immediately. The
  * sender is subscribed to the same Realtime channel and will receive their own
@@ -186,15 +197,41 @@ export async function sendMessage(input: unknown): Promise<ActionResult<ThreadMe
 
   // `last_message_at` is the only column `authenticated` may write on this table
   // (migration 0003), so this update is as narrow as the grant.
-  const { error: bumpError } = await supabase
+  //
+  // **`.select()` is what makes a refusal visible, and this bump is the one place
+  // in the project that was missing it.** F13's rule: RLS refuses an UPDATE by
+  // *filtering*, so a bump that matched no row comes back `{ error: null }` and
+  // is indistinguishable from one that worked. Checking `bumpError` alone
+  // therefore cannot see the failure mode this code most needs to see.
+  //
+  // **Zero rows here can only mean the bump was refused or lost**, which is what
+  // separates it from `markThreadRead` below: that statement filters to unread
+  // incoming messages, so matching nothing is its ordinary outcome and a zero-row
+  // branch would false-alarm on most opens (F16's finding). Here the row is known
+  // to exist and the caller is known to be a participant — the INSERT above just
+  // succeeded under a policy that requires exactly that — so nothing legitimate
+  // produces an empty result.
+  //
+  // Still not surfaced to the user, for the reason above: the message *was*
+  // delivered, and only the inbox's ordering is stale until the next send repairs
+  // it. Telling someone their message did not send, when it did, remains the worse
+  // of the two wrong answers. The point of the branch is that the miss reaches the
+  // log at all.
+  const { data: bumped, error: bumpError } = await supabase
     .from('message_threads')
     .update({ last_message_at: data.created_at })
     .eq('id', threadId)
+    .select('id')
+    .maybeSingle()
 
   if (bumpError) {
-    // Not surfaced: the message exists and both participants can read it. Only
-    // the inbox's ordering is stale, and the next send repairs it.
     console.error('[actions/messages] sendMessage bump failed:', bumpError.message)
+  } else if (!bumped) {
+    console.error(
+      '[actions/messages] sendMessage bump matched no row for thread',
+      threadId,
+      '— the inbox ordering for this conversation is now stale.',
+    )
   }
 
   revalidatePath('/messages')
