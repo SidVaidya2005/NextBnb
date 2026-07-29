@@ -1,8 +1,22 @@
 # Build Plan
 
-> **Role:** The ordered plan — phases and numbered features to build, in sequence.
-> **Read before starting a feature**; build one feature fully before the next.
-> **Relates to:** features come from `project-overview.md`; status tracked in `progress-tracker.md`.
+> **Role:** The build record — the 18 features in the order they were built, each with what
+> was planned and how it actually shipped.
+> **All 18 are complete.** Read a feature's entry before changing the code it produced: the
+> **As built** blocks are the shortest explanation of why that code is shaped as it is.
+> **Relates to:** features come from `project-overview.md`; live status in `progress-tracker.md`;
+> full narrative in `build-journal.md`.
+
+**This file is finished and is now read backwards.** It was written as a forward plan and
+built in order; every box in `progress-tracker.md` is ticked. What makes it still worth
+reading is the two annotation blocks each feature carries — **Planned shape (agreed before
+build)** and **As built (deviations worth knowing)** — because the gap between them is where
+the real constraints surfaced. Several entries record the plan being *wrong*: F17's is the
+sharpest, where this file asserted that the existing actions "already accept an admin actor
+via RLS" and two of the three verbs did not. Those corrections are left in place deliberately.
+
+New work does not belong here. It goes in `progress-tracker.md` → Open work, and once it
+constrains something, in `build-journal.md` → Standing Constraints.
 
 ## Core Principle
 
@@ -820,6 +834,42 @@ Make it feel finished, verified across devices, and live on Render.
   the developer; the dashboards are not reachable from the build session.
 - **No migration, no new route, no new dependency.** The build stays at **16 routes**, so
   F07's no-`loading.tsx` rule is untouched, and advisors should stay at **8 WARNs**.
+
+**As built (deviations from the plan above):**
+- **The accessibility half was the feature; the responsive half was confirmation.** Exactly
+  as the plan predicted. Ten surfaces gained focus management via two new shared hooks
+  (`src/lib/hooks/useDismissable.ts`, `useFocusWhen.ts`) — the first `.focus()` calls in the
+  project — and `e2e/keyboard.spec.ts` gate-proves each. The 11 existing `*-responsive.spec.ts`
+  files needed no structural change.
+- **Three of the five focus-restore tests passed against a build with the restore deleted.**
+  For a non-modal popover, focus never leaves the trigger, so the assertion was measuring
+  "focus was never stolen" rather than "focus was restored". Its twin failed from the other
+  direction: the "not trapped" test passed against a build with the trap wrongly enabled.
+  Both rewritten; this is F18's Key Decision and the single most useful thing the feature
+  produced.
+- **The `role="grid"` calendar the tracker said to audit had never been built.** No `role`,
+  no `tabIndex`, no `onKeyDown` in `DateRangePicker` — the to-do described work as existing.
+  Recorded as a known limitation rather than fixed, for the reasons the plan gave.
+- **The deploy shipped broken and a green site hid it.** `NEXT_PUBLIC_SITE_URL` was set to the
+  *callback URL* rather than the origin, making the OAuth `redirect_to`
+  `…/auth/callback/auth/callback` — a 404 — while every other surface passed. Fixed by setting
+  the bare origin and **redeploying**, which is the load-bearing half: `NEXT_PUBLIC_*` is
+  inlined at build time. `docs/deploy-render.md` step 5 gained a `curl` check that reads
+  `redirect_to` straight off the OAuth hand-off without spending a Google consent — one
+  command that confirms all three allow-lists.
+- **The production-build run found three pre-existing `host-manage.spec.ts` failures**, proved
+  not-F18's by reverting `src/` to `938c84a` and re-running. Mechanism unidentified; recorded
+  unresolved in `progress-tracker.md` → Open work rather than tidied away.
+- **A pre-existing date-fragility class was swept**, beyond the one spec F17 handed forward:
+  six more bare `dayCell` assertions in `host-availability.spec.ts` and a
+  `search-responsive.spec.ts` test that silently skipped its only assertion on the 1st of
+  every month. The suspected `todayISO()`/`addDay()` timezone mismatch was investigated and
+  is **not** a defect — reasoning recorded in the function's docblock so it is not
+  "simplified" into a real bug later.
+- **Scope held.** No migration, no new route, no new dependency; 16 routes, 8 WARNs.
+- **Verified:** unit 288/288, e2e **395 total — 392 passed / 3 skipped / 0 failed** against
+  the dev server, build green at 16 routes, live at https://nextbnb-h4ov.onrender.com with
+  Google sign-in and the full host mutation flow hand-verified against the deployment.
 
 ---
 

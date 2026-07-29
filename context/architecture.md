@@ -475,7 +475,9 @@ delivery. Uploads are **signed server-side** — the browser never sees the API 
   but it is a real gap between this document and the live config. Turning signups off
   globally is **not** the fix: it would also block first-time Google users. The fix is
   a separate Supabase project for E2E so production can disable the email provider
-  outright; deferred to F18. See `build-journal.md` → Phase 1 close-out.
+  outright. **Still open as of 2026-07-29** — F18 explicitly scoped it out as large enough
+  to rival the rest of that feature, so it did not close there. Tracked in
+  `progress-tracker.md` → Open work; background in `build-journal.md` → Phase 1 close-out.
 - Protected: `/trips`, `/favorites`, `/messages`, `/host/**`, and all mutating server actions. `/admin/**` additionally requires `profiles.is_admin = true`.
 - Public: `/`, `/listings/[id]`, `/auth/callback`, and static assets.
 - The session check for pages/actions uses `supabase.auth.getUser()` (verifies with the auth server) — never trust `getSession()` alone for authorization. `src/proxy.ts` refreshes the session cookie on every request and redirects unauthenticated users away from protected routes.

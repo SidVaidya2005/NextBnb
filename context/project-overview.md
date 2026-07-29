@@ -147,6 +147,13 @@ platform's users and content.
 
 ## Success Criteria
 
+**All met as of 2026-07-29**, across 18 features and a live deployment. They remain the
+acceptance bar for any future change — a change that breaks one of these is a regression,
+not a trade-off. Two carry a caveat, both recorded in `progress-tracker.md`: the criteria
+below are proven by the E2E suite against a dev server plus a hand-verified pass over the
+live deployment, and `CldImage` transform delivery has never been exercised in production
+because every seeded photo is an external Unsplash URL.
+
 - A user can sign in with Google and is returned to the page they started from.
 - Search with any combination of destination, dates, guests, price, property type, and amenities returns only matching, available, published listings.
 - A guest can complete a booking end to end; the reserved dates become unavailable to other guests and the booking shows under Trips.

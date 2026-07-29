@@ -1,58 +1,333 @@
 # Build Journal
 
-> **Role:** Full archive of build decisions, gotchas, and verification results, organized by feature.
-> **Write to after every completed feature.** When `progress-tracker.md` "Key Decisions" exceeds ~10 bullets, prune the older/lower-stakes ones here.
-> **Relates to:** mirrors the feature order in `build-plan.md`.
+> **Role:** Two records in one file — the constraints that still bind, and the dated archive of how the build got here.
+> **Read Standing Constraints** before any change that might conflict with past work; **read the Feature Log** when revisiting a specific feature or investigating a regression.
+> **Relates to:** logs the features in `build-plan.md`; receives decisions displaced from `progress-tracker.md`.
 
-## How to maintain this file
+## How this file is maintained
 
-Mostly append — but it is **not** append-only, because an entry that has quietly
-become false is worse than no entry. Editing rules, adopted 2026-07-26:
+This file holds two records with different lifetimes. Keep them separate — the
+point is that Standing Constraints stays short and findable while the Feature Log
+absorbs the detail.
 
-- **Correct, don't rewrite.** When a past claim turns out wrong, leave the original
-  text and add a dated `> **Corrected YYYY-MM-DD:** …` blockquote beneath it. The
-  superseded belief usually explains a decision made at the time — delete it and that
-  decision reads as arbitrary.
-- **Mark open items resolved, don't delete them.** When a "Not verified" or "Deferred"
-  item closes, append `→ **Closed by F<NN>** (date): <what closed it>` under it. How
-  long a gap stayed open is itself evidence — the Phase 3 close-out's whole lesson is
-  that three gaps survived from F04 to F11 for one structural reason.
-- **A prediction that didn't come true gets `→ **Did not happen.**`** plus what
-  happened instead. These are the entries most likely to mislead, because they read
-  as statements of fact.
-- **Never remove:** wrong turns and failed diagnoses, verification evidence and
-  numbers, or library/framework gotchas — even where the code has moved on. These are
-  the asset; every Key Decision in `progress-tracker.md` came from one of them.
-- **Delete only** genuinely redundant boilerplate repeated across entries (see
-  Standing environment notes below for where such notes belong instead).
-- **Never prune for length.** This file is read on demand, not per session, so its
-  size costs nothing. Edit it for accuracy only.
+**Standing Constraints — permanent, topical, deduped.**
 
-<!-- Entry format — repeat per completed feature:
+- Grouped by **topic**, never by date. Add a `###` topic heading when a new one is needed.
+- Holds only what still binds: decisions that constrain future work, notes explaining why
+  something non-obvious is the way it is, limitations that were knowingly accepted, and
+  paths that were reasoned about but never executed.
+- **Receives decisions displaced from `progress-tracker.md`** — when Key Decisions would
+  exceed 10 bullets, its oldest entry is filed here under its topic. Eviction is a move,
+  never a delete.
+- Cite the feature each bullet came from, e.g. `(F02)`.
+- **Never pruned by age.** Remove a constraint only when it is verifiably dead — reversed by
+  a later decision, or the thing it describes no longer exists.
 
-## Phase {{N}} · Feature {{NN}} — {{FEATURE_NAME}}  *(YYYY-MM-DD)*
-- Decision: …
-- Gotcha: …
-- Verified: …
+**Feature Log — chronological, corrected in place, never compacted.**
 
--->
+- One dated entry per completed feature, oldest first, under its phase.
+- **Correct, don't rewrite.** When a past claim turns out wrong, leave the original text and
+  add a dated `> **Corrected YYYY-MM-DD:** …` blockquote beneath it. The superseded belief
+  usually explains a decision made at the time — delete it and that decision reads as arbitrary.
+- **Mark open items resolved, don't delete them.** When a "Not verified" or "Deferred" item
+  closes, append `→ **Closed by F<NN>** (date): <what closed it>` under it. How long a gap
+  stayed open is itself evidence — the Phase 3 close-out's whole lesson is that three gaps
+  survived from F04 to F11 for one structural reason.
+- **A prediction that didn't come true gets `→ **Did not happen.**`** plus what happened
+  instead. These are the entries most likely to mislead, because they read as fact.
+- **Never remove:** wrong turns and failed diagnoses, verification evidence and numbers, or
+  library/framework gotchas — even where the code has moved on. These are the asset; every
+  Key Decision in `progress-tracker.md` came from one of them.
 
-## Standing environment notes
+> **Deliberate deviation from the `setup-context` skill, adopted 2026-07-29.** That skill
+> compacts the Feature Log at every phase checkpoint — collapsing closed phases to summary
+> bullets and dropping every `Verified:` line. **This project does not, and the entries below
+> are kept whole.** That rule exists to stop a journal bloating during a live build; this
+> build is complete, the file is read on demand rather than per session, so its length costs
+> nothing, and the `Verified:` lines are the only record of measurements that cannot be
+> re-taken (advisor counts at each feature, the gate proofs, the runs that passed against a
+> deliberately broken build). Compacting now would burn evidence to solve a problem that no
+> longer exists. **Standing Constraints was adopted from that skill; the compaction was not.**
 
-Known, accepted, and deliberately not re-litigated per feature. Recorded here so
-entries below do not each carry a copy.
+## Standing Constraints
 
-- **The stray `~/package-lock.json` multiple-lockfile warning is cosmetic and out of
-  scope.** A lockfile dated 2026-03-11 in the developer's home directory makes Next
-  infer the wrong workspace root ("detected multiple lockfiles"). It is outside the
-  repo, affects nothing, and is left alone deliberately. First observed in F02 and
-  unchanged through F12; the per-feature repetitions of this note were consolidated
-  here during the 2026-07-26 context audit. If it ever stops being cosmetic, that is
-  a finding worth its own entry.
+What still binds, grouped by topic. Assembled 2026-07-29 from three places that had
+each grown their own archive: `progress-tracker.md`'s "Pruned from Key Decisions",
+its "Known limitations" and "Untested branches" lists, and this file's former
+"Standing environment notes". Nothing was dropped in the move.
+
+Three kinds of bullet live here, and the distinction matters when you read one:
+a **rule** constrains what you may build, a **limitation** is something knowingly
+not fixed, and an **untested branch** is code that was reasoned about but never
+executed. Untested is not the same as broken — but it is not the same as verified
+either, and a bullet that says so is the only thing standing between the two.
+
+### RLS & authorization
+
+- **RLS filters rows, not columns** (F02). Rules of the form "may update, but only this
+  column" (`profiles.is_admin`, booking price snapshots, message bodies) are carried by
+  column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because
+  RLS with no matching policy updates zero rows and reports success. Verified by
+  `supabase/tests/schema-verification.sql` (37 assertions).
+- **One account can only ask RLS half of every question, and the half it can ask returns
+  the reassuring answer** (Phase 3 close-out). Three gaps stayed open from F04 to F11
+  because the Playwright fixture user was the only principal that could sign in — always
+  the host of what it unpublished, always the sole writer of its own favorites, never
+  safely flippable to admin. `SECOND_USER` closed all three. **Whenever behaviour depends
+  on who is asking, one identity cannot verify it.** Corollary: a fixture granted
+  `is_admin` must give it back in a `finally` **and** in global teardown, because fixture
+  passwords are committed and a timeout skips the `finally`. **F17 extended it:**
+  `fullyParallel: true` orders nothing *between* files, so exactly one spec file may own
+  the `is_admin` flag — which is why `keyboard.spec.ts` asserts its two-step confirm on a
+  host control rather than an admin one.
+- **`message_threads_insert_participant` is looser than the app** (F16). Its
+  `guest_id = uid OR host_id = uid` would accept a thread naming an arbitrary stranger as
+  the guest; `getOrCreateThread` derives both participants and never builds one. Tightening
+  it is a migration. **Here RLS is the gap, not the backstop** — the inverse of this
+  project's usual arrangement.
+- **Admins cannot read message threads** (`0003`, deliberate). F17's moderation therefore
+  has three tables and no fourth; reaching conversations would need a migration.
+- **No role editing and no user deletion in `/admin`** (F17), and neither is a UI choice:
+  `0003` revokes the `is_admin` column grant from `authenticated` and revokes DELETE on
+  `profiles` outright. Adding either is a migration.
+- **An admin cannot republish a listing they unpublished** (F17), deliberately. Publishing
+  carries a ≥1-photo guard living in `setListingPublished`, and a second entry point would
+  duplicate or skip it. The host republishes their own.
+- **The admin tables are capped at 200 rows each and the cap is silent** (F17). Fine at 26
+  listings / 19 bookings, and the cap orders `check_in`/`created_at` DESC so it truncates
+  settled history rather than what an admin came to see. Pagination is unowned.
+
+### Availability & booking
+
+- **The range models are fixed and asymmetric.** Bookings are half-open
+  `[check_in, check_out)`; `blocked_dates` are inclusive `[start, end]`. No self-booking;
+  fees round half-up in cents. Specified in full in `architecture.md` → Availability Rules
+  and Booking Rules. F12 is the feature that exercised all of it end to end.
+- **A guest cannot check *out* on the day another guest checks *in*** (F12).
+  `DateRangePicker.isSelectable` disables every occupied day outright, so although the
+  range model permits an unavailable day as a half-open *end*, the cell cannot be clicked.
+  One bookable night at each boundary is unreachable. The documented invariant — check *in*
+  on another's checkout day — does work and is covered.
+- **The block-over-booking race is guarded but has never *landed*** (F11). A booking
+  arriving in the microseconds after `addBlock`'s read would produce a block overlapping a
+  confirmed stay. Benign by design — `unavailable_listing_ids` unions both halves — and
+  reachable only by contriving the interleaving.
+- **`blocked_dates_update_own_listing` is a knowingly unused policy** (F11). F11 only
+  inserts and deletes; widening a block is remove-and-re-add. Worth knowing before it reads
+  as evidence that editing a block is supported.
+- **A host cannot cancel or decline a reservation, and adding it is a migration** (F14).
+  `bookings_update_cancel_own_or_admin` names only the guest and `is_admin()`, and its
+  WITH CHECK would reject a host-authored row anyway — a host has **no write path to
+  `bookings` at all**. Recorded because "read-only for the host" reads like a UI choice and
+  is not one.
+
+### Data, schema & migrations
+
+- **`on delete set null` can collide with `nulls not distinct` and fail a listing delete**
+  (F16). Nulling `message_threads.listing_id` collapses a thread onto `(guest, host, null)`,
+  and the unique constraint treats those nulls as equal — so a guest holding threads about
+  two listings by one host makes the **second** listing delete raise a unique violation,
+  surfacing as `deleteListing`'s generic error. Narrow, reachable through ordinary use, not
+  fixed (it needs a migration). `global-teardown.ts` sidesteps it by clearing threads first.
+  **F17's admin delete has the same exposure**, confirmed as inherited rather than fixed.
+
+### Auth & sessions
+
+- **The app offers Google only; the Supabase project does not.** The email/password provider
+  is enabled at project level because the Playwright fixture signs in through it (Google
+  consent cannot be automated), and `disable_signup` is `false` — so email registration is
+  reachable via the Auth API though no UI exposes it. Low severity: confirmation is required
+  and the resulting account is an ordinary guest with no privilege path (RLS + column
+  grants). **Turning signups off globally is not the fix** — it would also block first-time
+  Google users. The fix is a separate Supabase project for E2E. **Still open** (see
+  `progress-tracker.md` → Open work); F18 explicitly scoped it out as too large.
+
+### Images & Cloudinary
+
+- **Images live in Cloudinary, not Supabase Storage**; `listing_photos` stores `url` +
+  `public_id`. Signed uploads, `CldImage` responsive delivery. Fully specified in
+  `architecture.md` → Image Storage & Delivery and `library-docs.md` → Cloudinary.
+- **A library that throws on missing config turns a misconfiguration into a 500** (F09).
+  `CldImage` throws without a cloud name and `CldUploadWidget` without a *browser-visible*
+  `api_key` — both during render, so one unset env var took down `/listings/[id]` and
+  `/host/listings/[id]/photos` entirely rather than degrading. Both are now guarded and fall
+  back. It also surfaced that the Cloudinary **api_key is public** while the **secret**
+  authorises.
+- **Cloudinary transform delivery is unproven in production** (F18). All 24 seeded listings
+  carry `public_id = null`, so every image on the public site takes `ListingImage`'s
+  `next/image` branch and no page exercises `CldImage`. `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME`
+  reaching the production build is therefore also untested. Proving it needs one listing
+  with an uploaded photo.
+
+### Messaging
+
+- **The inbox does not live-update** (F16). Realtime is thread-scoped by design
+  (`filter: thread_id=eq.<id>`), so a new message neither reorders nor badges `/messages`
+  until it is revisited.
+- **A host cannot start a conversation, only reply** (F16). Unlike F14's read-only
+  reservations this needs **no** migration — both policies already admit either participant
+  as the creator — only an entry point. Out of scope by agreement, recorded so it does not
+  read as a limitation of the schema.
+
+### Routing & rendering
+
+- **A route `loading.tsx` and a real HTTP 404 cannot coexist** (F07). The implicit
+  `<Suspense>` it creates makes the response stream, and the status commits to **200 before
+  `notFound()` runs** (Next: "a 404 status for non-streamed responses and a 200 for
+  streamed"). Drafts would have been indexable as live pages. There are **zero**
+  `loading.tsx` files in the project and the specs gate against restoring one. Written into
+  `code-standards.md` → Next.js Conventions with the quote and the reasoning.
+
+### Forms & validation
+
+- **A validation schema used on both sides of a boundary must accept its own output** (F09).
+  The form validates with `createListingSchema`, posts the *result* to the server action,
+  and the action re-validates with the same schema — so `parse(parse(x))` has to succeed.
+  It did not: optional-text fields emitted `null` but accepted only `string | undefined`,
+  and every listing with a blank description passed on the client then failed on the server
+  with a message naming no field. Now a standing test-writing habit — F15's
+  `createReviewSchema` and F16's `sendMessageSchema` each ship a `parse(parse(x))` unit test
+  written from this rule rather than from a bug. `library-docs.md` → Zod carries the
+  `.nullish()` shape that makes it hold.
+- **Editing before hydration loses the edit, for a real user too** (F10). Clearing a field
+  and submitting inside the hydration window saves the server-rendered default. Inherent to
+  an SSR'd react-hook-form seeded from `defaultValues`; worth knowing before it is reported
+  as a bug.
+
+### Design system & responsive
+
+- **The visual system is fixed by `context/DESIGN.md`** (Airbnb-style: Rausch `#ff385c` on
+  white, `#222222` ink, Inter as the Cereal VF substitute, soft radii, one shadow tier).
+  Tokens live in `globals.css @theme`.
+- **Fully responsive is a hard requirement** — custom Tailwind breakpoints
+  (`tablet:744` / `desktop:1128` / `wide:1440`) map phone/iPad/laptop/desktop; mobile-first,
+  grids drop columns rather than reflow rows. Every feature since F05 verified it at each
+  band's lower boundary; 11 `*-responsive.spec.ts` files hold those samples.
+
+### Accessibility
+
+- **`DateRangePicker`'s day cells are plain buttons — no `role="grid"`, no roving
+  tabindex** (F18), so a two-month calendar is ~60 tab stops. Deliberate: the primitive sits
+  under three features (`SearchBar`, `BookingWidget`, `AvailabilityManager`) and ~6 spec
+  files, and a botched roving tabindex is worse for a keyboard user than verbose-but-working
+  buttons. The cells are already operable, which is what makes deferring legitimate rather
+  than lazy. **Note for anyone reading older docs:** the tracker used to describe this
+  pattern as existing and needing an audit. It was never built.
+- **No screen-reader pass has been run** (F18). Keyboard operability and focus management
+  are done and gate-proved across all ten surfaces via `src/lib/hooks/` and
+  `e2e/keyboard.spec.ts`; how the live regions actually *announce* — especially F16's
+  asynchronous incoming-message announcement interacting with F12's sheet and the account
+  menu — is still unverified by anything but reading.
+
+### Testing & verification
+
+- **Testing is Vitest (unit) + Playwright (E2E)**; a feature is done only when its tests
+  pass. E2E runs against the seeded DB with a seed-verification step.
+  `code-standards.md` → Testing specifies which logic is unit-tested and which flows are E2E.
+- **A negative assertion needs a positive control, or it passes for the wrong reason** (F11).
+  The spec proving `/host/listings/[id]/availability` 404s for a non-owner named a listing id
+  that did not exist, so the route 404'd because the row was missing — and it **passed with
+  `host_id` scoping deleted from the query**. It now uses a real seeded listing and
+  additionally asserts that listing serves **200** on its public page, so the 404 can only
+  mean "not yours". Applied as habit in F12–F17 since.
+- **The suite has only ever run against `npm run dev`** by default, and
+  `playwright.config.ts` still points there deliberately (a build on every run is too slow to
+  work with). F18 ran it once against a production build, which is how the `host-manage`
+  failures surfaced. **Doing that occasionally is known to be worth it.**
+
+#### Untested branches (written, reasoned, never executed)
+
+Triaged and accepted. Each is expanded in the relevant Feature Log entry below.
+
+- **The two admin two-step confirms have no focus assertion of their own** (F18).
+  `AdminListingActions` and `AdminCancelBookingButton` use the identical `useFocusWhen`
+  pairing that `e2e/keyboard.spec.ts` gate-proves on `ListingActions`, so the hook is
+  covered — but "the hook works and these components call it" is an argument, not a test.
+  `keyboard.spec.ts` cannot reach them because `admin.spec.ts` owns `profiles.is_admin`
+  exclusively, so the assertion belongs *inside* `admin.spec.ts`. The admin listing delete
+  is where it matters most: its confirm step also renders the `role="alert"` naming the
+  reservations the delete erases.
+- **The `{ ok: false }` Supabase-error branch of every action** — `setFavorite` (F08),
+  `updateListing`/`deleteListing` (F10), `addBlock`/`removeBlock` (F11), `createBooking`
+  (F12), `cancelBooking` (F13), `createReview`/`deleteReview` (F15). Guard refusals and
+  not-found paths *are* covered; a genuine database error is not. Same shape as F05's
+  untriggered `error.tsx`. **The zero-row branches are the exception** — they are refusals,
+  not errors, and both F13's and F15's are gate-proved. F14 adds the read-side twin:
+  `getHostReservations`' two error branches and its `hostsNothing: false` distinction
+  between "hosts nothing" and "the query failed". F16 adds all three messaging actions plus
+  `markThreadRead`'s **swallowed** error path — the one branch in the project that
+  deliberately reports success on failure, because a receipt that did not land must not stop
+  a thread rendering.
+- **All three F17 admin actions' `{ ok: false }` branches**, plus their shared
+  `Unauthorized.` branch — there is no UI path to a server action a non-admin can reach,
+  because the route redirects first, so reaching it needs a forged request. The SQL
+  impersonation gate proof stands in for it and is the stronger evidence anyway: it proves
+  the *policy* would have allowed what the check refuses. `adminDeleteListing`'s zero-row
+  branch is unreachable by construction; it logs rather than passing silently, because if it
+  ever fires the gate and the policy have stopped agreeing.
+- **`getAdminOverview`'s three `failed: true` section states** (F17). The **degraded-email
+  path *was* observed**, though: a spec's `finally` revoking `is_admin` mid-render made
+  `admin_list_users()` raise while the page's gate read had already passed, and the emails
+  fell back to null with the rest of the table intact.
+- **`sendMessage`'s `42501`/`23503` branch and `getOrCreateThread`'s `23505` retry** (F16).
+  The first needs a thread deleted while the composer sits open — genuinely reachable, and
+  worth a spec if F16 is revisited, exactly as `deleteReview`'s zero-row branch turned out to
+  be. The second needs two clicks to interleave past the select; the ordinary double-click is
+  caught by the select and **is** covered.
+- **The `liveStatus === 'offline'` notice** (F16) — needs the websocket to fail or time out,
+  which nothing in the suite induces. The `'live'` path is asserted on every realtime spec
+  via `data-live`.
+- **A thread whose listing was deleted** (F16) — `listing_id` null renders "Listing no longer
+  available". The RLS half of that branch (a guest looking at an unpublished listing's
+  thread) is reachable and reasoned about; neither half has a spec.
+- **`createReview`'s `42501` branch** (F15) — `canReviewBooking` never offers the form where
+  the policy would refuse, so reaching it needs a forged request or a checkout boundary
+  crossing while the page sits open. Its `23505` sibling is unreachable from a *fresh* page
+  but **is** reachable from a stale one. The 1 000-char comment cap is unit-tested only;
+  `maxLength` makes it unreachable through the textarea.
+- **`getHostReservations`' null-listing branch is unreachable by construction** (F14). Every
+  id it filters on came from a listing the caller hosts, so the embed cannot be RLS-filtered
+  away. It logs rather than skipping silently, because if it ever fires the scoping set and
+  the policy have stopped agreeing.
+- **`cancelBooking`'s refusal is unreachable through the UI**, because `canCancel` never
+  renders the control for a stay the policy would refuse. Reaching it needs a forged request
+  or a stay whose check-in passes while the page sits open. The gate proof reached it by
+  relaxing `canCancel` for one run.
+- **`createBooking`'s past-date branch** — the calendar never offers a past day, so reaching
+  it needs a forged request.
+- **The `23P01` exclusion-constraint branch** — the app-side check fires first, so the
+  constraint's own refusal is reachable only in a true race (or by deleting the check, which
+  is how the gate proof found it).
+- **Cloudinary `destroy` has only ever run against fabricated `public_id`s**, in both
+  `deleteListing` (F10) and `adminDeleteListing` (F17) — the suite never uploads, so a
+  *successful* multi-asset destroy is reasoned about, not observed. Those same ids make
+  `CldImage` log "Resource not found" through the host grid during E2E: test-data noise, not
+  a defect.
+- **The 365-day block ceiling** is unit-tested only — reaching it through the calendar is
+  ~365 "Next month" clicks.
+- **Cancelling at the Google consent screen** (`access_denied` → home, no error banner) needs
+  a human to click Cancel.
+
+### Runtime & environment
+
+- **Targets Next.js 16** → requires Node ≥20.9 (LTS) and TS ≥5.1; `params`/`cookies`/
+  `headers` are async-only. Documented in `architecture.md` → Stack and `CLAUDE.md` →
+  Runtime & Commands.
+- **The stray `~/package-lock.json` multiple-lockfile warning is cosmetic and out of scope.**
+  A lockfile dated 2026-03-11 in the developer's home directory makes Next infer the wrong
+  workspace root ("detected multiple lockfiles"). It is outside the repo, affects nothing,
+  and is left alone deliberately. First observed in F02 and unchanged through F12. If it ever
+  stops being cosmetic, that is a finding worth its own entry.
 
 ---
 
-## Phase 1 · Feature 01 — Project scaffold, design tokens & integrations  *(2026-07-25)*
+## Feature Log
+
+Oldest first, grouped by phase. Kept whole — see the deviation note above.
+
+---
+
+### Phase 1 · Feature 01 — Project scaffold, design tokens & integrations  *(2026-07-25)*
 
 **Scope built (26 files):** Runnable Next 16 (App Router, React 19, TS strict) skeleton on
 Tailwind v4; DESIGN.md tokens + custom breakpoints in `globals.css @theme`; Inter via
@@ -87,7 +362,7 @@ modules + `src/middleware.ts`; `cloudinary.ts` + `/api/sign-cloudinary`; `consta
 
 ---
 
-## Phase 1 · Feature 02 — Database schema & RLS  *(2026-07-25)*
+### Phase 1 · Feature 02 — Database schema & RLS  *(2026-07-25)*
 
 **Scope built:** Supabase project **NextBnb** (`mbrcgzpmqhmdfhjqytnq`, ap-south-1,
 free plan, $0/mo, PG 17); six migrations in `supabase/migrations/`; nine tables with
@@ -139,7 +414,7 @@ live credentials.
 
 ---
 
-## Phase 1 · Feature 03 — Seed data  *(2026-07-25)*
+### Phase 1 · Feature 03 — Seed data  *(2026-07-25)*
 
 **Scope built:** `supabase/seed.sql` — 5 demo users (2 hosts, 3 guests), 26 listings
 (24 published + 2 drafts) across 8 cities, 130 Unsplash photos, 17 bookings, 7 reviews,
@@ -237,7 +512,7 @@ no `src/` change, no new dependency, `database.types.ts` untouched.
 
 ---
 
-## Phase 1 · Feature 04 — Google authentication  *(2026-07-25)*
+### Phase 1 · Feature 04 — Google authentication  *(2026-07-25)*
 
 **Scope built:** `safeNextPath` (+7 unit tests); `lib/queries/profiles.ts`
 (`getCurrentProfile`); `lib/actions/auth.ts` (`signInWithGoogle`, `signOut`);
@@ -397,7 +672,7 @@ project now has exactly one admin, so `/admin` and the menu's Admin entry open f
 
 ---
 
-## Phase 1 · Close-out — verification catch-up  *(2026-07-25)*
+### Phase 1 · Close-out — verification catch-up  *(2026-07-25)*
 
 Not a numbered feature and not a bug fix: Phase 1 was already green on all four
 gates when this started. This pass closed the **verifications F04 left open**
@@ -494,7 +769,7 @@ before F05 begins, and in doing so turned up one real defect and one config drif
 
 ---
 
-## Phase 2 · Feature 05 — Home & listing grid  *(2026-07-25)*
+### Phase 2 · Feature 05 — Home & listing grid  *(2026-07-25)*
 
 **Scope built (9 files):** `averageRating` + `coverPhotoOf` pure helpers in
 `lib/utils.ts` (+9 unit tests); `lib/queries/listings.ts` (`getPublishedListings`,
@@ -607,7 +882,7 @@ dependency, `database.types.ts` untouched. **The first feature that renders real
 
 ---
 
-## Phase 2 · Feature 06 — Search & filters  *(2026-07-25)*
+### Phase 2 · Feature 06 — Search & filters  *(2026-07-25)*
 
 **Scope built (13 files):** migration `0007_availability_search_rpc`
 (`unavailable_listing_ids`); `lib/validations/listings.ts` (first Zod schema in the
@@ -754,7 +1029,7 @@ placeholder replaced; `e2e/fixtures.ts`, `e2e/search.spec.ts` (25),
 
 ---
 
-## Phase 2 · Feature 07 — Listing detail  *(2026-07-25)*
+### Phase 2 · Feature 07 — Listing detail  *(2026-07-25)*
 
 **Scope built (17 files):** four pure helpers in `lib/utils.ts` (`orderedPhotos`,
 `formatCapacity`, `formatTimeOfDay`, `formatMonthYear`, +17 unit tests);
@@ -951,7 +1226,7 @@ should be hidden). **Kill the port before trusting any before/after E2E comparis
 
 ---
 
-## Phase 1 · F02 follow-up — migration version identity & Supabase branching  *(2026-07-25)*
+### Phase 1 · F02 follow-up — migration version identity & Supabase branching  *(2026-07-25)*
 
 Triggered by a real failure, not a review: the Supabase GitHub integration reported
 **"Remote migration versions not found in local migrations directory"**.
@@ -1034,7 +1309,7 @@ Triggered by a real failure, not a review: the Supabase GitHub integration repor
 
 ---
 
-## Phase 2 · Feature 08 — Favorites  *(2026-07-25)*
+### Phase 2 · Feature 08 — Favorites  *(2026-07-25)*
 
 **Scope built (16 files):** `lib/validations/favorites.ts` (`setFavoriteSchema`);
 `lib/actions/favorites.ts` (`setFavorite` — the project's first non-auth action);
@@ -1206,7 +1481,7 @@ was fully specified in `0001`/`0003`/`0006` and needed nothing.
 
 ---
 
-## Phase 3 · Feature 09 — Create listing  *(2026-07-25)*
+### Phase 3 · Feature 09 — Create listing  *(2026-07-25)*
 
 **Scope built (18 files):** `createListingSchema` + `addListingPhotoSchema` /
 `photoActionSchema` / `movePhotoSchema` / `publishListingSchema` and
@@ -1380,7 +1655,7 @@ it. `react-hook-form`, `@hookform/resolvers`, `next-cloudinary` installed.
   → **Did not happen** — same reason as F08's copy of this note. Closed by the
     Phase 3 close-out's second fixture account (2026-07-26).
 
-### F09 follow-up — the real Cloudinary round trip  *(2026-07-26)*
+#### F09 follow-up — the real Cloudinary round trip  *(2026-07-26)*
 
 Credentials were provisioned, so the one thing F09 shipped unverified is now
 verified. Two real defects surfaced in the process — both invisible while the
@@ -1461,7 +1736,7 @@ but F10's delete path should assume an orphan is possible.
 
 ---
 
-## Phase 3 · Feature 10 — Manage listings  *(2026-07-26)*
+### Phase 3 · Feature 10 — Manage listings  *(2026-07-26)*
 
 **Scope built (12 files):** `blocksListingDeletion` in `lib/utils.ts`;
 `centsToDollars`, `toListingFormValues`, `updateListingSchema`,
@@ -1673,7 +1948,7 @@ no column grant restricts which listing columns a host may write.
 
 ---
 
-## Phase 3 · Feature 11 — Availability management  *(2026-07-26)*
+### Phase 3 · Feature 11 — Availability management  *(2026-07-26)*
 
 **Scope built (12 files):** `InclusiveRange` + `bookedNightsRange`,
 `rangesOverlap`, `findBlockConflict` and `formatInclusiveRange` in
@@ -1912,7 +2187,7 @@ anon SELECT, `0006` the anon revokes. **Closes Phase 3.**
 
 ---
 
-## Phase 3 · Close-out — verification catch-up & the second fixture account  *(2026-07-26)*
+### Phase 3 · Close-out — verification catch-up & the second fixture account  *(2026-07-26)*
 
 Not a numbered feature and not a bug fix: Phase 3 was already green on every gate
 when this started. It re-verified that, then closed the **second-test-user**
@@ -2049,7 +2324,7 @@ untouched.**
 
 ---
 
-## Phase 4 · Feature 12 — Instant Book  *(2026-07-26)*
+### Phase 4 · Feature 12 — Instant Book  *(2026-07-26)*
 
 **Scope built (13 files):** migration `0008_listing_occupancy_rpc`
 (`listing_occupied_ranges`); `priceBreakdown` + `PriceBreakdown` in `lib/utils.ts`
@@ -2270,7 +2545,7 @@ on `loadSeedSnapshot`); `e2e/booking.spec.ts` (10) and
 
 ---
 
-## Phase 4 · Feature 13 — Trips (guest reservations)  *(2026-07-26)*
+### Phase 4 · Feature 13 — Trips (guest reservations)  *(2026-07-26)*
 
 **Scope built (11 files):** `tripSection` + `canCancelBooking` + `TripSection` in
 `lib/utils.ts` (+13 unit tests); `lib/queries/bookings.ts` (`getGuestBookings`,
@@ -2433,7 +2708,7 @@ on `loadSeedSnapshot`); `e2e/booking.spec.ts` (10) and
 
 ---
 
-## Phase 4 · Feature 14 — Host reservations  *(2026-07-26)*
+### Phase 4 · Feature 14 — Host reservations  *(2026-07-26)*
 
 **Scope built (7 files, 2 new):** `/host/reservations` replaces its F04 placeholder with
 the real page; new `getHostReservations()` in `lib/queries/bookings.ts`; new
@@ -2442,7 +2717,7 @@ booking actions gained `revalidatePath('/host/reservations')`; `createBookingRow
 an optional `cleaningFee`; two new specs. **No migration, no new route, no client
 component, `database.types.ts` untouched.**
 
-### Decisions
+#### Decisions
 
 - **Two flat chronological sections, not a group per listing.** The build plan's UI line
   says "grouped by listing (upcoming/past)". Agreed with the developer before build to
@@ -2505,7 +2780,7 @@ component, `database.types.ts` untouched.**
   path deliberately reports `hostsNothing: false`** — a broken query must not invite a host
   with live reservations to go create their first listing.
 
-### Gotchas
+#### Gotchas
 
 - **`.in('listing_id', ids)` is load-bearing and does not fail closed — this is F13's leak
   arriving from the other direction.** `bookings_select_participant_or_admin` is
@@ -2545,7 +2820,7 @@ component, `database.types.ts` untouched.**
   noting the shape: a new *reader* of existing data means auditing every existing *writer*,
   and nothing in the type system asks.
 
-### Verified
+#### Verified
 
 - `npx tsc --noEmit` clean; `npm run lint` clean.
 - `npm run test` — **235/235** (was 230; +5 `hostEarnings` cases).
@@ -2586,7 +2861,7 @@ component, `database.types.ts` untouched.**
 
 ---
 
-## Phase 5 · Feature 15 — Reviews & ratings  *(2026-07-27)*
+### Phase 5 · Feature 15 — Reviews & ratings  *(2026-07-27)*
 
 **Scope built (13 files, 7 new):** the review **write** path. New
 `lib/validations/reviews.ts` (`createReviewSchema`, `deleteReviewSchema`,
@@ -2597,7 +2872,7 @@ component, `database.types.ts` untouched.**
 two fields; `TripCard` renders the new leaf; `ReviewsSection` was reduced to the shared
 `StarRating`. **No migration, no new route, no seed change, `database.types.ts` untouched.**
 
-### Decisions
+#### Decisions
 
 - **The read half was already built, and saying so shaped the whole feature.** The build
   plan's UI line ("reviews and average rating rendered on the listing page and cards") has
@@ -2657,7 +2932,7 @@ two fields; `TripCard` renders the new leaf; `ReviewsSection` was reduced to the
   deliberate ink-not-gold rule. It is not a Client Component, so it serves the server-side
   `ReviewsSection` and the client-side `TripReview` alike.
 
-### Gotchas
+#### Gotchas
 
 - **The first gate proof passed, which is the finding.** Removing `hasReview` from
   `canReviewBooking` should have made the already-reviewed spec fail. It did not:
@@ -2700,7 +2975,7 @@ two fields; `TripCard` renders the new leaf; `ReviewsSection` was reduced to the
   `cancelBooking`'s. That was wrong: a **stale page** reaches it with no forging — a second
   tab, or an admin, removing the review while the page sits open. It is now gate-proved.
 
-### Verified
+#### Verified
 
 - `npx tsc --noEmit` and `npm run lint` — clean.
 - `npm run test` — **255/255** (was 235; +12 schema, +8 `canReviewBooking`).
@@ -2720,7 +2995,7 @@ two fields; `TripCard` renders the new leaf; `ReviewsSection` was reduced to the
   one row; star targets ≥ 44px at every width.
 - **`seed-verification.sql` — 45/46.** See below; not an F15 regression.
 
-### The one failing gate, diagnosed
+#### The one failing gate, diagnosed
 
 `temporal: at least one in-progress stay exists` fails. Seeded booking **14** was written
 `current_date - 2 → current_date + 3` on 2026-07-24, fixing it at **2026-07-22 → 2026-07-27**.
@@ -2769,7 +3044,7 @@ suite is unaffected.
 
 ---
 
-## Phase 5 · Feature 16 — Guest ↔ host messaging  *(2026-07-28)*
+### Phase 5 · Feature 16 — Guest ↔ host messaging  *(2026-07-28)*
 
 **Scope built (13 files, 8 new):** the whole application half of messaging. New
 `lib/validations/messages.ts` (`startThreadSchema`, `sendMessageSchema`,
@@ -2784,7 +3059,7 @@ suite is unaffected.
 props and the contact control its docblock has promised since F07.
 **No migration, no seed change, `database.types.ts` untouched.** Build **15 → 16 routes**.
 
-### Decisions
+#### Decisions
 
 - **The database half was already finished, and saying so shaped the feature.**
   `message_threads` and `messages` shipped in `0001` with every index, all six policies
@@ -2845,7 +3120,7 @@ props and the contact control its docblock has promised since F07.
   hide itself on mobile. `/messages/[threadId]` runs `getThreads()` alongside
   `getThreadById()` in one `Promise.all`, which is cheap and honest.
 
-### Gotchas
+#### Gotchas
 
 - **Realtime authorizes the *socket*, and getting it wrong fails completely silently.**
   Live delivery did not work at all on the first build, with no error anywhere — no
@@ -2904,7 +3179,7 @@ props and the contact control its docblock has promised since F07.
   and **not fixed** — the fix is a migration. In the teardown it is made unreachable by
   clearing threads first. **F17's admin delete has the same exposure.**
 
-### Verified
+#### Verified
 
 - `npx tsc --noEmit` and `npm run lint` — clean.
 - `npm run test` — **280/280** (was 255; +12 schema, +13 helper).
@@ -2972,7 +3247,7 @@ props and the contact control its docblock has promised since F07.
 
 ---
 
-## Phase 6 · Feature 17 — Admin dashboard  *(2026-07-29)*
+### Phase 6 · Feature 17 — Admin dashboard  *(2026-07-29)*
 
 **Scope built (16 files, 9 new):** the moderation dashboard behind F04's route gate.
 New migration `0009_admin_unpublish_rpc.sql`, `lib/queries/admin.ts`
@@ -2986,7 +3261,7 @@ onto `Pill`; `fixtures.ts` gained `createReviewRow` and `BookingRow.cancelledAt`
 **First migration since F12** — the three-feature no-SQL run ends here. Build stays at
 **16 routes**; advisors **7 → 8 WARNs**.
 
-### Decisions
+#### Decisions
 
 - **The build plan's F17 logic line was wrong for two verbs of three, and finding out
   cost nothing because the policies were read before the code was written.** It said to
@@ -3070,7 +3345,7 @@ onto `Pill`; `fixtures.ts` gained `createReviewRow` and `BookingRow.cancelledAt`
   any asset in the Cloudinary account given its `public_id`. It lives in
   `lib/cloudinary.ts`, which is `server-only` and carries no directive.
 
-### Gotchas
+#### Gotchas
 
 - **The admin fixture flag is global per-user state, and `mode: 'serial'` does not
   protect it across files.** `playwright.config.ts` sets `fullyParallel: true`, which
@@ -3098,7 +3373,7 @@ onto `Pill`; `fixtures.ts` gained `createReviewRow` and `BookingRow.cancelledAt`
   the rest of the table stands. Only reachable by revoking mid-render, which is a test
   artefact, but it is exactly the branch that was designed for and it works.
 
-### Verified
+#### Verified
 
 - **Gate proof — the zero-row unpublish.** With the action pointed at a plain
   `.from('listings').update({ is_published: false })` instead of the RPC, the unpublish
@@ -3188,12 +3463,12 @@ onto `Pill`; `fixtures.ts` gained `createReviewRow` and `BookingRow.cancelledAt`
 
 ---
 
-## Phase 6 · Feature 18 — Responsive QA, polish & deploy  *(2026-07-29)*
+### Phase 6 · Feature 18 — Responsive QA, polish & deploy  *(2026-07-29)*
 
 The last feature. Three workstreams under one number, and exploration found two
 of the three were not in the state the plan and tracker described.
 
-### Decisions
+#### Decisions
 
 - **Scope was cut to what was actually undone.** *Responsive QA is largely already
   banked* — 11 `*-responsive.spec.ts` files already sample the four DESIGN.md bands
@@ -3235,7 +3510,7 @@ of the three were not in the state the plan and tracker described.
   `BookingWidget`'s sheet trigger unmounts when the sheet swaps to its confirmation
   panel, so the element a ref would name is not always the element that had focus.
 
-### Gotchas
+#### Gotchas
 
 - **Three of the five focus-restore tests passed against a build with the restore
   deleted, and that is F08's rule catching F18 in the act.** For a non-modal popover
@@ -3294,7 +3569,7 @@ of the three were not in the state the plan and tracker described.
   Irrelevant to the Render deploy — the suite does not run there — but it is the
   first thing to fix if CI is ever added. Recorded in the deploy runbook.
 
-### Verified
+#### Verified
 
 - **Gate proof — focus restore.** With `if (trigger?.isConnected) trigger.focus()`
   disabled, **5 of 10** keyboard tests fail (all five restore assertions, after the
@@ -3321,7 +3596,7 @@ of the three were not in the state the plan and tracker described.
   security advisors **8 WARNs** — the documented set exactly, no ninth.
 
 
-### The production-build run, and what it found
+#### The production-build run, and what it found
 
 **Running the suite against `npm run build && npm start` was the highest-value
 hour of F18, and its finding is recorded open rather than closed.**
@@ -3372,7 +3647,7 @@ stale DOM — and `host-manage.spec.ts:242` already carries an `exact: true` wit
 comment about the same trap. It is now the seventh time this project has met a
 locator coupled to text outside the thing under test.
 
-### Verified (final, F18 code-complete 2026-07-29)
+#### Verified (final, F18 code-complete 2026-07-29)
 
 - `npx tsc --noEmit` clean · `npm run lint` clean · `npm run test` **288/288**.
 - `npm run test:e2e` against the dev server (the committed config):
@@ -3421,7 +3696,7 @@ locator coupled to text outside the thing under test.
   → **Closed by the deploy close-out** (2026-07-29): live at
   `https://nextbnb-h4ov.onrender.com`, sign-in completing. See the section below.
 
-### The deploy, and the one thing that broke  *(2026-07-29)*
+#### The deploy, and the one thing that broke  *(2026-07-29)*
 
 Live at **`https://nextbnb-h4ov.onrender.com`**. The Blueprint applied cleanly and
 the first build served a fully working public site. **Sign-in was broken anyway,
@@ -3469,7 +3744,7 @@ instead of substituting the Site URL, which is what an unlisted URL produces —
 step 4 is registered. It cannot prove the code exchange or the `auth.users`
 trigger; those needed the real consent, which the developer then completed.
 
-### Verified against production (2026-07-29)
+#### Verified against production (2026-07-29)
 
 Anon and headless unless noted. **Several of these are the first observation of a
 documented invariant against a real production server** — the suite has only ever
