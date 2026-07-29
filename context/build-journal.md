@@ -64,6 +64,19 @@ either, and a bullet that says so is the only thing standing between the two.
 
 ### RLS & authorization
 
+- **RLS can make a feature impossible in application code without ever raising an error**
+  (F06). The date filter looked like ordinary app logic until the `bookings` SELECT policy
+  was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and
+  every listing reads as available — a wrong answer that arrives as a success. It is now the
+  `unavailable_listing_ids()` definer function (`0007`), returning published ids only.
+  **Generalises: before computing anything from a table, check what the *least* privileged
+  reader of that table can see.** The same trap waited in F12's booking widget — sharper
+  there, because *any* signed-in guest reads zero rows for a listing they do not host.
+  *(Evicted from `progress-tracker.md` → Key Decisions in F19 at the 10-bullet cap. It is
+  the oldest of the ten and now a standing rule rather than a pending decision: every
+  availability path in the project goes through the definer functions, and
+  `architecture.md` → "Availability must be computed in the database, not in application
+  code" states it as an invariant.)*
 - **RLS filters rows, not columns** (F02). Rules of the form "may update, but only this
   column" (`profiles.is_admin`, booking price snapshots, message bodies) are carried by
   column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because
@@ -3781,3 +3794,99 @@ differ and the wrong guess fails silently.
 - **Deep-link sign-in return, favorite persistence, and the `/admin` gate from a
   non-admin account** — the remaining runbook step 5 items. All three are covered
   by E2E against dev; none has been exercised against the deployment.
+
+---
+
+### Phase 6 · F19 — the `host-manage` production-build failures, diagnosed  *(2026-07-29)*
+
+**What this closes.** `progress-tracker.md` carried "three `host-manage.spec.ts`
+tests fail against a PRODUCTION build under load" as its single largest open
+item from F18, with the root cause explicitly **not identified** and the
+tentative verdict "the evidence points at a test-side race". That verdict was
+wrong. It is a product defect, it is reproducible in seconds, and three of the
+things this project believed about it were false.
+
+#### Decisions
+
+- **Root cause: a `<Suspense>` boundary makes `router.refresh()`'s RSC response
+  streamed, and against a production build that stream is aborted before the
+  boundary content arrives.** `ListingActions` runs its server action inside
+  `startTransition` and then calls `router.refresh()`, so React holds
+  `isPending` until that refresh *commits*. It never commits. Every control on
+  the row stays `disabled`, the label stays "Deleting…", and the row keeps
+  rendering pre-mutation state — while the database write has already succeeded.
+- **The fix is removing the boundary from `/host/listings`, and it deliberately
+  gives up something F05 chose on purpose.** F05 put the grid behind
+  `<Suspense>` so the heading and the "List your place" CTA paint before the
+  query resolves. That benefit is real; it is worth less than the page's primary
+  mutations appearing broken for tens of seconds in production. The reasoning is
+  recorded in the page's own docblock, because that is where the next person to
+  reach for `<Suspense>` here will be standing.
+- **The other seven surfaces with the same shape are left alone.** A `<Suspense>`
+  page plus a client component calling `router.refresh()` also exists on
+  `/trips`, `/admin`, `/listings/[id]` and the three other `/host/listings/[id]/*`
+  routes. None reproduces it today and all their specs pass against a production
+  build, so changing them would be speculation. The repro recipe below is what
+  to run if one of them ever starts.
+
+#### Gotchas
+
+- **Three documented claims were wrong, and each one had been steering the
+  investigation away from the answer.**
+  | Recorded | Actually |
+  | --- | --- |
+  | "Each passes in isolation; **it needs concurrency**" | `host-manage.spec.ts` alone fails in ~19s. Serialized (`--workers=1`) still fails one. Only a *single test* alone passes. |
+  | "points at a **test-side race**" | Real production behaviour in real Chromium: the action succeeds and the UI does not update. |
+  | the failing set is a fixed three incl. `:351` | It is **four** tests and the subset varies — `:471` appeared in runs where the tracker lists `:351`. |
+  The first of those is the expensive one: it made the repro look like a
+  2.3-minute full-suite job when it is a 15-second single-file job, so every
+  previous attempt paid 10× the iteration cost it needed to.
+- **`next dev` never streams it that way, which is why 17 features never saw
+  it.** The whole suite is green against the dev server and fails only against
+  `npm run build && npm start`. A dev-only test strategy structurally cannot see
+  this class of defect — which is the general lesson, and it is why F18's
+  "running against a production build occasionally is worth it" note was right
+  for a bigger reason than it knew.
+- **Two hypotheses were formed, tested and rejected before the right one**, both
+  recorded because each looked obvious at the time. (1) *Latency* — the
+  assertions time out at 5s, so raise it: re-ran the full suite at a 20s expect
+  timeout and all three still failed, `44 × locator resolved to 1 element`.
+  (2) *`<Link>` prefetch contention* — production prefetches and dev does not,
+  4 links per row over HTTP/1.1's 6-connection cap: added `prefetch={false}` to
+  every row link, rebuilt, still 3 failed. Both were reverted.
+- **A photo-count correlation looked compelling and was a coincidence.** Three of
+  the four failing tests add photo rows and most passing ones do not, which
+  suggested the 404ing `CldImage` requests against fabricated `public_id`s. But
+  `:471` fails with zero photos and `:125` passes with one, so it does not hold.
+  The real invariant was the one visible from the first five minutes: *every
+  failing test asserts on the list re-rendering after `router.refresh()`, and no
+  passing test in the file does.*
+
+#### The repro recipe
+
+Keep this — it is the cheap version, and it is what the tracker was missing.
+
+```
+npm run build && npm start          # dev server will NOT reproduce it
+npx playwright test host-manage.spec.ts     # ~15s, 3-4 failures
+```
+
+The signature in the DOM snapshot is the diagnosis: buttons `[disabled]` and the
+confirm label reading `Deleting…` at the timeout, i.e. `isPending` never
+cleared. Confirm it in the network trace by looking for a `200` on
+`/<route>?_rsc=…` immediately followed by `net::ERR_ABORTED` on the same URL.
+
+#### Verified
+
+- `host-manage.spec.ts` against a production build: **3–4 failed → 20/20 passed**
+  (10.4s), with the boundary removal as the only change.
+- Full suite against a production build: **392 passed / 3 skipped / 0 failed** —
+  which now **matches the dev-server baseline exactly** (392/3). Before the fix
+  the same command gave 3 failed, and a second run 4 (the extra being the known
+  `messages.spec.ts` inbox-ordering flake, which is unrelated and still open).
+- Gate proof, both directions: the boundary in → fails; the boundary out →
+  passes; same server, same database, same worker count.
+- `npx tsc --noEmit` clean · `npm run lint` clean · `npm run test` **288/288** ·
+  `npm run build` green at **16 routes**.
+- Not re-checked and not claimed: security advisors and migrations, neither of
+  which this change touches (no SQL, no schema, no new route).

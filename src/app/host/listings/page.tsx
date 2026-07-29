@@ -1,4 +1,3 @@
-import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
@@ -12,12 +11,41 @@ export const metadata: Metadata = {
 /**
  * Every listing this user hosts — published and drafts alike.
  *
- * **No `loading.tsx`, and no auth check here.** `src/proxy.ts` already bounces a
- * signed-out visitor away from `/host/**`, and this route cannot 404 (a host
- * with nothing yet is an empty state, not a missing page). The grid streams
- * behind a `<Suspense>` rather than a route-level `loading.tsx` for F05's
- * reason: the heading and the "List your place" CTA are what a host arriving
- * here wants first, and a `loading.tsx` would blank them too.
+ * **No auth check here.** `src/proxy.ts` already bounces a signed-out visitor
+ * away from `/host/**`, and this route cannot 404 (a host with nothing yet is an
+ * empty state, not a missing page).
+ *
+ * **No `loading.tsx` AND no `<Suspense>`, and the second half of that is a
+ * correctness fix, not a preference.** F05's reasoning put the grid behind a
+ * `<Suspense>` so the heading and the "List your place" CTA paint before the
+ * query resolves. That is a real benefit and it was deliberately given up here,
+ * because a Suspense boundary on this route makes the **`router.refresh()` after
+ * a mutation** silently fail in a production build:
+ *
+ * - `ListingActions` runs its server action inside `startTransition` and then
+ *   calls `router.refresh()`, so React holds `isPending` until that refresh
+ *   commits — every control on the row stays `disabled` meanwhile.
+ * - With a Suspense boundary the refresh's RSC response is **streamed**. Against
+ *   `next build && next start` that stream is aborted after its 200 and before
+ *   the boundary content arrives (`net::ERR_ABORTED` on
+ *   `/host/listings?_rsc=…`), so the transition never commits. The database
+ *   write has already succeeded; the screen just keeps showing the old row, with
+ *   "Deleting…" and disabled buttons, for tens of seconds.
+ * - **`next dev` never streams it that way, so this is invisible in
+ *   development** — the whole suite is green against the dev server and fails
+ *   only against a production build. That gap is why it survived from F10 to
+ *   F18 as "a flaky test".
+ *
+ * Removing the boundary makes the refresh a single non-streamed response and the
+ * transition commits normally: `host-manage.spec.ts` goes from 3–4 failed to
+ * 20/20 against a production build, with this as the only change.
+ *
+ * **The same shape still exists on other routes** (`/trips`, `/admin`,
+ * `/listings/[id]`, the other `/host/listings/[id]/*` pages) — a `<Suspense>`
+ * page plus a client component calling `router.refresh()`. None of them
+ * reproduces it today, so they are left alone rather than changed on
+ * speculation; `context/build-journal.md` → F19 carries the repro recipe if one
+ * of them ever does.
  */
 export default function HostListingsPage() {
   return (
@@ -41,9 +69,7 @@ export default function HostListingsPage() {
       </div>
 
       <div className="mt-10">
-        <Suspense fallback={<HostListingsSkeleton />}>
-          <HostListings />
-        </Suspense>
+        <HostListings />
       </div>
     </div>
   )
@@ -68,25 +94,5 @@ async function HostListings() {
         <HostListingCard key={listing.id} listing={listing} />
       ))}
     </ul>
-  )
-}
-
-function HostListingsSkeleton() {
-  return (
-    <div aria-hidden className="space-y-4">
-      {Array.from({ length: 3 }, (_, index) => (
-        <div
-          key={index}
-          className="flex animate-pulse flex-col gap-4 rounded-md border border-hairline p-4 tablet:flex-row"
-        >
-          <div className="aspect-[4/3] w-full shrink-0 rounded-md bg-surface-soft tablet:w-56" />
-          <div className="flex-1 space-y-3 py-1">
-            <div className="h-4 w-1/2 rounded-sm bg-surface-soft" />
-            <div className="h-3 w-1/3 rounded-sm bg-surface-soft" />
-            <div className="h-11 w-2/3 rounded-sm bg-surface-soft" />
-          </div>
-        </div>
-      ))}
-    </div>
   )
 }

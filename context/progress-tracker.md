@@ -18,13 +18,24 @@
 ## Current Status
 
 **Phase:** All six phases complete — the project is **shipped and in maintenance**.
-**Last completed:** 18 Responsive QA, polish & deploy *(2026-07-29)*.
-**Next:** no feature work queued. See **Open work** below for the five items still outstanding; none blocks the build.
+**Last completed:** F19 — the `host-manage` production-build failures, diagnosed and fixed *(2026-07-29, branch `fix/open-work`)*.
+**Next:** no feature work queued. See **Open work** below for the four items still outstanding; none blocks the build.
 
 Live at **https://nextbnb-h4ov.onrender.com**, with Google sign-in completing and the
 host create → publish → unpublish → delete flow hand-verified against the deployment.
 F18 closed on its own stated criterion — the live URL works, sign-in included — not on
 the runbook landing.
+
+**F19 closed F18's largest open item, and the answer was a product defect rather
+than the suspected test-side race.** A `<Suspense>` boundary on `/host/listings`
+made `router.refresh()`'s RSC response streamed, and against a production build
+that stream is aborted before the boundary content arrives — so the transition
+never commits and the row shows pre-mutation state, with disabled controls, long
+after the database write has landed. `next dev` does not stream it that way,
+which is why the suite was green for eight features. Removing the boundary takes
+the production-build suite to **392 passed / 0 failed, matching the dev baseline
+exactly**. Full detail, including the two rejected hypotheses and the 15-second
+repro recipe: `build-journal.md` → F19.
 
 ---
 
@@ -77,7 +88,7 @@ Current as of 2026-07-29. **Treat any deviation as a finding, not a new normal.*
 | `npx tsc --noEmit` / `npm run lint` | clean |
 | `npm run test` (unit) | 288/288 |
 | `npm run test:e2e` (dev server — the committed config) | **395 total — 392 passed / 3 skipped / 0 failed** |
-| `npm run test:e2e` against a **production** build | **3 failed**, all in `host-manage.spec.ts`. Pre-existing, not F18's; root cause unidentified — see Open work |
+| `npm run test:e2e` against a **production** build | **392 passed / 3 skipped / 0 failed** — matches the dev baseline exactly since F19. Was 3–4 failed in `host-manage.spec.ts`; root cause found and fixed |
 | `npm run build` | green, **16 routes**, `ƒ Proxy (Middleware)` printing |
 | `seed-verification.sql` | **45/46** — the seed has aged out, see below |
 | Seed rows | 26 listings (24 published) / 130 photos / 17 seeded bookings / 7 reviews / 5 blocks / 0 favorites |
@@ -116,30 +127,29 @@ availability RPC, search filters, branding — is recorded in
 
 ## Open work
 
-Five items. **None blocks the build**; all are recorded rather than tidied away.
+Four items. **None blocks the build**; all are recorded rather than tidied away.
 
-1. **Three `host-manage.spec.ts` tests fail against a production build under load.**
-   `badges a draft…` (:172), `unpublishing takes a live listing out of search and back`
-   (:222), `deleting removes the listing and its photo rows` (:348). **Pre-existing** —
-   proved by `git stash push -- src/` back to `938c84a`, rebuilding and re-running.
-   **Production-only** — the dev-server suite is 392/0. **Not deterministic** — each passes
-   in isolation; it needs concurrency. **The product is not demonstrably broken**: a
-   diagnostic drove the real publish flow against a production build under load and reported
-   `is_published=true` with the Unpublish control rendered, and the developer has since
-   hand-verified create → publish → unpublish → delete against the live deployment. So this
-   is now a **flaky-suite problem, not a suspected product problem** — but the mechanism is
-   still unidentified. `hydratedRowFor` was tried and is *not* the fix; it is kept only
-   because it is strictly more correct, and its docblock says so.
-2. **No screen-reader pass.** Keyboard operability and focus are done and gate-proved (F18);
+> **Closed by F19** (2026-07-29) — *"three `host-manage.spec.ts` tests fail against a
+> production build under load"*, F18's largest open item. It was **not** a flaky suite and
+> **not** load-dependent: a `<Suspense>` boundary made `router.refresh()`'s RSC response
+> streamed, and against a production build that stream is aborted before the boundary
+> content arrives, so the transition never commits. Removing the boundary from
+> `/host/listings` takes the production-build suite to 392 passed / 0 failed. Three things
+> this file said about it were wrong — it does not need concurrency (the single file fails
+> in ~15s, and serialized still fails one), it was not a test-side race, and the failing set
+> is four tests whose membership varies. `hydratedRowFor` remains in the suite, still not
+> the fix, still strictly more correct. Full detail: `build-journal.md` → F19.
+
+1. **No screen-reader pass.** Keyboard operability and focus are done and gate-proved (F18);
    how the live regions *announce* is unverified. Detail in Standing Constraints →
    Accessibility.
-3. **A separate Supabase project for E2E**, so production can disable the email/password
+2. **A separate Supabase project for E2E**, so production can disable the email/password
    provider outright. This is the real fix for the open-signup finding; F18 scoped it out as
    large enough to rival the rest of the feature. Detail in Standing Constraints → Auth.
-4. **Re-run `supabase/seed.sql`** to restore `seed-verification.sql` to 46/46. Deferred
+3. **Re-run `supabase/seed.sql`** to restore `seed-verification.sql` to 46/46. Deferred
    because the file opens with a cascading `delete from auth.users` — a destructive action
    left for the developer to schedule.
-5. **Disable the GitHub integration** in the Supabase dashboard (Project Settings →
+4. **Disable the GitHub integration** in the Supabase dashboard (Project Settings →
    Integrations); no MCP tool exists for it. The branch now reports
    `FUNCTIONS_DEPLOYED`/`ACTIVE_HEALTHY` rather than F02's `MIGRATIONS_FAILED`, but what
    changed it was not observed, so the F02 migration rename remains documented-correct and
@@ -152,6 +162,7 @@ Five items. **None blocks the build**; all are recorded rather than tidied away.
 The 10 most recent, newest first. Older decisions are filed by topic in
 `build-journal.md` → **Standing Constraints**.
 
+- **F19** — **a dev-only test strategy is structurally blind to a whole class of production defect, and this project was blind to one for eight features.** `/host/listings` put its grid behind a `<Suspense>` boundary (F05's choice, so the heading paints first). That makes the `router.refresh()` after a mutation a **streamed** RSC response — and against `next build && next start` the stream is aborted after its 200 and before the boundary content arrives, so the transition never commits. `isPending` stays true: every control on the row stays `disabled`, the confirm button reads "Deleting…", and the row keeps showing pre-mutation state for tens of seconds **while the database write has already succeeded**. `next dev` does not stream it that way, so the entire suite was green against the dev server the whole time. **Generalises: "the tests pass" is scoped to the server the tests ran against — and `next dev` and `next start` are different products where streaming, prefetch and caching are concerned.** Three siblings, each worth as much as the fix. First, **the recorded description of a bug can be the thing preventing its diagnosis**: this was documented as needing full-suite concurrency, so every previous attempt paid a 2.3-minute iteration cost for what is a 15-second single-file repro, and it was documented as "points at a test-side race", which is the one conclusion that makes you stop looking at the product. Second, **two confident hypotheses died before the right one** — that the 5s assertion window was too short (re-ran at 20s: still failed, `44 × locator resolved to 1 element`) and that `<Link>` prefetch contention starved the connection pool (added `prefetch={false}` everywhere: still failed) — both reverted, and the discipline that mattered was refusing to stack a third guess on top. Third, **a compelling correlation was a coincidence**: three of four failing tests add photo rows and most passing ones do not, which pointed hard at the 404ing `CldImage` requests — but `:471` fails with zero photos and `:125` passes with one. The invariant was visible in the first five minutes and survived everything: *every failing test asserts on the list re-rendering after `router.refresh()`; no passing test in the file does.*
 - **F18** — **an accessibility assertion can pass because the behaviour was never exercised, not because it works — and three of five did.** The focus-restore tests opened a surface, pressed Escape, and asserted focus was on the trigger. For a non-modal popover or a menu that passes with **the restore code deleted**, because clicking a trigger leaves focus *on* it and opening moves nothing: the assertion was measuring "focus was never stolen", not "focus was restored". Only moving focus *into* the surface first (`await done.focus()`) makes close-without-restore fall to `<body>` and the test fail. Its twin arrived from the opposite direction: the "this popover is *not* trapped" test passed against a build with the trap wrongly enabled, because a wrapped Tab lands on the popover's **first** control — which is also not the one the assertion named. Asking *containment* ("did focus leave at all") is the only form a trap can fail. **Generalises: for any test of where focus went, ask where focus would be if the feature did nothing — if that is the same place, the test is scenery.** This is F08's rule meeting a state that is invisible in the DOM, which is why seventeen features of responsive specs and screenshots never caught that the project had **no `.focus()` call anywhere in `src/`**. Sibling finding, from reading rather than running: this tracker's own to-do list named "F06's calendar `role="grid"` roving focus" as a surface to audit, and that pattern **was never built** — a to-do describing work as existing is worse than one describing it as missing. **Second sibling, from the deploy: a build-time-inlined variable is invisible to every runtime check, so a configuration error can survive a completely green site.** `NEXT_PUBLIC_SITE_URL` went out as the *callback URL* rather than the origin, making the OAuth `redirect_to` `…/auth/callback/auth/callback` — a 404 — while the grid, every filter, all six route gates, the real-404 behaviour and Render's own health check on `/` stayed green. `NEXT_PUBLIC_*` is compiled into the bundle, so nothing at runtime reads it and nothing can report it stale; the only surface that fails is the one nobody exercises until a user tries to sign in. The generalisation is the verification move, not the variable: **probe the artifact the value produces, never re-read the value** — and that artifact turned out to be shell-reachable, because the sign-in button is a no-JS form post whose action id is a hidden *field name*, so `curl -F` returns a 303 with the whole `redirect_to` on it. One command, no browser, no Google account, and it confirms all three OAuth allow-lists at once. It is now `docs/deploy-render.md` step 5's first item, deliberately placed *above* the human sign-in check it front-runs.
 - **F17** — **an OR-shaped policy can be *wider* than the action it backs, and then the action is the only guard — the inverse of this project's usual arrangement.** F17 met it twice in one feature, in opposite directions. `listings_delete_own_or_admin` is `host_id = uid OR is_admin()`, so `adminDeleteListing` — which deliberately drops F10's upcoming-booking guard to keep the spam escape hatch — would otherwise let any *host* route their own listing through it and erase live reservations. Proved by impersonation in SQL, not argued: non-admin host, one upcoming confirmed stay, `delete` returned OK and left zero rows. Meanwhile `listings_update_own` is `host_id = uid` with **no admin branch at all**, so an admin unpublish was an UPDATE matching zero rows and returning `{ error: null }` — F13's trap, sitting in the verb this dashboard is meant to *prefer*, and the build plan had asserted the opposite. **Generalises: for every admin write, ask both halves — "who else does this policy admit?" and "does it admit the admin at all?" The answers are independent, and neither is visible from the action.** The fix for the second was a narrow definer function rather than `or is_admin()` on the policy, because **no column grant restricts listing writes** — widening would have handed an admin `host_id`, i.e. the power to reassign someone's listing. Sibling finding, from actually running the suite: `second-user.spec.ts` had been asserting on `FeaturePlaceholder` copy since F04, so the only test of `/admin` was pinned to scaffolding rather than to behaviour.
 - **F16** — **F13's zero-row rule is about what emptiness can *only* mean, not about row counts.** F15 predicted this would be the next place the INSERT/UPDATE distinction bites, and it was — but the answer inverted. `cancelBooking` must treat a zero-row UPDATE as a refusal because that is the only thing it can be. `markThreadRead` filters `sender_id <> me AND read_at is null`, so **zero rows is the ordinary outcome** — every open of an already-read thread legitimately matches nothing — making it the one RLS-scoped UPDATE in the project with **no** zero-row branch. **Generalises: before reusing F13's guard, ask whether the statement's own filters make emptiness normal.** Two siblings from the same feature. First, **an authorization failure in a push channel arrives as silence, not as an error**: Realtime evaluates the table's SELECT policy against the token the *socket* carries, and the browser client adopts its session from cookies asynchronously — so a channel opened on mount connects as `anon`, matches nothing, and reports success, which is indistinguishable from a feature nobody wired up. `setAuth` before `subscribe` is the fix, and a standalone probe is what separated "Realtime is broken" from "our client is anonymous". Second, **an OR-shaped INSERT policy can be looser than the app that uses it**: `message_threads_insert_participant` admits `guest_id = uid OR host_id = uid`, so it would accept a thread naming an arbitrary stranger as the guest — the action derives both participants and never builds such a row, but RLS is not the backstop here, it is the gap.
@@ -161,4 +172,3 @@ The 10 most recent, newest first. Older decisions are filed by topic in
 - **F12** — **a guard the database also enforces cannot be gated by a test, and the test will pass anyway.** The spec proving `createBooking` refuses taken dates was written against a *booking* overlap — and it **passed with the availability check deleted**, because `bookings_no_overlap` refused the insert and `23P01` maps to the same sentence the guard produces. The gate had to move to the case no constraint can reach: a booking over a host's `blocked_dates`, where nothing in Postgres expresses a rule spanning two tables. **Generalises: when writing a gate proof, first ask which layer would catch the defect if this layer were missing** — if a lower one would, the spec is measuring that instead. The same reasoning re-priced F12's fixture listing: at $123.00 the service fee is 51660 cents whether you round or truncate, so the cents assertion passed against `Math.floor`; at $123.33 the two answers differ and the spec gates the rounding rule end to end.
 - **F10** — **an FK cascade is a destructive path with no error, no test and no type pointing at it.** `bookings.listing_id` is `on delete cascade`, so a host deleting a listing does not *cancel* its reservations — it erases them, leaving the guest nothing in `/trips` and no record a stay ever existed. It is now guarded in the action (refuse while a confirmed stay is still coming, steer to unpublish), stated in the UI rather than only disabled, and the cutoff is widened by a day so the JS/`current_date` boundary can only ever err toward refusing. **Generalises: before shipping a delete, read the FK actions on every table that references the row — the blast radius is in the schema, not in the feature.** F17's admin delete is the same cascade with the guard deliberately absent.
 - **F08** — **a green assertion is not a gating assertion; run every new spec against a deliberately broken build.** `toHaveURL('/')` passes instantly when the page is already at `/`, so the spec guarding "the heart must not navigate" passed against the exact markup it existed to reject. Two further F08 traps rhyme with it: postgrest-js types a to-one embed on a NOT NULL FK as never-null while RLS returns null at runtime (the `toFavoriteCards` filter is load-bearing and TS would never demand it), and a spec that snapshots whole-user state races the parallel workers sharing that user. **Generalises: prove the test fails before trusting that it passes.**
-- **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waited in F12's booking widget — and was sharper there, because *any* signed-in guest reads zero rows for a listing they do not host.
