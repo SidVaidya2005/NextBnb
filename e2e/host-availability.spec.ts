@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { dayCell, pickDay } from './calendar'
+import { pickDay, revealDay } from './calendar'
 import { AUTH_STATE_FILE } from './constants'
 import {
   addDay,
@@ -174,9 +174,17 @@ test.describe('signed in', () => {
       await createBookingRow(listing.id, { checkIn, checkOut })
       await openAvailability(page, listing.id)
 
-      await expect(dayCell(page, checkIn)).toBeDisabled()
-      await expect(dayCell(page, addDay(checkOut, -1))).toBeDisabled()
-      await expect(dayCell(page, checkOut)).toBeEnabled()
+      // `revealDay`, not a bare `dayCell`: these dates are today + 10…14, so on
+      // the last ~16 days of any month they fall into the *next* month, which
+      // `DateRangePicker` does not render without navigation. This is the exact
+      // bug F17 found and fixed in `host-availability-responsive.spec.ts`; these
+      // six sites were left unconverted and have only survived because this file
+      // runs at the default 1280px viewport, where two months are visible.
+      // Invisible for ~90% of any month, which is what makes it worth sweeping
+      // rather than waiting for.
+      await expect(await revealDay(page, checkIn)).toBeDisabled()
+      await expect(await revealDay(page, addDay(checkOut, -1))).toBeDisabled()
+      await expect(await revealDay(page, checkOut)).toBeEnabled()
     } finally {
       await deleteListing(listing.id)
     }
@@ -193,10 +201,11 @@ test.describe('signed in', () => {
       await createBlockedDateRow(listing.id, { startDate, endDate })
       await openAvailability(page, listing.id)
 
-      await expect(dayCell(page, startDate)).toBeDisabled()
-      await expect(dayCell(page, endDate)).toBeDisabled()
+      // `revealDay` for the reason given above — today + 10…13.
+      await expect(await revealDay(page, startDate)).toBeDisabled()
+      await expect(await revealDay(page, endDate)).toBeDisabled()
       // Blocks are inclusive at both ends, so the day after one is free.
-      await expect(dayCell(page, addDay(endDate, 1))).toBeEnabled()
+      await expect(await revealDay(page, addDay(endDate, 1))).toBeEnabled()
     } finally {
       await deleteListing(listing.id)
     }

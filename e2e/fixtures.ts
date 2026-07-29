@@ -468,6 +468,28 @@ function overlaps(
   return aStart < bEnd && bStart < aEnd
 }
 
+/**
+ * Shift a `YYYY-MM-DD` label by whole calendar days.
+ *
+ * **The UTC basis is deliberate and it is not a mismatch with `todayISO()`'s
+ * local one — checked, not assumed.** F18 flagged the pairing as a suspected
+ * off-by-one (`todayISO()` reads local `getFullYear/getMonth/getDate`; this
+ * parses `T00:00:00Z`), on the theory that `addDay(todayISO(), n)` could drift a
+ * day in some timezones. It cannot: this function *parses and formats* in UTC,
+ * so it is a pure string→string calendar-date shift and the round trip is exact
+ * whatever the host offset. Verified against an independent local-time oracle at
+ * offsets +14 through −11 (Kiritimati, Midway, Kolkata, Los Angeles, UTC) across
+ * n = −20…300 — all agreed.
+ *
+ * UTC is also the *safer* basis, which is the reason not to "simplify" this to
+ * local arithmetic later: midnight UTC never falls inside a DST transition, so
+ * no offset can make a day-shift land on a repeated or skipped local hour.
+ *
+ * The genuine date hazard in this suite is a different one and lives elsewhere:
+ * a spec computing `today + n` and locating the cell with a bare `dayCell`
+ * rather than `revealDay`, which breaks only when `n` crosses into a month the
+ * calendar is not currently showing (see `calendar.ts` → `revealDay`).
+ */
 export function addDay(iso: string, days = 1): string {
   const date = new Date(`${iso}T00:00:00Z`)
   date.setUTCDate(date.getUTCDate() + days)

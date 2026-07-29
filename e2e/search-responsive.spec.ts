@@ -1,5 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
 
+import { dayLabel } from './calendar'
+import { addDay, todayISO } from './fixtures'
+
 /**
  * The search bar at the four DESIGN.md breakpoints.
  *
@@ -144,18 +147,23 @@ test.describe('desktop search pill', () => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Add dates' }).click()
 
-    // The current month always renders; any day before today must be disabled.
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
+    // **Both branches assert; neither skips.** This was written as a bare
+    // `if (sameMonth) { … }`, which meant that on the 1st of every month the
+    // only assertion about past dates silently evaporated and the test still
+    // reported green — a hidden gap on ~3% of days, and exactly the class of
+    // date-fragility F17 found in `host-availability-responsive.spec.ts`.
+    // Yesterday is unreachable either way; which *way* is what differs.
+    const yesterday = addDay(todayISO(), -1)
+    const cell = page.getByRole('button', { name: dayLabel(yesterday), exact: true })
 
-    if (yesterday.getMonth() === new Date().getMonth()) {
-      const label = yesterday.toLocaleDateString('en-GB', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      })
-      await expect(page.getByRole('button', { name: label })).toBeDisabled()
+    if (yesterday.slice(0, 7) === todayISO().slice(0, 7)) {
+      // Same month: the cell renders, and must be disabled.
+      await expect(cell).toBeDisabled()
+    } else {
+      // We are on the 1st, so yesterday is in the previous month — which the
+      // calendar never renders. Not-present is the stronger claim, and together
+      // with the disabled "Previous month" below it means genuinely unreachable.
+      await expect(cell).toHaveCount(0)
     }
 
     // Stepping back past the current month is not offered either.
