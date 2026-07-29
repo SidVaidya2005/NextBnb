@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import {
@@ -9,6 +9,7 @@ import {
   HOST_CONTROL_DEFAULT,
 } from '@/components/host/hostControlStyles'
 import { deleteListing, setListingPublished } from '@/lib/actions/listings'
+import { useFocusWhen } from '@/lib/hooks/useFocusWhen'
 import { cn } from '@/lib/utils'
 
 type Props = {
@@ -47,6 +48,14 @@ export function ListingActions({
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
+
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  const deleteRef = useRef<HTMLButtonElement>(null)
+
+  // Focus follows the swap in both directions. Without it the Delete button the
+  // host just pressed is replaced under their focus and it falls to `<body>`.
+  useFocusWhen(confirming, confirmRef)
+  useFocusWhen(!confirming, deleteRef)
 
   function onTogglePublished() {
     setError(null)
@@ -94,6 +103,7 @@ export function ListingActions({
         {confirming ? (
           <>
             <button
+              ref={confirmRef}
               type="button"
               className={cn(HOST_CONTROL, HOST_CONTROL_DANGER)}
               disabled={pending}
@@ -114,6 +124,7 @@ export function ListingActions({
           </>
         ) : (
           <button
+            ref={deleteRef}
             type="button"
             className={cn(HOST_CONTROL, HOST_CONTROL_DANGER)}
             disabled={pending || !canDelete}

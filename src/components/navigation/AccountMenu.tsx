@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Menu, CircleUserRound } from 'lucide-react'
 
 import { signInWithGoogle, signOut } from '@/lib/actions/auth'
+import { useDismissable } from '@/lib/hooks/useDismissable'
 import type { CurrentProfile } from '@/lib/queries/profiles'
 import { cn } from '@/lib/utils'
 
@@ -30,23 +31,20 @@ export function AccountMenu({ profile }: Props) {
   // Sign-in returns the user to wherever they opened the menu from.
   const nextPath = pathname ?? '/'
 
-  useEffect(() => {
-    if (!open) return
-
-    function onPointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setOpen(false)
-    }
-
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open])
+  // Replaces this component's own Escape + outside-click effect, which was the
+  // project's only keyboard dismissal before F18. Behaviour is unchanged except
+  // for the half it was missing: focus now returns to the trigger on close, so
+  // Escape leaves a keyboard user on the account button rather than at the top
+  // of the document. `containerRef` wraps the trigger *and* the menu, so
+  // clicking the trigger to close does not count as an outside pointer.
+  //
+  // No Tab cycle: this is `role="menu"`, not a modal — tabbing past it into the
+  // page is correct.
+  useDismissable({
+    open,
+    onDismiss: () => setOpen(false),
+    containerRef,
+  })
 
   return (
     <div ref={containerRef} className="relative">

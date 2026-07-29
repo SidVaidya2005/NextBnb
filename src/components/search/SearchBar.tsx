@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Search, X } from 'lucide-react'
 
@@ -9,6 +9,7 @@ import {
   type DateRangeValue,
 } from '@/components/ui/DateRangePicker'
 import { MAX_GUESTS } from '@/lib/constants'
+import { useDismissable } from '@/lib/hooks/useDismissable'
 import { homeHref, setOrDelete } from '@/lib/searchParams'
 import { cn, formatDateRange } from '@/lib/utils'
 
@@ -53,6 +54,33 @@ function SearchBarFields({ searchParams }: { searchParams: URLSearchParams }) {
 
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [overlayOpen, setOverlayOpen] = useState(false)
+
+  const calendarRef = useRef<HTMLDivElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+
+  // The calendar is a non-modal popover: Escape closes it and focus returns to
+  // the "Add dates" trigger, but Tab may still leave it — trapping a popover
+  // would strand a user who only wanted to move on to the guest select.
+  //
+  // **Outside-pointer dismissal is deliberately off.** The popover is positioned
+  // inside the search `<form>`, so a pointer landing on the city input or the
+  // guest select counts as "outside" it — and dismissing there would close the
+  // calendar during the ordinary act of filling in the rest of the search.
+  useDismissable({
+    open: calendarOpen,
+    onDismiss: () => setCalendarOpen(false),
+    containerRef: calendarRef,
+    dismissOnOutsidePointer: false,
+  })
+
+  // The overlay is `aria-modal="true"`, so it gets the Tab cycle as well.
+  useDismissable({
+    open: overlayOpen,
+    onDismiss: () => setOverlayOpen(false),
+    containerRef: overlayRef,
+    trapFocus: true,
+    dismissOnOutsidePointer: false,
+  })
 
   const dateLabel = formatDateRange(range.start ?? undefined, range.end ?? undefined)
 
@@ -148,7 +176,10 @@ function SearchBarFields({ searchParams }: { searchParams: URLSearchParams }) {
         </button>
 
         {calendarOpen && (
-          <div className="absolute left-0 top-[72px] z-50 rounded-md border border-hairline bg-canvas p-4 shadow-card">
+          <div
+            ref={calendarRef}
+            className="absolute left-0 top-[72px] z-50 rounded-md border border-hairline bg-canvas p-4 shadow-card"
+          >
             <DateRangePicker value={range} onChange={setRange} />
             <div className="flex justify-end gap-2 border-t border-hairline pt-3">
               <button
@@ -173,6 +204,7 @@ function SearchBarFields({ searchParams }: { searchParams: URLSearchParams }) {
       {/* ---- Mobile overlay ------------------------------------------------ */}
       {overlayOpen && (
         <div
+          ref={overlayRef}
           role="dialog"
           aria-modal="true"
           aria-label="Search stays"

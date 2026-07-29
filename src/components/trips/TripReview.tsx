@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { Button } from '@/components/ui/Button'
@@ -8,6 +8,7 @@ import { RatingInput } from '@/components/ui/RatingInput'
 import { StarRating } from '@/components/ui/StarRating'
 import { Textarea } from '@/components/ui/Textarea'
 import { createReview, deleteReview } from '@/lib/actions/reviews'
+import { useFocusWhen } from '@/lib/hooks/useFocusWhen'
 import { MAX_REVIEW_COMMENT } from '@/lib/validations/reviews'
 import type { TripData } from '@/lib/queries/bookings'
 
@@ -55,6 +56,12 @@ export function TripReview({ bookingId, review, canReview, tripLabel }: Props) {
   const [rating, setRating] = useState<number | null>(null)
   const [comment, setComment] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  const confirmDeleteRef = useRef<HTMLButtonElement>(null)
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null)
+
+  useFocusWhen(confirmingDelete, confirmDeleteRef)
+  useFocusWhen(!confirmingDelete, deleteTriggerRef)
 
   function onPost() {
     if (rating === null) return
@@ -108,6 +115,7 @@ export function TripReview({ bookingId, review, canReview, tripLabel }: Props) {
           {confirmingDelete ? (
             <div className="flex flex-wrap items-center gap-2">
               <Button
+                ref={confirmDeleteRef}
                 variant="secondary"
                 className="border-error text-error"
                 disabled={pending}
@@ -127,6 +135,7 @@ export function TripReview({ bookingId, review, canReview, tripLabel }: Props) {
             </div>
           ) : (
             <Button
+              ref={deleteTriggerRef}
               variant="secondary"
               disabled={pending}
               aria-label={`Delete your review of ${tripLabel}`}

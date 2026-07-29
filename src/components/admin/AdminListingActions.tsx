@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import {
@@ -9,6 +9,7 @@ import {
   HOST_CONTROL_DEFAULT,
 } from '@/components/host/hostControlStyles'
 import { adminDeleteListing, adminUnpublishListing } from '@/lib/actions/admin'
+import { useFocusWhen } from '@/lib/hooks/useFocusWhen'
 import { cn } from '@/lib/utils'
 
 type Props = {
@@ -56,6 +57,18 @@ export function AdminListingActions({
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
+
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  const deleteRef = useRef<HTMLButtonElement>(null)
+
+  // **The sharpest case of the five.** This confirm step also renders the
+  // `role="alert"` naming what the delete erases — reservations that vanish with
+  // no cancellation. Without focus moving here, a keyboard admin presses Delete,
+  // loses focus to `<body>`, and cannot reach the copy that exists to make the
+  // blast radius reconsiderable. The alert is announced either way; being able
+  // to go back and *re-read* it is what this restores.
+  useFocusWhen(confirming, confirmRef)
+  useFocusWhen(!confirming, deleteRef)
 
   function onUnpublish() {
     setError(null)
@@ -105,6 +118,7 @@ export function AdminListingActions({
         {confirming ? (
           <>
             <button
+              ref={confirmRef}
               type="button"
               className={cn(HOST_CONTROL, HOST_CONTROL_DANGER)}
               disabled={pending}
@@ -136,6 +150,7 @@ export function AdminListingActions({
           </>
         ) : (
           <button
+            ref={deleteRef}
             type="button"
             className={cn(HOST_CONTROL, HOST_CONTROL_DANGER)}
             disabled={pending}

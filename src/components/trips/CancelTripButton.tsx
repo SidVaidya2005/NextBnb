@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { Button } from '@/components/ui/Button'
 import { cancelBooking } from '@/lib/actions/bookings'
+import { useFocusWhen } from '@/lib/hooks/useFocusWhen'
 
 type Props = {
   bookingId: string
@@ -44,6 +45,16 @@ export function CancelTripButton({ bookingId, tripLabel }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
 
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  // The confirm swap replaces the button the user just pressed, so without this
+  // their focus falls to `<body>` and they tab back from the top of the page to
+  // reach a confirmation they asked for. Both directions, so backing out of the
+  // confirm returns focus to "Cancel reservation" rather than losing it again.
+  useFocusWhen(confirming, confirmRef)
+  useFocusWhen(!confirming, triggerRef)
+
   function onCancel() {
     setError(null)
     startTransition(async () => {
@@ -65,6 +76,7 @@ export function CancelTripButton({ bookingId, tripLabel }: Props) {
       {confirming ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button
+            ref={confirmRef}
             variant="secondary"
             className="border-error text-error"
             disabled={pending}
@@ -84,6 +96,7 @@ export function CancelTripButton({ bookingId, tripLabel }: Props) {
         </div>
       ) : (
         <Button
+          ref={triggerRef}
           variant="secondary"
           disabled={pending}
           aria-label={`Cancel ${tripLabel}`}

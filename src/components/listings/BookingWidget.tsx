@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { parseISO } from 'date-fns'
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button'
 import { DateRangePicker, type DateRangeValue } from '@/components/ui/DateRangePicker'
 import { signInWithGoogle } from '@/lib/actions/auth'
 import { createBooking } from '@/lib/actions/bookings'
+import { useDismissable } from '@/lib/hooks/useDismissable'
 import {
   cn,
   formatDateRange,
@@ -95,6 +96,34 @@ export function BookingWidget({
   const [range, setRange] = useState<DateRangeValue>({
     start: initialRange?.start ?? null,
     end: initialRange?.end ?? null,
+  })
+
+  const calendarRef = useRef<HTMLDivElement>(null)
+  const sheetRef = useRef<HTMLDivElement>(null)
+
+  // Non-modal popover: Escape closes and focus returns to the date trigger.
+  // No Tab cycle — a popover that traps would strand a keyboard user who only
+  // meant to move on to the guest stepper below it. Outside-pointer dismissal is
+  // off for the reason `SearchBar`'s calendar records: the popover sits inside
+  // the reservation card, so adjusting guests would count as clicking "outside"
+  // and close the dates the user is still choosing.
+  useDismissable({
+    open: calendarOpen,
+    onDismiss: () => setCalendarOpen(false),
+    containerRef: calendarRef,
+    dismissOnOutsidePointer: false,
+  })
+
+  // The sheet is `aria-modal="true"`, so it gets the Tab cycle. Its focus
+  // restore is the case `useDismissable`'s `isConnected` guard exists for: a
+  // successful reserve unmounts the bar's "Reserve" button and swaps in the
+  // confirmation, so the captured trigger is gone by the time the sheet closes.
+  useDismissable({
+    open: sheetOpen,
+    onDismiss: () => setSheetOpen(false),
+    containerRef: sheetRef,
+    trapFocus: true,
+    dismissOnOutsidePointer: false,
   })
 
   const stay =
@@ -235,7 +264,10 @@ export function BookingWidget({
                 // 720px-tall viewport "Clear dates" and "Done" were unreachable
                 // for a real user, not just for Playwright. `max-h`/`overflow`
                 // is the floor for shorter viewports still.
-                <div className="absolute right-full top-0 z-50 mr-2 max-h-[70vh] overflow-y-auto rounded-md border border-hairline bg-canvas p-4 shadow-card">
+                <div
+                  ref={calendarRef}
+                  className="absolute right-full top-0 z-50 mr-2 max-h-[70vh] overflow-y-auto rounded-md border border-hairline bg-canvas p-4 shadow-card"
+                >
                   {calendar}
                   <div className="flex justify-end gap-2 border-t border-hairline pt-3">
                     <button
@@ -312,6 +344,7 @@ export function BookingWidget({
       {/* ---- Sheet: the mobile booking surface ------------------------------ */}
       {sheetOpen && (
         <div
+          ref={sheetRef}
           role="dialog"
           aria-modal="true"
           aria-label={`Reserve ${title}`}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import {
@@ -9,6 +9,7 @@ import {
   HOST_CONTROL_DEFAULT,
 } from '@/components/host/hostControlStyles'
 import { adminCancelBooking } from '@/lib/actions/admin'
+import { useFocusWhen } from '@/lib/hooks/useFocusWhen'
 import { cn } from '@/lib/utils'
 
 type Props = {
@@ -39,6 +40,12 @@ export function AdminCancelBookingButton({ bookingId, bookingLabel }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
 
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  useFocusWhen(confirming, confirmRef)
+  useFocusWhen(!confirming, triggerRef)
+
   function onCancel() {
     setError(null)
     startTransition(async () => {
@@ -58,6 +65,7 @@ export function AdminCancelBookingButton({ bookingId, bookingLabel }: Props) {
         {confirming ? (
           <>
             <button
+              ref={confirmRef}
               type="button"
               className={cn(HOST_CONTROL, HOST_CONTROL_DANGER)}
               disabled={pending}
@@ -78,6 +86,7 @@ export function AdminCancelBookingButton({ bookingId, bookingLabel }: Props) {
           </>
         ) : (
           <button
+            ref={triggerRef}
             type="button"
             className={cn(HOST_CONTROL, HOST_CONTROL_DANGER)}
             disabled={pending}
