@@ -459,6 +459,10 @@ export type Database = {
           id: string
         }[]
       }
+      admin_unpublish_listing: {
+        Args: { p_listing_id: string }
+        Returns: string
+      }
       is_admin: { Args: never; Returns: boolean }
       listing_occupied_ranges: {
         Args: { p_listing_id: string }
