@@ -259,9 +259,29 @@ test.describe('the inbox', () => {
       await expect.poll(async () => (await readMessages(olderThread.id)).length).toBe(1)
 
       // The column moved...
-      const bumped = await readThread(olderThread.id)
-      const untouched = await readThread(newerThread.id)
-      expect(bumped!.lastMessageAt > untouched!.lastMessageAt).toBe(true)
+      //
+      // **Polled, not read once — and the message arriving is NOT the signal that
+      // the bump has.** `sendMessage` INSERTs the message and *then* UPDATEs
+      // `last_message_at`, two separate statements. The poll above gates on the
+      // first one, so it goes green the instant the message commits and a bare
+      // read here races the second. Measured: the bump lands ~130-220ms after the
+      // message, and reading immediately caught it unbumped in 1 of 8 low-load
+      // runs — under full-suite load the window widens, which is the intermittent
+      // failure this spec carried from F16 to F19.
+      //
+      // **This is still a gate proof, not a tautology.** Deleting the bump from
+      // `sendMessage` does not make the poll pass slowly — it makes it time out,
+      // because nothing else in the system writes this column. Verified by doing
+      // exactly that.
+      await expect
+        .poll(async () => {
+          const [b, u] = await Promise.all([
+            readThread(olderThread.id),
+            readThread(newerThread.id),
+          ])
+          return b!.lastMessageAt > u!.lastMessageAt
+        })
+        .toBe(true)
 
       // ...and so did the ordering the column exists for. They have swapped.
       await page.goto('/messages')

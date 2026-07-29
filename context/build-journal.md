@@ -64,6 +64,19 @@ either, and a bullet that says so is the only thing standing between the two.
 
 ### RLS & authorization
 
+- **RLS can make a feature impossible in application code without ever raising an error**
+  (F06). The date filter looked like ordinary app logic until the `bookings` SELECT policy
+  was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and
+  every listing reads as available — a wrong answer that arrives as a success. It is now the
+  `unavailable_listing_ids()` definer function (`0007`), returning published ids only.
+  **Generalises: before computing anything from a table, check what the *least* privileged
+  reader of that table can see.** The same trap waited in F12's booking widget — sharper
+  there, because *any* signed-in guest reads zero rows for a listing they do not host.
+  *(Evicted from `progress-tracker.md` → Key Decisions in F19 at the 10-bullet cap. It is
+  the oldest of the ten and now a standing rule rather than a pending decision: every
+  availability path in the project goes through the definer functions, and
+  `architecture.md` → "Availability must be computed in the database, not in application
+  code" states it as an invariant.)*
 - **RLS filters rows, not columns** (F02). Rules of the form "may update, but only this
   column" (`profiles.is_admin`, booking price snapshots, message bodies) are carried by
   column-level `GRANT`s alongside the policies; "none" cells are revoked outright, because
@@ -3461,6 +3474,31 @@ onto `Pill`; `fixtures.ts` gained `createReviewRow` and `BookingRow.cancelledAt`
 > no row. **The flake itself remains unattributed** — the commit message says so
 > explicitly and declines to claim it as the fix.
 
+> → **The stated mechanism did not hold. Corrected 2026-07-29 (F19 follow-up).** The
+> flake recurred on the post-re-seed production-build run (391 passed / 1 failed, the
+> failure being this test at `messages.spec.ts:264`). `938c84a`'s whole purpose was to
+> make the suspected cause visible in the log if it ever happened again — and
+> **`[actions/messages] sendMessage bump matched no row for thread …` does not appear
+> anywhere in the server log for that run.** So the bump *did* land, and "the message
+> sent and the bump did not land" — recorded above as *"the mechanism is understood and
+> it is a product defect"* — **is not what happens.** It was a plausible reading of a
+> failure at the `lastMessageAt` comparison, never an observation.
+>
+> What is now known: the assertion `bumped.lastMessageAt > untouched.lastMessageAt`
+> failed while every `sendMessage` bump in the run matched a row. That points somewhere
+> else entirely — both threads bumped, equal timestamps, or the reader seeing a stale
+> value — and none of those has been investigated. **Still open, still unattributed, and
+> now with one fewer hypothesis.** The useful part is that the instrumentation worked
+> exactly as intended: it was added to confirm a theory and it refuted it, which is the
+> cheaper outcome.
+
+> → **Attributed and fixed, same day. See F19 follow-up 2 below.** It was none of the
+> three candidates above: **the spec polled the wrong write.** `sendMessage` INSERTs the
+> message and *then* UPDATEs `last_message_at`; the spec gated on the message row, so it
+> proceeded the moment the first statement committed and read the column before the
+> second landed. A test defect, not a product defect — the exact inverse of what this
+> entry concluded for two features.
+
 ---
 
 ### Phase 6 · Feature 18 — Responsive QA, polish & deploy  *(2026-07-29)*
@@ -3781,3 +3819,210 @@ differ and the wrong guess fails silently.
 - **Deep-link sign-in return, favorite persistence, and the `/admin` gate from a
   non-admin account** — the remaining runbook step 5 items. All three are covered
   by E2E against dev; none has been exercised against the deployment.
+
+---
+
+### Phase 6 · F19 — the `host-manage` production-build failures, diagnosed  *(2026-07-29)*
+
+**What this closes.** `progress-tracker.md` carried "three `host-manage.spec.ts`
+tests fail against a PRODUCTION build under load" as its single largest open
+item from F18, with the root cause explicitly **not identified** and the
+tentative verdict "the evidence points at a test-side race". That verdict was
+wrong. It is a product defect, it is reproducible in seconds, and three of the
+things this project believed about it were false.
+
+#### Decisions
+
+- **Root cause: a `<Suspense>` boundary makes `router.refresh()`'s RSC response
+  streamed, and against a production build that stream is aborted before the
+  boundary content arrives.** `ListingActions` runs its server action inside
+  `startTransition` and then calls `router.refresh()`, so React holds
+  `isPending` until that refresh *commits*. It never commits. Every control on
+  the row stays `disabled`, the label stays "Deleting…", and the row keeps
+  rendering pre-mutation state — while the database write has already succeeded.
+- **The fix is removing the boundary from `/host/listings`, and it deliberately
+  gives up something F05 chose on purpose.** F05 put the grid behind
+  `<Suspense>` so the heading and the "List your place" CTA paint before the
+  query resolves. That benefit is real; it is worth less than the page's primary
+  mutations appearing broken for tens of seconds in production. The reasoning is
+  recorded in the page's own docblock, because that is where the next person to
+  reach for `<Suspense>` here will be standing.
+- **The other seven surfaces with the same shape are left alone.** A `<Suspense>`
+  page plus a client component calling `router.refresh()` also exists on
+  `/trips`, `/admin`, `/listings/[id]` and the three other `/host/listings/[id]/*`
+  routes. None reproduces it today and all their specs pass against a production
+  build, so changing them would be speculation. The repro recipe below is what
+  to run if one of them ever starts.
+
+#### Gotchas
+
+- **Three documented claims were wrong, and each one had been steering the
+  investigation away from the answer.**
+  | Recorded | Actually |
+  | --- | --- |
+  | "Each passes in isolation; **it needs concurrency**" | `host-manage.spec.ts` alone fails in ~19s. Serialized (`--workers=1`) still fails one. Only a *single test* alone passes. |
+  | "points at a **test-side race**" | Real production behaviour in real Chromium: the action succeeds and the UI does not update. |
+  | the failing set is a fixed three incl. `:351` | It is **four** tests and the subset varies — `:471` appeared in runs where the tracker lists `:351`. |
+  The first of those is the expensive one: it made the repro look like a
+  2.3-minute full-suite job when it is a 15-second single-file job, so every
+  previous attempt paid 10× the iteration cost it needed to.
+- **`next dev` never streams it that way, which is why 17 features never saw
+  it.** The whole suite is green against the dev server and fails only against
+  `npm run build && npm start`. A dev-only test strategy structurally cannot see
+  this class of defect — which is the general lesson, and it is why F18's
+  "running against a production build occasionally is worth it" note was right
+  for a bigger reason than it knew.
+- **Two hypotheses were formed, tested and rejected before the right one**, both
+  recorded because each looked obvious at the time. (1) *Latency* — the
+  assertions time out at 5s, so raise it: re-ran the full suite at a 20s expect
+  timeout and all three still failed, `44 × locator resolved to 1 element`.
+  (2) *`<Link>` prefetch contention* — production prefetches and dev does not,
+  4 links per row over HTTP/1.1's 6-connection cap: added `prefetch={false}` to
+  every row link, rebuilt, still 3 failed. Both were reverted.
+- **A photo-count correlation looked compelling and was a coincidence.** Three of
+  the four failing tests add photo rows and most passing ones do not, which
+  suggested the 404ing `CldImage` requests against fabricated `public_id`s. But
+  `:471` fails with zero photos and `:125` passes with one, so it does not hold.
+  The real invariant was the one visible from the first five minutes: *every
+  failing test asserts on the list re-rendering after `router.refresh()`, and no
+  passing test in the file does.*
+
+#### The repro recipe
+
+Keep this — it is the cheap version, and it is what the tracker was missing.
+
+```
+npm run build && npm start          # dev server will NOT reproduce it
+npx playwright test host-manage.spec.ts     # ~15s, 3-4 failures
+```
+
+The signature in the DOM snapshot is the diagnosis: buttons `[disabled]` and the
+confirm label reading `Deleting…` at the timeout, i.e. `isPending` never
+cleared. Confirm it in the network trace by looking for a `200` on
+`/<route>?_rsc=…` immediately followed by `net::ERR_ABORTED` on the same URL.
+
+#### Verified
+
+- `host-manage.spec.ts` against a production build: **3–4 failed → 20/20 passed**
+  (10.4s), with the boundary removal as the only change.
+- Full suite against a production build: **392 passed / 3 skipped / 0 failed** —
+  which now **matches the dev-server baseline exactly** (392/3). Before the fix
+  the same command gave 3 failed, and a second run 4 (the extra being the known
+  `messages.spec.ts` inbox-ordering flake, which is unrelated and still open).
+- Gate proof, both directions: the boundary in → fails; the boundary out →
+  passes; same server, same database, same worker count.
+- `npx tsc --noEmit` clean · `npm run lint` clean · `npm run test` **288/288** ·
+  `npm run build` green at **16 routes**.
+- Not re-checked and not claimed: security advisors and migrations, neither of
+  which this change touches (no SQL, no schema, no new route).
+
+---
+
+### Phase 6 · F19 follow-up — the seed re-run  *(2026-07-29)*
+
+#### Decisions
+
+- **Re-ran `supabase/seed.sql` via the Supabase MCP**, closing the tracker item that had
+  been parked since F15 as "a destructive action left for the developer to schedule".
+  `seed-verification.sql` now reports **46/46, no failures**, including the
+  `temporal: at least one in-progress stay exists` assertion that had aged out.
+- **It will age out again, and that is by design.** Every date in the seed is relative to
+  `current_date`, and booking 14 is `current_date - 2 → current_date + 3` — so the
+  in-progress window closes about three days after any run. Treat a future 45/46 on that
+  one assertion as "re-run the seed", not as a defect. Nothing else in the file is
+  time-sensitive in the same way.
+
+#### Gotchas
+
+- **"Begins with a cascading `delete from auth.users`" was true but incomplete, and the
+  incompleteness is what made this look risky enough to defer for four features.** The
+  statement is `delete from auth.users where id in (…)` naming **five sentinel ids** on the
+  `b000` prefix. The seed's own header says it plainly — *"A real Google account has neither
+  prefix and is never touched"* — so the scary-sounding half of the sentence had been
+  carried forward without the qualifying half. Checked against the live database *before*
+  running rather than argued from the file: 5 sentinel users deleted, **4 real users
+  survived, and the single `is_admin` account kept its flag**.
+- **What it does erase is anything hand-made that hangs off seeded data.** All 26 listings
+  were sentinel-owned, so the developer's 2 bookings and 1 empty message thread cascaded
+  away with their parents. Those were throwaway artifacts and losing them was the intent,
+  but the general shape is worth knowing: *the sentinel scope protects accounts, not the
+  rows those accounts created against seeded listings.* To keep such rows across a re-seed,
+  take ownership of a host's listings first — the recipe is at the bottom of `seed.sql`.
+- **A pleasant side effect: whole-table counts now equal seed counts exactly** (26 / 17 / 7
+  / 0) for the first time in the project's life. `progress-tracker.md` had carried a
+  standing paragraph explaining why they differed; that paragraph is now gone rather than
+  left to confuse.
+
+#### Verified
+
+- `seed-verification.sql`: **46/46, failures: none.**
+- Post-state, read back rather than assumed: 26 listings (24 published) / 130 photos /
+  17 bookings / 7 reviews / 5 blocks / 0 threads / 4 surviving real users / **1 admin** /
+  **0 E2E fixture residue**.
+
+---
+
+### Phase 6 · F19 follow-up 2 — the messages inbox flake, attributed at last  *(2026-07-29)*
+
+**Open since F16, suspected in F17, unresolved in F18, refuted this morning, and
+solved this afternoon.** The flake was `messages.spec.ts:233` — *"a reply moves its
+conversation to the top of the inbox"* — failing intermittently under full-suite
+load, roughly half of all runs.
+
+#### Decisions
+
+- **Root cause: the spec polled the wrong write.** `sendMessage` performs two
+  statements — INSERT the message, then UPDATE `message_threads.last_message_at`.
+  The spec gated on the first:
+
+  ```ts
+  await expect.poll(async () => (await readMessages(olderThread.id)).length).toBe(1)
+  const bumped = await readThread(olderThread.id)          // races the UPDATE
+  expect(bumped!.lastMessageAt > untouched!.lastMessageAt).toBe(true)
+  ```
+
+  `click()` returns when the click dispatches, not when the action finishes, and the
+  poll reads the database directly — so it goes green the instant the INSERT commits,
+  while the UPDATE is still in flight. The spec then reads `last_message_at` at its
+  original creation value and compares it against a thread created *later*.
+- **The fix polls the condition being asserted**, both threads read together, and the
+  message-delivery poll is kept because it still means something. Measured settle time
+  is ~130–220ms after the message commits.
+- **It stays a gate proof, which was the thing to get right.** Polling until the
+  asserted condition holds *looks* tautological. It is not, because nothing else in the
+  system writes that column — delete the bump and the poll cannot pass slowly, it times
+  out. Verified by doing exactly that rather than by arguing it (below).
+
+#### Gotchas
+
+- **This is the third recorded explanation for the same failure, and the first one
+  supported by an observation.** F17 called it *"a product defect… the bump did not
+  land"*, with a `sendMessage` docblock reasoning from the bump being *"guarded by
+  nothing"*. F19's morning run refuted that with `938c84a`'s log line, and then listed
+  three fresh candidates — both threads bumped, equal timestamps, stale read. **The
+  answer was none of those either.** Every one of them was a theory about the
+  *product*, because the failure had been filed as a product defect from the start, and
+  that framing survived four features without anyone re-reading the eight lines of test
+  around the assertion.
+- **The signature was distinctive once looked for**, and it is worth recording because
+  it generalises: *an assertion that fails while its own precondition is provably
+  satisfied is usually reading too early, not reading wrong.* The bump landed every
+  time — F17 already had that evidence in the form of a passing message-count poll and
+  simply read it as "the message sent, so the bump should have too".
+- **1 in 8 at low load, ~1 in 2 under full-suite load.** A standalone diagnostic that
+  ran the same sequence eight times caught it once and logged
+  `WOULD_FAIL=true stillOriginalValue=true settledAfterMs=135` — the column still at
+  its creation value at the moment of assertion, moving 135ms later. That single line
+  is the whole diagnosis.
+
+#### Verified
+
+- **Gate proof, both directions.** With the bump replaced by a no-op `select`, rebuilt:
+  the spec **fails** at the new poll. With it restored: **12/12 passed** across
+  `--repeat-each=10`.
+- `npx tsc --noEmit` clean; `src/` byte-identical to before the gate proof (the bump was
+  restored from a backup, and `git diff src/` is empty).
+- Full suite against a production build: see `progress-tracker.md` → Live baselines.
+- **`sendMessage` is unchanged.** The two-statement shape, the swallowed bump error and
+  the zero-row log from `938c84a` are all still correct and all still wanted — the
+  product was never the problem here.
