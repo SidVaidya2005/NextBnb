@@ -5,9 +5,10 @@ book short-term stays — and any user can host: create listings, upload photos,
 pricing and availability, and manage reservations. Includes favorites, reviews, and
 guest↔host messaging.
 
-> **Status:** Pre-build. The `context/` folder and `CLAUDE.md` define the product,
-> architecture, and build plan; application code has not been written yet.
-> Building starts at Feature 01 in `context/build-plan.md`.
+> **Status:** Feature-complete and in final QA. All 18 features in
+> `context/build-plan.md` are built; F18 (accessibility pass, responsive QA and
+> the Render deploy) is the one in progress. See `context/progress-tracker.md`
+> for live status and the current verification baselines.
 
 ## Stack
 
@@ -26,42 +27,49 @@ guest↔host messaging.
 
 ## Getting started
 
-The repo currently ships the planning docs plus starter config (`.nvmrc`,
-`.env.example`). The Next.js app itself is scaffolded in **Feature 01** of the
-build plan, which creates `package.json` and the npm scripts.
-
-Works now:
-
 ```bash
 nvm use                      # Node 20 (reads .nvmrc)
 cp .env.example .env.local   # then fill in the values below
-```
-
-After Feature 01 has scaffolded the app:
-
-```bash
 npm install
 npm run dev                  # http://localhost:3000
 ```
 
+The app needs a seeded Supabase project to show anything: apply the migrations in
+`supabase/migrations/` and run `supabase/seed.sql`. Note that the seed **begins
+with a cascading `delete from auth.users`** — never run it against a database
+holding real accounts.
+
 ## Environment variables
 
-Set these in `.env.local` (dev) and in the Render dashboard (prod). Full table in
-`context/code-standards.md` → Environment Variables.
+Set these in `.env.local` (dev) and in the Render dashboard (prod). Full table
+with rationale in `context/code-standards.md` → Environment Variables.
 
 | Variable | Secret? |
 | -------- | ------- |
 | `NEXT_PUBLIC_SUPABASE_URL` | no |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | no |
-| `SUPABASE_SERVICE_ROLE_KEY` | **yes** |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | no (RLS-protected) |
+| `SUPABASE_SERVICE_ROLE_KEY` | **yes** — seed/migration scripts only, never a request path |
 | `NEXT_PUBLIC_SITE_URL` | no |
 | `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | no |
-| `CLOUDINARY_API_KEY` | sensitive |
+| `CLOUDINARY_API_KEY` | no — a public identifier, see below |
+| `NEXT_PUBLIC_CLOUDINARY_API_KEY` | no — same value as above |
 | `CLOUDINARY_API_SECRET` | **yes** |
 
-## Scripts
+**Eight, not seven** — this table previously omitted `NEXT_PUBLIC_CLOUDINARY_API_KEY`
+and mislabelled `CLOUDINARY_API_KEY` as sensitive. Cloudinary's `api_key` is a
+public identifier that ships with every browser upload, which is why it is
+duplicated into a `NEXT_PUBLIC_` variable that `CldUploadWidget` needs; the
+**secret** is what authorises an upload, and it never leaves the server.
 
-Defined by Feature 01; available once the app is scaffolded.
+## Deploying
+
+See **`docs/deploy-render.md`**. The short version: apply `render.yaml` as a
+Render Blueprint, then register the redirect URLs in three separate places
+(Google Cloud → Supabase → `NEXT_PUBLIC_SITE_URL`). `NEXT_PUBLIC_*` values are
+baked in at build time, so the site URL needs a second deploy after the service
+exists — the runbook explains why.
+
+## Scripts
 
 | Command | Purpose |
 | ------- | ------- |
@@ -77,7 +85,8 @@ Defined by Feature 01; available once the app is scaffolded.
 The `context/` folder is the source of truth. Start with `CLAUDE.md`, then read
 `context/` in the order listed there: project overview → architecture → code
 standards → library docs → build plan → progress tracker, plus `DESIGN.md` for the
-visual system.
+visual system. `context/build-journal.md` is the per-feature archive — decisions,
+gotchas and verification numbers — read on demand rather than every session.
 
 ## Out of scope
 

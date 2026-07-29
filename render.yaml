@@ -1,0 +1,109 @@
+# Render Blueprint — NextBnb (Feature 18)
+#
+# Deploys the app as a Node Web Service: `npm run build` -> `npm start`, exactly
+# as `context/build-plan.md` -> F18 and `context/architecture.md` -> Stack specify.
+#
+# Apply with: Render Dashboard -> New -> Blueprint -> point at this repo.
+# The full procedure, including the three redirect allow-lists that OAuth needs,
+# is in `docs/deploy-render.md`. Read that before applying this file — two of the
+# steps happen outside Render and the order matters.
+#
+# ---------------------------------------------------------------------------
+# Two things about this file that are easy to get wrong
+# ---------------------------------------------------------------------------
+#
+# 1. `NEXT_PUBLIC_*` VALUES ARE BAKED IN AT BUILD TIME, NOT READ AT RUNTIME.
+#    Next inlines them into the client bundle during `next build`, so changing
+#    one in the dashboard does nothing until you redeploy. This is the single
+#    highest-risk fact about deploying this app, and it is why
+#    `NEXT_PUBLIC_SITE_URL` needs the two-pass treatment described below.
+#
+# 2. `next start` binds `0.0.0.0` and honours Render's injected `PORT` with no
+#    flag needed (verified against the Next.js CLI docs). Do NOT add `-p 3000`
+#    to the start command — that would pin the wrong port and every health check
+#    would fail. Note also that `PORT` cannot come from a `.env` file: Next's
+#    HTTP server initialises before env files load. Render sets it in the real
+#    process environment, so this works.
+
+services:
+  - name: nextbnb
+    type: web
+    runtime: node
+
+    # `free` spins the service down after inactivity, so the first request after
+    # an idle period is slow (~30s cold start). Fine for a portfolio deploy;
+    # switch to `starter` if the cold start is annoying during OAuth testing.
+    plan: free
+
+    # The Supabase project (`mbrcgzpmqhmdfhjqytnq`) is in **ap-south-1 / Mumbai**,
+    # and Singapore is the nearest region Render offers. This is not a detail to
+    # leave on the default: every page in this app is dynamic and RLS-scoped, so
+    # each render makes at least one database round trip, and pairing a US region
+    # with a Mumbai database adds ~200ms+ to every one of them. Change this only
+    # if you also move the Supabase project.
+    region: singapore
+
+    # `npm ci`, not `npm install`: it installs exactly the committed lockfile and
+    # fails loudly if `package.json` and `package-lock.json` disagree, which is
+    # what you want in CI rather than a silently different dependency tree.
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+
+    # `/` is the only sensible probe here — there is no dedicated health route,
+    # and adding one would take the build off the 16 routes every context doc
+    # records. Consequence worth knowing: `/` renders the seeded listing grid, so
+    # if Supabase is unreachable this health check fails and Render will report
+    # the service unhealthy. That is arguably correct (an app that cannot reach
+    # its database is not healthy), but it does mean a Supabase outage shows up
+    # as a Render deploy failure.
+    healthCheckPath: /
+
+    envVars:
+      # `.nvmrc` pins 20 and `engines` requires >=20.9 (Next 16's minimum).
+      # Stated here as well so the build log names the version explicitly.
+      - key: NODE_VERSION
+        value: "20"
+
+      # --- Supabase ---------------------------------------------------------
+      # Public, RLS-protected. Safe in the client bundle by design.
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+
+      # SECRET. Bypasses RLS entirely. `code-standards.md` restricts it to
+      # standalone seed/migration scripts and forbids it in any request path —
+      # nothing the running server does needs it. It is declared here only so a
+      # seed run from the Render shell has it available; if you would rather it
+      # never touch the production environment at all, delete these two lines.
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+      # --- App --------------------------------------------------------------
+      # THE TWO-PASS VARIABLE. This is the OAuth `redirectTo` base, and it must
+      # be the service's own public URL — which does not exist until Render has
+      # created the service. So: leave it blank on the first apply, let the first
+      # build finish, copy the assigned `https://<name>.onrender.com`, set it
+      # here, and MANUALLY REDEPLOY. Because it is `NEXT_PUBLIC_*` it was inlined
+      # during the first build, so setting it without redeploying leaves the old
+      # (empty or localhost) value baked into the bundle and sign-in redirects to
+      # the wrong origin — with no error at the point of the mistake.
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+
+      # --- Cloudinary -------------------------------------------------------
+      - key: NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      # The public twin of the key above. `CldUploadWidget` uploads from the
+      # browser and must send the api_key with the request so Cloudinary knows
+      # which account the signature belongs to. The KEY is a public identifier;
+      # the SECRET below is what authorises anything. Omitting this makes the
+      # widget throw during render and takes the whole photos route down with a
+      # 500 rather than degrading (found in F09).
+      - key: NEXT_PUBLIC_CLOUDINARY_API_KEY
+        sync: false
+      # SECRET. Signs uploads in /api/sign-cloudinary. Never reaches the client.
+      - key: CLOUDINARY_API_SECRET
+        sync: false
