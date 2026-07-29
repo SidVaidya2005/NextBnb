@@ -19,7 +19,9 @@
 
 **Phase:** All six phases complete — the project is **shipped and in maintenance**.
 **Last completed:** F20 — static accessibility audit; two ARIA-on-generic defects fixed
-(`StarRating` was announcing nothing on every review) *(2026-07-29)*. Before it, F19 — the
+(`StarRating` was announcing nothing on every review) *(2026-07-29, PR #2, merged and
+**verified live**: 0 div/span elements on `/listings/[id]` now carry a name without a role,
+both ratings render `role="img"`, the gallery `role="group"`)*. Before it, F19 — the
 production-build `<Suspense>`/`router.refresh()` defect and the `messages.spec.ts` inbox
 flake, both root-caused and fixed; seed re-run to 46/46 *(PR #1, merged and deployed)*.
 **Next:** no feature work queued. See **Open work** below for the three items still outstanding; none blocks the build.

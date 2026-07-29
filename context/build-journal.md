@@ -4118,3 +4118,26 @@ labelling is clean.
 - Full suite against a production build: **392 passed / 3 skipped / 0 failed.**
 - `npx tsc --noEmit` clean · `npm run lint` clean · `npm run build` green at **16 routes**.
 - No migration, no new route, no new dependency; `database.types.ts` untouched.
+
+> → **Deployed and verified live 2026-07-30 (PR #2).** Both fixes confirmed in the
+> production HTML of `/listings/<seeded>`: two `role="img"` ratings carrying
+> `aria-label="Rated N out of 5"`, and `role="group"` on the gallery strip. A parse of
+> every `aria-label` on that page now finds **0 `div`/`span` elements carrying a name
+> without a role** — the defect class is gone from the public surface.
+>
+> **Two verification-method errors, recorded because both produced a confident wrong
+> number and this file's whole purpose is that such things get written down.** First, an
+> initial check reported "1 rating label" using `grep -c`, which counts matching *lines* —
+> the HTML is a single line, so it counted 1 regardless of how many ratings were on the
+> page. There were 2. Second, a follow-up claimed "2 bare-div ratings remaining" from a
+> pattern anchored at `class=`; React renders `role="img"` *before* `class`, so the
+> captured substring could never contain the role it was testing for. Both were caught
+> before being reported as findings, and both are the same underlying mistake: **a grep
+> that cannot see the thing it is looking for returns a number, not an error.** The
+> correct check parses the tags and reports the role alongside the name.
+>
+> **The deploy itself was not live when first checked**, and every surface signal said it
+> was: `/` 200, 24 listings, gates 307, a true 404. Only fetching the changed markup
+> showed the old build still serving; it landed ~40s later. Third instance in two days of
+> F18's rule — **probe the artifact the change produces, never the health of the things
+> around it.**
