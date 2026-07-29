@@ -18,7 +18,9 @@
 ## Current Status
 
 **Phase:** All six phases complete — the project is **shipped and in maintenance**.
-**Last completed:** F19 — the `host-manage` production-build failures, diagnosed and fixed *(2026-07-29, branch `fix/open-work`)*.
+**Last completed:** F19 — the production-build `<Suspense>`/`router.refresh()` defect and the
+`messages.spec.ts` inbox flake, both root-caused and fixed; seed re-run to 46/46
+*(2026-07-29, PR #1, merged to `main` and deployed)*.
 **Next:** no feature work queued. See **Open work** below for the three items still outstanding; none blocks the build.
 
 Live at **https://nextbnb-h4ov.onrender.com**, with Google sign-in completing and the
@@ -36,6 +38,14 @@ which is why the suite was green for eight features. Removing the boundary takes
 the production-build suite to **392 passed / 0 failed, matching the dev baseline
 exactly**. Full detail, including the two rejected hypotheses and the 15-second
 repro recipe: `build-journal.md` → F19.
+
+**Deployed 2026-07-29 (PR #1).** Verified anonymously against the live URL after the
+merge: `/` 200, all protected routes 307, a missing listing a true 404, **24 published
+listings** matching the re-seed baseline, `?city=Kyoto` 3, zero "Airbnb" strings.
+**Not verified, and it is the one that matters most for F19:** `/host/listings` is behind
+auth, so an anonymous probe cannot see the route the fix actually changed. Confirming it
+needs a signed-in publish/unpublish against the deployment — the runbook's step 5 check,
+still outstanding.
 
 ---
 
