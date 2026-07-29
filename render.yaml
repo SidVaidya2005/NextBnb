@@ -88,6 +88,14 @@ services:
       # during the first build, so setting it without redeploying leaves the old
       # (empty or localhost) value baked into the bundle and sign-in redirects to
       # the wrong origin — with no error at the point of the mistake.
+      #
+      # THE VALUE IS THE BARE ORIGIN: `https://<name>.onrender.com` — no trailing
+      # slash and NO PATH. `signInWithGoogle` appends `/auth/callback` itself, so
+      # pasting the callback URL here (the value Supabase's allow-list wants, one
+      # step later in the runbook) yields `/auth/callback/auth/callback`, a 404.
+      # Observed live on 2026-07-29. Every other page keeps working, so nothing
+      # surfaces the mistake except attempting a sign-in — or the curl check in
+      # `docs/deploy-render.md` step 5.
       - key: NEXT_PUBLIC_SITE_URL
         sync: false
 

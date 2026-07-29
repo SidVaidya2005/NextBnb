@@ -5,10 +5,13 @@ book short-term stays — and any user can host: create listings, upload photos,
 pricing and availability, and manage reservations. Includes favorites, reviews, and
 guest↔host messaging.
 
-> **Status:** Feature-complete and in final QA. All 18 features in
-> `context/build-plan.md` are built; F18 (accessibility pass, responsive QA and
-> the Render deploy) is the one in progress. See `context/progress-tracker.md`
-> for live status and the current verification baselines.
+> **Status:** Complete and deployed — **[nextbnb-h4ov.onrender.com](https://nextbnb-h4ov.onrender.com)**.
+> All 18 features in `context/build-plan.md` are built and shipped. See
+> `context/progress-tracker.md` for the verification baselines and the short list
+> of known limitations kept open deliberately.
+>
+> On the free Render plan the service spins down when idle, so the first request
+> after a quiet period takes ~30s. That is the plan, not the app.
 
 ## Stack
 

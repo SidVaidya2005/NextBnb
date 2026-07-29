@@ -95,9 +95,21 @@ a Render URL here, now or ever.
 
 1. Copy the URL Render assigned: `https://<name>.onrender.com`.
 2. Service → **Environment** → set `NEXT_PUBLIC_SITE_URL` to it.
-   **No trailing slash.** It is concatenated with `/auth/callback`, so a trailing
-   slash produces `//auth/callback` — a *protocol-relative* path that browsers
-   read as a different origin.
+
+   **It is the bare origin — scheme + host, nothing else.** Two ways to get the
+   value wrong, both of which produce a site that looks completely healthy:
+
+   | Value | Result |
+   | --- | --- |
+   | `https://<name>.onrender.com` | ✅ correct |
+   | `https://<name>.onrender.com/` | `//auth/callback` — a *protocol-relative* path browsers read as a different origin |
+   | `https://<name>.onrender.com/auth/callback` | `/auth/callback/auth/callback` — a **404**. Observed live on 2026-07-29 |
+
+   The last one is the easy mistake, because step 4 below asks for the callback
+   URL and it is natural to paste the same string into both. They are different
+   values: **Supabase wants the callback path, this variable wants the origin.**
+   `signInWithGoogle` appends `/auth/callback` itself.
+
 3. **Manual Deploy → Deploy latest commit.**
 
 Step 3.3 is not optional and is not a cache flush. Without it the bundle still
@@ -137,6 +149,24 @@ a later failure caused by an earlier misconfiguration is much harder to read.
       `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` reached the build. If images render but
       untransformed, `ListingImage` has fallen back to its raw-`url` branch, which
       is exactly the degradation it was built to do rather than 500.
+- [ ] **`NEXT_PUBLIC_SITE_URL` baked correctly — check this *before* touching a
+      browser.** The sign-in button is a no-JS form post, so the OAuth hand-off can
+      be triggered with curl and the `redirect_to` it builds read straight off the
+      `location` header. Grab the action id out of the page, then post it:
+
+      ```sh
+      BASE=https://<name>.onrender.com
+      AID=$(curl -s "$BASE/" | grep -o '\$ACTION_ID_[0-9a-f]\{40,\}' | head -1)
+      curl -s -i -X POST "$BASE/" -F "$AID=" -F 'next=/' | grep -i '^location:'
+      ```
+
+      Decode the `redirect_to` in the result. It must be exactly
+      `https://<name>.onrender.com/auth/callback?next=%2F` — **one**
+      `/auth/callback`, no doubling, no `//`. If it is doubled or protocol-relative,
+      the variable is wrong: fix it and **redeploy** (step 3), because no amount of
+      Supabase or Google configuration can compensate for a bad `redirectTo`.
+      → Proves the two-pass build actually took, without spending a Google consent.
+
 - [ ] **Google sign-in completes** and returns you to the page you started from.
       → Proves all three redirect allow-lists agree.
 - [ ] **Sign-in from a deep link returns you there,** not to `/`. Open
@@ -157,6 +187,7 @@ a later failure caused by an earlier misconfiguration is much harder to read.
 | Consent succeeds, then an error page | Step 4 missing — Supabase will not redirect to an unlisted URL |
 | Sign-in bounces to `localhost` | `NEXT_PUBLIC_SITE_URL` baked at build. Step 3, including the redeploy |
 | Sign-in lands on `//auth/callback` | Trailing slash on `NEXT_PUBLIC_SITE_URL` |
+| Sign-in lands on `/auth/callback/auth/callback` (404) | `NEXT_PUBLIC_SITE_URL` was set to the **callback URL** instead of the origin — the value step 4 wants, pasted into step 3. Set it to the bare `https://<name>.onrender.com` and redeploy |
 | Photos route 500s | `NEXT_PUBLIC_CLOUDINARY_API_KEY` unset — `CldUploadWidget` throws during render |
 | Health check fails, build was green | `/` cannot reach Supabase. Check the URL and anon key |
 | First request after idle takes ~30s | The `free` plan spun down. Expected; upgrade to `starter` to stop it |

@@ -10,17 +10,77 @@
 
 ## Current Status
 
-**Phase:** Phase 6 — Admin & Polish (in progress)
-**Last completed:** 17 Admin dashboard
-**In progress:** 18 Responsive QA, polish & deploy — **code and docs complete; the
-deploy itself is pending and F18 does not close until the live URL works.**
+**Phase:** Phase 6 — Admin & Polish — **complete**
+**Last completed:** 18 Responsive QA, polish & deploy
+**In progress:** nothing. **All 18 features are shipped and the app is live at
+https://nextbnb-h4ov.onrender.com**, with Google sign-in completing and the host
+create → publish → unpublish → delete flow hand-verified against the deployment.
+
+F18 closed on its own stated criterion — the live URL works, sign-in included —
+not on the runbook landing. Two items below are deliberately still open and
+neither blocks the build: the three production-build `host-manage` test failures
+(now strongly indicated as test-side, see Outstanding actions) and the absence of
+a screen-reader pass.
 
 F18's code half is done: the accessibility pass (ten surfaces that had no focus
 management at all), the date-fragility sweep F17 handed forward, and the deploy
-artifacts (`render.yaml` + `docs/deploy-render.md`). **What remains is the part
-that needs dashboard credentials** — applying the Blueprint, and registering the
-redirect URLs in Google Cloud and Supabase. The runbook is written to be executed
-top to bottom; its step 3 is the one that fails silently if skipped.
+artifacts (`render.yaml` + `docs/deploy-render.md`). The Blueprint has been
+applied and the service is live.
+
+**The blocker, found and fixed 2026-07-29 by probing the live service.**
+`NEXT_PUBLIC_SITE_URL` had been set to
+`https://nextbnb-h4ov.onrender.com/auth/callback` — the *callback URL* rather than
+the *origin*. `signInWithGoogle` appends `/auth/callback` itself, so the
+`redirect_to` handed to Supabase was `…/auth/callback/auth/callback`, which
+**404s**. Resolved by setting the variable to the bare origin and redeploying (it
+is `NEXT_PUBLIC_*`, so it is baked at build time and the redeploy is the load-
+bearing half).
+
+**Re-verified after the redeploy**, by following the hand-off rather than trusting
+the variable: `redirect_to` is now exactly
+`https://nextbnb-h4ov.onrender.com/auth/callback?next=%2Flistings%2Fprobe` — one
+`/auth/callback`, `next` round-tripping intact. Following the chain reaches
+Google's own sign-in screen (200, no `redirect_uri_mismatch`) carrying
+`redirect_uri=https://<ref>.supabase.co/auth/v1/callback`. **That single response
+confirms all three allow-lists at once**: Google accepted the Supabase callback
+(step 1 registered), and Supabase *preserved* our `redirect_to` instead of falling
+back to the Site URL, which is what an unlisted URL would have produced (step 4
+registered). What it cannot prove is the code exchange and the `auth.users`
+trigger — those need a real consent.
+
+**This is the runbook's own step 3 executed with the wrong value, and it is worth
+more than the fix.** Every other surface on the site is healthy — the grid, the
+filters, the 404s, the route gates all pass — so nothing points at the mistake
+except attempting a sign-in. The runbook only anticipated the *trailing-slash*
+variant of this; it and `render.yaml` now name this one, and step 5 gained a
+**curl check that reads the `redirect_to` off the OAuth hand-off without spending
+a Google consent** (the sign-in button is a no-JS form post, so the whole hand-off
+is reachable from the shell). That check is what found this.
+
+### Verified against production, anon and headless (2026-07-29)
+
+The suite has only ever run against `npm run dev`, so several of these are the
+first time a documented invariant has been observed on a real production server.
+
+| Check | Result |
+| ----- | ------ |
+| Home renders the seeded grid | **24 published listings** — matches the baseline exactly; anon RLS reads work |
+| All six protected routes | **307** to `/?signin=required&next=…`, target preserved and encoded |
+| **F07's real-404 rule** | missing listing, malformed id and unknown route all return a true **404**, not a streamed 200 — *first confirmation against a production server* |
+| **F06's anon availability RPC** | 24 with no dates → **23 / 15 / 20** across three ranges. `unavailable_listing_ids()` is granted to `anon` in production and returning real occupancy — the trap F06 exists for is defeated by the least-privileged reader |
+| Search filters | city 3 · `type=cabin` 3 · `villa` 2 · `apartment` 6 · `minPrice=400` 3 · `guests=10` 3 · `amenities=pool` 3 · nonsense city 0 |
+| Signed-out affordances | "Sign in to book" / "to message" / "to save" all render — F08/F12/F16 posture intact |
+| Branding | **0** occurrences of "Airbnb", 6 of "NextBnb" |
+| PKCE | code-verifier cookie set on the OAuth hand-off |
+
+**Not verified, and why** — everything behind authentication (favorites persist,
+deep-link return, the admin dashboard rendering) is blocked by the sign-in defect
+above. Separately, **Cloudinary transform delivery is still unproven**: all 24
+seeded listings carry `public_id = null`, so every image on the public site takes
+`ListingImage`'s `next/image` branch and no page exercises `CldImage`. The runbook's
+"images are transformed" check therefore cannot pass until a listing with an
+*uploaded* photo exists, and `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` reaching the build
+remains untested in production.
 
 Two findings worth the space. **Three of the five focus-restore tests passed
 against a build with the restore deleted**, because for a non-modal popover focus
@@ -278,6 +338,16 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
   unpublish / delete always updates the UI in production" is **asserted only
   against a dev server**. Worth resolving before or shortly after the deploy —
   and worth checking by hand during the runbook's step 5.
+  > **Updated 2026-07-29 (deploy close-out):** that hand-check is done. The
+  > developer drove **create → publish → unpublish → delete against the live Render
+  > deployment and every step reflected on screen.** Combined with the
+  > `zz-diag.spec.ts` reading (`is_published=true`, Unpublish control rendered), the
+  > product half of this item is answered: **"publish / unpublish / delete updates
+  > the UI in production" is no longer asserted only against a dev server.**
+  > **The test defect is still open and unattributed** — the three specs still fail
+  > against a local production build under load, and the mechanism is still not
+  > identified. What changed is the priority: this is now a flaky-suite problem, not
+  > a suspected product problem.
 - **The suite has only ever run against `npm run dev`**, and `playwright.config.ts`
   still points there deliberately (a build on every run is too slow to work with).
   F18 ran it against a production build once, which is how the item above
@@ -432,7 +502,7 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 
 ### Phase 6 — Admin & Polish
 - [x] 17 Admin dashboard
-- [ ] 18 Responsive QA, polish & deploy
+- [x] 18 Responsive QA, polish & deploy
 
 ---
 
@@ -443,7 +513,7 @@ Triaged and accepted. Each is expanded in the relevant `build-journal.md` entry.
 - **F06** — **RLS can make a feature impossible in application code without ever raising an error.** The date filter looked like ordinary app logic until the `bookings` SELECT policy was read carefully: anon reads *zero* booking rows, so a nested select returns `[]` and every listing reads as available — a wrong answer that arrives as a success. It is now the `unavailable_listing_ids()` definer function (`0007`), returning published ids only. **Generalises: before computing anything from a table, check what the *least* privileged reader of that table can see.** The same trap waited in F12's booking widget — and was sharper there, because *any* signed-in guest reads zero rows for a listing they do not host.
 - **F08** — **a green assertion is not a gating assertion; run every new spec against a deliberately broken build.** `toHaveURL('/')` passes instantly when the page is already at `/`, so the spec guarding "the heart must not navigate" passed against the exact markup it existed to reject. Two further F08 traps rhyme with it: postgrest-js types a to-one embed on a NOT NULL FK as never-null while RLS returns null at runtime (the `toFavoriteCards` filter is load-bearing and TS would never demand it), and a spec that snapshots whole-user state races the parallel workers sharing that user. **Generalises: prove the test fails before trusting that it passes.**
 - **F10** — **an FK cascade is a destructive path with no error, no test and no type pointing at it.** `bookings.listing_id` is `on delete cascade`, so a host deleting a listing does not *cancel* its reservations — it erases them, leaving the guest nothing in `/trips` and no record a stay ever existed. It is now guarded in the action (refuse while a confirmed stay is still coming, steer to unpublish), stated in the UI rather than only disabled, and the cutoff is widened by a day so the JS/`current_date` boundary can only ever err toward refusing. **Generalises: before shipping a delete, read the FK actions on every table that references the row — the blast radius is in the schema, not in the feature.** F17's admin delete is the same cascade with the guard deliberately absent.
-- **F18** — **an accessibility assertion can pass because the behaviour was never exercised, not because it works — and three of five did.** The focus-restore tests opened a surface, pressed Escape, and asserted focus was on the trigger. For a non-modal popover or a menu that passes with **the restore code deleted**, because clicking a trigger leaves focus *on* it and opening moves nothing: the assertion was measuring "focus was never stolen", not "focus was restored". Only moving focus *into* the surface first (`await done.focus()`) makes close-without-restore fall to `<body>` and the test fail. Its twin arrived from the opposite direction: the "this popover is *not* trapped" test passed against a build with the trap wrongly enabled, because a wrapped Tab lands on the popover's **first** control — which is also not the one the assertion named. Asking *containment* ("did focus leave at all") is the only form a trap can fail. **Generalises: for any test of where focus went, ask where focus would be if the feature did nothing — if that is the same place, the test is scenery.** This is F08's rule ("prove the test fails before trusting that it passes") meeting a state that is invisible in the DOM, which is why seventeen features of responsive specs and screenshots never caught that the project had **no `.focus()` call anywhere in `src/`**. Sibling finding, from reading rather than running: this tracker's own Outstanding-actions list named "F06's calendar `role="grid"` roving focus" as a surface to audit, and that pattern **was never built** — a to-do describing work as existing is worse than one describing it as missing.
+- **F18** — **an accessibility assertion can pass because the behaviour was never exercised, not because it works — and three of five did.** The focus-restore tests opened a surface, pressed Escape, and asserted focus was on the trigger. For a non-modal popover or a menu that passes with **the restore code deleted**, because clicking a trigger leaves focus *on* it and opening moves nothing: the assertion was measuring "focus was never stolen", not "focus was restored". Only moving focus *into* the surface first (`await done.focus()`) makes close-without-restore fall to `<body>` and the test fail. Its twin arrived from the opposite direction: the "this popover is *not* trapped" test passed against a build with the trap wrongly enabled, because a wrapped Tab lands on the popover's **first** control — which is also not the one the assertion named. Asking *containment* ("did focus leave at all") is the only form a trap can fail. **Generalises: for any test of where focus went, ask where focus would be if the feature did nothing — if that is the same place, the test is scenery.** This is F08's rule ("prove the test fails before trusting that it passes") meeting a state that is invisible in the DOM, which is why seventeen features of responsive specs and screenshots never caught that the project had **no `.focus()` call anywhere in `src/`**. Sibling finding, from reading rather than running: this tracker's own Outstanding-actions list named "F06's calendar `role="grid"` roving focus" as a surface to audit, and that pattern **was never built** — a to-do describing work as existing is worse than one describing it as missing. **Second sibling, from the deploy: a build-time-inlined variable is invisible to every runtime check, so a configuration error can survive a completely green site.** `NEXT_PUBLIC_SITE_URL` went out as the *callback URL* rather than the origin, making the OAuth `redirect_to` `…/auth/callback/auth/callback` — a 404 — while the grid, every filter, all six route gates, the real-404 behaviour and Render's own health check on `/` stayed green. `NEXT_PUBLIC_*` is compiled into the bundle, so nothing at runtime reads it and nothing can report it stale; the only surface that fails is the one nobody exercises until a user tries to sign in. The generalisation is the verification move, not the variable: **probe the artifact the value produces, never re-read the value** — and the artifact here turned out to be shell-reachable, because the sign-in button is a no-JS form post whose action id is a hidden *field name*, so `curl -F` returns a 303 with the whole `redirect_to` on it. One command, no browser, no Google account, and it confirms all three OAuth allow-lists at once. That check is now `docs/deploy-render.md` step 5's first item, deliberately placed *above* the human sign-in check it front-runs.
 - **F17** — **an OR-shaped policy can be *wider* than the action it backs, and then the action is the only guard — the inverse of this project's usual arrangement.** F17 met it twice in one feature, in opposite directions. `listings_delete_own_or_admin` is `host_id = uid OR is_admin()`, so `adminDeleteListing` — which deliberately drops F10's upcoming-booking guard to keep the spam escape hatch — would otherwise let any *host* route their own listing through it and erase live reservations. Proved by impersonation in SQL, not argued: non-admin host, one upcoming confirmed stay, `delete` returned OK and left zero rows. Meanwhile `listings_update_own` is `host_id = uid` with **no admin branch at all**, so an admin unpublish was an UPDATE matching zero rows and returning `{ error: null }` — F13's trap, sitting in the verb this dashboard is meant to *prefer*, and the build plan had asserted the opposite. **Generalises: for every admin write, ask both halves — "who else does this policy admit?" and "does it admit the admin at all?" The answers are independent, and neither is visible from the action.** The fix for the second was a narrow definer function rather than `or is_admin()` on the policy, because **no column grant restricts listing writes** — widening would have handed an admin `host_id`, i.e. the power to reassign someone's listing. Sibling finding, from actually running the suite: `second-user.spec.ts` had been asserting on `FeaturePlaceholder` copy since F04, so the only test of `/admin` was pinned to scaffolding rather than to behaviour.
 - **F12** — **a guard the database also enforces cannot be gated by a test, and the test will pass anyway.** The spec proving `createBooking` refuses taken dates was written against a *booking* overlap — and it **passed with the availability check deleted**, because `bookings_no_overlap` refused the insert and `23P01` maps to the same sentence the guard produces. The gate had to move to the case no constraint can reach: a booking over a host's `blocked_dates`, where nothing in Postgres expresses a rule spanning two tables. **Generalises: when writing a gate proof, first ask which layer would catch the defect if this layer were missing** — if a lower one would, the spec is measuring that instead. The same reasoning re-priced F12's fixture listing: at $123.00 the service fee is 51660 cents whether you round or truncate, so the cents assertion passed against `Math.floor`; at $123.33 the two answers differ and the spec gates the rounding rule end to end. **F13's cancel window (also DB-enforced, via the UPDATE policy) is the next place this applies.**
 - **F13** — **RLS refuses a write by filtering, not by raising — so a refused UPDATE is indistinguishable from a successful one.** The cancellation window lives entirely in `bookings_update_cancel_own_or_admin`'s USING clause, so `cancelBooking` re-checking it would buy nothing; what only the action can do is notice that **zero rows changed**, because Postgres returns `{ error: null }` either way. Gate-proved: with the `!data` branch removed, cancelling an in-progress stay showed the guest no refusal at all while the row stayed `confirmed`. **Generalises: after any RLS-scoped UPDATE or DELETE, the row count *is* the authorization result — `.select()` it and treat empty as refusal.** F17's admin cancel and unpublish are the next place this applies, and its delete has the same shape. Its sibling finding: `/trips` needed an explicit `guest_id` filter because the `bookings` SELECT policy also admits hosts and admins — **the inverse of `getFavorites`, where leaning on RLS is correct** — so "does the policy answer exactly my question?" has to be asked per table, not per project.

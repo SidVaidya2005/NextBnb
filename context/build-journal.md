@@ -3396,6 +3396,14 @@ locator coupled to text outside the thing under test.
 **Not verified / open:**
 - **The three production-build `host-manage` failures** (above). Pre-existing,
   reproducible only against a production build under load, root cause unknown.
+  > **Updated 2026-07-29 (deploy close-out):** still open as a *test* defect, but
+  > the product half is now answered by a human rather than by a diagnostic. The
+  > developer drove create → publish → unpublish → delete by hand against the live
+  > Render deployment and every step reflected on screen. That agrees with
+  > `zz-diag.spec.ts`' `is_published=true` reading and makes "test-side race" the
+  > strongly-favoured reading rather than the merely-surviving one. **The mechanism
+  > is still not identified** and the three tests still fail against a local
+  > production build under load — do not read this as closed.
 - **No screen-reader pass.** F18 covered keyboard operability and focus — what was
   broken — not how the live regions announce. F16's asynchronous message
   announcement interacting with the sheet and the account menu remains verified by
@@ -3410,3 +3418,91 @@ locator coupled to text outside the thing under test.
   the Blueprint schema was checked against Render's docs, but nothing has been
   applied — the three dashboards need credentials. **F18 does not close until the
   live URL serves the app and Google sign-in completes.**
+  → **Closed by the deploy close-out** (2026-07-29): live at
+  `https://nextbnb-h4ov.onrender.com`, sign-in completing. See the section below.
+
+### The deploy, and the one thing that broke  *(2026-07-29)*
+
+Live at **`https://nextbnb-h4ov.onrender.com`**. The Blueprint applied cleanly and
+the first build served a fully working public site. **Sign-in was broken anyway,
+and nothing on the site said so.**
+
+**`NEXT_PUBLIC_SITE_URL` had been set to the callback URL, not the origin** —
+`https://nextbnb-h4ov.onrender.com/auth/callback`. `signInWithGoogle` appends
+`/auth/callback` itself, so the `redirect_to` handed to Supabase was
+`…/auth/callback/auth/callback`, a path that **404s**. Fixed by setting the bare
+origin and redeploying.
+
+Three things make this worth the space:
+
+- **It is the runbook's own step 3 executed with the wrong value, and the runbook
+  did not anticipate this variant.** It warned about a *trailing slash*
+  (`//auth/callback`, protocol-relative) and about *forgetting the redeploy*. It did
+  not warn that the value one step later — Supabase's Redirect URL, which genuinely
+  *is* the callback path — is the natural thing to paste here. Two adjacent steps
+  want two different strings off the same domain. `docs/deploy-render.md` step 3 now
+  carries a three-row table of correct/slash/this, the troubleshooting table names
+  the 404 symptom, and `render.yaml`'s comment states the value is the bare origin.
+- **Every other surface stayed healthy, which is the whole hazard.** The grid, all
+  the filters, the 404s and all six route gates passed while sign-in was
+  unreachable. A `NEXT_PUBLIC_*` variable is inlined at build time, so it is invisible
+  to every runtime health check — the Render health check on `/` was green
+  throughout. Nothing surfaces the mistake except attempting a sign-in.
+- **The whole OAuth hand-off is reachable from a shell, and that is what found it.**
+  The sign-in button is a progressive-enhancement form post — the action id is a
+  hidden *field name* (`$ACTION_ID_…`), not a `Next-Action` header — so posting it
+  with `curl -F` returns a 303 whose `location` carries the `redirect_to` verbatim.
+  That turns "click through Google consent and see what happens" into one command
+  that needs no browser and no Google account. It is now step 5's first check, above
+  the sign-in check it front-runs. *(A first attempt using the `Next-Action` header
+  with a `1_next` field 500'd — that was the wrong encoding, not a defect. The form
+  in the served HTML is the authority on how to call it.)*
+
+**Re-verified after the redeploy**, by following the hand-off rather than
+re-reading the variable: `redirect_to` is exactly
+`…/auth/callback?next=%2Flistings%2Fprobe`, one segment, `next` intact. Following
+the chain lands on Google's own sign-in screen (200, no `redirect_uri_mismatch`)
+carrying `redirect_uri=https://<ref>.supabase.co/auth/v1/callback`. **That single
+response confirms all three allow-lists at once:** Google accepted the Supabase
+callback, so step 1 is registered; and Supabase *preserved* our `redirect_to`
+instead of substituting the Site URL, which is what an unlisted URL produces — so
+step 4 is registered. It cannot prove the code exchange or the `auth.users`
+trigger; those needed the real consent, which the developer then completed.
+
+### Verified against production (2026-07-29)
+
+Anon and headless unless noted. **Several of these are the first observation of a
+documented invariant against a real production server** — the suite has only ever
+run against `npm run dev`, and F07's rule in particular is *about* streamed
+responses, so a dev-only proof was always partial.
+
+| Check | Result |
+| ----- | ------ |
+| Home renders the seeded grid | **24 published listings**, matching the baseline exactly — anon RLS reads work through the deploy |
+| Six protected routes | **307** to `/?signin=required&next=…`, target preserved and URL-encoded |
+| **F07's real-404 rule** | missing listing, malformed id and unknown route all return a true **404**. *First confirmation against a production server* |
+| **F06's anon availability RPC** | 24 with no dates → **23 / 15 / 20** across three ranges. `unavailable_listing_ids()` is granted to `anon` in production and returns real occupancy — the trap F06 exists for, defeated by the least-privileged reader, in the environment that matters |
+| Search filters | city 3 · `type=cabin` 3 · `villa` 2 · `apartment` 6 · `minPrice=400` 3 · `guests=10` 3 · `amenities=pool` 3 · unknown city 0 |
+| Signed-out affordances | "Sign in to book" / "to message" / "to save" render — F08/F12/F16 posture intact |
+| Branding | **0** occurrences of "Airbnb"; 6 of "NextBnb" |
+| Post-redeploy regression sweep | all of the above re-run after the rebuild, identical |
+| **Google sign-in** | completes (developer, by hand) |
+| **Host mutation flow** | create → publish → unpublish → delete, by hand against the live deployment: **every step reflected on screen** |
+
+A note on the URL contract, met while probing: the property-type filter is
+**`?type=`**, not `?propertyType=` — `parseListingFilters` maps `data.type` onto
+the `propertyType` field. `?propertyType=cabin` returns the unfiltered 24 and
+looks like a broken filter. Recorded because the internal name and the URL name
+differ and the wrong guess fails silently.
+
+**Still not verified after the deploy:**
+- **Cloudinary transform delivery.** All 24 seeded listings carry
+  `public_id = null`, so every image on the public site takes `ListingImage`'s
+  `next/image` branch and **no page exercises `CldImage`**. The runbook's
+  "images are transformed" check cannot pass until a listing with an *uploaded*
+  photo exists, so `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` reaching the build is
+  untested in production. This is the deploy-time twin of the standing note that
+  the suite never uploads.
+- **Deep-link sign-in return, favorite persistence, and the `/admin` gate from a
+  non-admin account** — the remaining runbook step 5 items. All three are covered
+  by E2E against dev; none has been exercised against the deployment.
