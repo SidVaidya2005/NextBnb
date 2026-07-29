@@ -69,6 +69,7 @@ NextBnb/
 │   │   ├── actions/              → server actions grouped by domain (bookings.ts, listings.ts, …)
 │   │   ├── queries/              → read functions for RSC (listings.ts, bookings.ts, …)
 │   │   ├── validations/          → Zod schemas per domain
+│   │   ├── hooks/                → shared client hooks (useDismissable, useFocusWhen)
 │   │   ├── constants.ts          → PROPERTY_TYPES, AMENITIES, fee rates, limits
 │   │   └── utils.ts              → pure helpers (formatPrice, nightsBetween, …)
 │   ├── types/
@@ -94,6 +95,7 @@ NextBnb/
 | `src/lib/queries/` | Read-side data access (server-only). Returns typed rows; no mutations. |
 | `src/lib/actions/` | Write-side server actions: validate → authorize → mutate → revalidate. The only place mutations live. |
 | `src/lib/validations/` | Zod schemas. Single source of truth for input shapes; no side effects. |
+| `src/lib/hooks/` | Shared client-side React hooks (`'use client'`). Browser-behaviour only — focus management, keyboard dismissal. No data fetching, no Supabase, no business rules; a hook that needed either belongs in `actions/` or the component. Added in F18. |
 | `src/lib/constants.ts` | Fixed shared values (property types, amenities, fee rates, limits). |
 | `src/types/` | Generated DB types and shared TS types. No runtime code. |
 | `supabase/` | Schema, RLS policies, triggers, and seed data. The database is the source of truth for authorization. |
