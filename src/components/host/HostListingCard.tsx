@@ -6,6 +6,7 @@ import {
 } from '@/components/host/hostControlStyles'
 import { ListingActions } from '@/components/host/ListingActions'
 import { ListingImage } from '@/components/ui/ListingImage'
+import { Pill } from '@/components/ui/Pill'
 import { cn, formatPrice } from '@/lib/utils'
 import type { HostListingData } from '@/lib/queries/listings'
 
@@ -56,11 +57,7 @@ export function HostListingCard({ listing }: Props) {
                 {listing.title}
               </Link>
             </h2>
-            {!listing.isPublished && (
-              <span className="rounded-full bg-surface-strong px-2.5 py-1 text-[11px] font-semibold text-ink">
-                Draft
-              </span>
-            )}
+            {!listing.isPublished && <Pill>Draft</Pill>}
           </div>
 
           <p className="mt-1 text-sm text-muted">

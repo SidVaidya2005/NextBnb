@@ -2,6 +2,7 @@ import Link from 'next/link'
 
 import { Avatar } from '@/components/ui/Avatar'
 import { ListingImage } from '@/components/ui/ListingImage'
+import { Pill } from '@/components/ui/Pill'
 import { formatDateRange, formatPrice } from '@/lib/utils'
 import type { HostReservationData } from '@/lib/queries/bookings'
 
@@ -58,19 +59,11 @@ export function ReservationCard({ reservation }: Props) {
             <Link href={`/listings/${listing.id}`} className="underline-offset-4 hover:underline">
               {listing.title}
             </Link>
-            {isCancelled && (
-              <span className="rounded-full bg-surface-strong px-2.5 py-1 text-[11px] font-semibold text-ink">
-                Cancelled
-              </span>
-            )}
-            {!listing.isPublished && (
-              // A host can unpublish a listing that already has stays on it, and
-              // those stays remain owed. Marked rather than merely present, so the
-              // row is not read as evidence the listing is still bookable.
-              <span className="rounded-full bg-surface-strong px-2.5 py-1 text-[11px] font-semibold text-ink">
-                Unpublished
-              </span>
-            )}
+            {isCancelled && <Pill>Cancelled</Pill>}
+            {/* A host can unpublish a listing that already has stays on it, and
+                those stays remain owed. Marked rather than merely present, so the
+                row is not read as evidence the listing is still bookable. */}
+            {!listing.isPublished && <Pill>Unpublished</Pill>}
           </p>
 
           <p className="mt-1 text-sm text-muted">

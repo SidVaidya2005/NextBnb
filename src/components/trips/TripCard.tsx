@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { CancelTripButton } from '@/components/trips/CancelTripButton'
 import { TripReview } from '@/components/trips/TripReview'
 import { ListingImage } from '@/components/ui/ListingImage'
+import { Pill } from '@/components/ui/Pill'
 import { formatDateRange, formatPrice } from '@/lib/utils'
 import type { TripData } from '@/lib/queries/bookings'
 
@@ -68,11 +69,7 @@ export function TripCard({ trip, section }: Props) {
                 'This listing is no longer available'
               )}
             </h3>
-            {trip.status === 'cancelled' && (
-              <span className="rounded-full bg-surface-strong px-2.5 py-1 text-[11px] font-semibold text-ink">
-                Cancelled
-              </span>
-            )}
+            {trip.status === 'cancelled' && <Pill>Cancelled</Pill>}
           </div>
 
           {trip.listing && (
