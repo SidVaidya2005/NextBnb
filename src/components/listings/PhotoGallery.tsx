@@ -54,6 +54,12 @@ export function PhotoGallery({ photos, title, action }: Props) {
         </div>
       ) : (
         <div
+          // `role="group"` so the name below is actually announced: a bare
+          // `<div>` is `role="generic"`, where ARIA prohibits an accessible name
+          // (the same rule `StarRating` and `BookingWidget`'s `<aside>` record).
+          // Milder here than there — every child image carries a real `alt`, so
+          // the content was always reachable and only the grouping was unnamed.
+          role="group"
           // Mobile: bleeds past the page gutter into a snapping scroll strip.
           // tablet+: the same children become the mosaic.
           className="-mx-6 flex snap-x snap-mandatory gap-2 overflow-x-auto px-6 pb-2 tablet:mx-0 tablet:grid tablet:aspect-[2/1] tablet:grid-cols-4 tablet:grid-rows-2 tablet:overflow-hidden tablet:rounded-md tablet:px-0 tablet:pb-0"

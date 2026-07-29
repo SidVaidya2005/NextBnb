@@ -113,7 +113,14 @@ test.describe('leaving a review', () => {
 
       // The card swaps to reading it back, and the form is gone.
       await expect(card.getByText('Your review')).toBeVisible()
-      await expect(card.getByLabel('Rated 4 out of 5')).toBeVisible()
+      // **`getByRole('img')`, deliberately not `getByLabel`.** `getByLabel`
+      // matches the `aria-label` ATTRIBUTE, so it passes against a bare `<div>` —
+      // which is `role="generic"`, where ARIA prohibits an accessible name and a
+      // screen reader announces nothing at all. That is exactly the state this
+      // assertion sat green through from F15 until the 2026-07-29 audit. Asking
+      // for the ROLE is what makes the name real: drop `role="img"` from
+      // `StarRating` and this line fails.
+      await expect(card.getByRole('img', { name: 'Rated 4 out of 5' })).toBeVisible()
       await expect(card).toContainText('Quiet street, excellent coffee downstairs.')
       await expect(postButton(card)).toHaveCount(0)
 
@@ -126,7 +133,7 @@ test.describe('leaving a review', () => {
       // has reviews at all — so its presence is itself the assertion.
       const reviews = page.getByRole('region', { name: 'Reviews' })
       await expect(reviews.getByText('4.0', { exact: true })).toBeVisible()
-      await expect(reviews.getByLabel('Rated 4 out of 5')).toBeVisible()
+      await expect(reviews.getByRole('img', { name: 'Rated 4 out of 5' })).toBeVisible()
       // The guest's words, now public. The trip card showed them back to their
       // own author; this is the surface everyone else reads.
       await expect(reviews).toContainText('Quiet street, excellent coffee downstairs.')
