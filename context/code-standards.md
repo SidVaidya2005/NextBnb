@@ -107,6 +107,20 @@ it contains Airbnb-specific structure that NextBnb does **not** build. Take the
   a conditionally-rendered error paragraph is the sanctioned exception.
 - Decorative icons carry `aria-hidden`; an icon-only control carries `aria-label` on the
   **button**, never on a wrapping div.
+- **A skip link's target needs `tabindex="-1"`, or focus never lands on it** — the viewport
+  scrolls and the page *looks* like it jumped while nothing is actually focused. Measured in
+  F21: with `tabindex` deleted, `document.activeElement` after activating `href="#main"` was
+  `BODY`, and a screen reader announces arrival only at a genuinely focused element. The
+  target is programmatically focusable **only**; it is never a Tab stop. Reference:
+  `<main id="main" tabIndex={-1}>` in `src/app/layout.tsx`.
+- **For a skip link, assert the target actually received DOM focus —
+  `expect(target).toBeFocused()`. Do *not* rely on "the next Tab lands inside the target":
+  that passes with or without `tabindex="-1"`,** because Chromium implements the HTML
+  Standard's *sequential focus navigation starting point* fixup and moves the Tab **origin**
+  to the fragment target whether or not it is focusable. Measured in F21: with `tabindex`
+  deleted, `activeElement` after activation was `BODY` while the next Tab still landed on a
+  `<summary>` inside the target. Assert the focus, keep the next-Tab check as documentation
+  of the user-visible outcome, and know which of the two is load-bearing.
 
 ---
 
