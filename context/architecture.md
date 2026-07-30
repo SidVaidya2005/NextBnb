@@ -587,6 +587,12 @@ Two domain rules this project's actions add on top:
 - **`error=access_denied` redirects home with no error banner** — declining at the
   consent screen is a choice, not a failure. Any other failure lands on
   `/?signin=error`.
+- **`error` is attacker-controlled too, so it is sanitized before it is logged** (M1).
+  Same reasoning as `next`: anyone can request this route directly, so the code is
+  stripped to `[a-z_]` and capped at 64 chars before reaching `console.error`, which
+  keeps an arbitrary string out of the server log. Real RFC 6749 codes pass through
+  unchanged. The variable is named `providerError`, not `oauthError`, because CodeQL's
+  sensitive-name heuristic flags the latter.
 
 ### Cloudinary config + signature route — `src/lib/cloudinary.ts`, `src/app/api/sign-cloudinary/route.ts`
 

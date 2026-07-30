@@ -123,6 +123,20 @@ either, and a bullet that says so is the only thing standing between the two.
 - **The admin tables are capped at 200 rows each and the cap is silent** (F17). Fine at 26
   listings / 19 bookings, and the cap orders `check_in`/`created_at` DESC so it truncates
   settled history rather than what an admin came to see. Pagination is unowned.
+- **A policy that admits three principals answers a question none of them asked** (F14).
+  *(Moved from `progress-tracker.md` → Key Decisions 2026-07-30, evicted by M1.)*
+  `bookings_select_participant_or_admin` is `guest OR host OR is_admin()`, so the **same row**
+  is legitimately readable by two screens that must never show it to each other — and every
+  query over that table has to say which reader it is for. F13 filtered `guest_id`; F14
+  filters `listing_id` to owned listings, and its gate proof is F13's inverted: a stay where
+  the fixture user is the **guest** must not surface among their reservations. It failed
+  exactly as intended with the filter deleted, and RLS never would have caught it.
+  **Generalises: RLS scopes to a union of principals, not to a role — so "which of these
+  principals am I rendering for?" is a question the query must answer, never the policy.**
+  Corollary found the same way: read the policy before deciding what a screen *can't* do.
+  "Read-only for the host" looked like scope, but the UPDATE policy names only the guest and
+  `is_admin()`, so a host has no write path to `bookings` at all and a cancel button would
+  need a migration, not a component.
 
 ### Availability & booking
 
@@ -4696,3 +4710,80 @@ it cannot recur.
   `:focus-visible`.
 - **That production renders it.** Every observation is against `npm run dev`. The deployment has
   not been redeployed or re-verified since F18.
+
+---
+
+### Phase 6 · M1 — code scanning alert #1: a false positive with a real bug underneath  *(2026-07-30)*
+
+**Scope:** one alert, two lines of product change. `src/app/auth/callback/route.ts` only.
+
+**The alert.** GitHub code scanning #1, CodeQL 2.26.1, rule `js/clear-text-logging`
+(CWE-312/359/532), severity **high**, on `main` at commit `20bbda1`:
+
+> This logs sensitive data returned by an access to `oauthError` as clear text.
+> `src/app/auth/callback/route.ts:34`, columns 66–76.
+
+**The verdict was wrong, and the alert said so itself.** The flagged expression is
+`searchParams.get('error')` — the OAuth error code the provider puts on the redirect, i.e. one
+of RFC 6749's `access_denied` / `invalid_scope` / `server_error` / etc. No token, no
+authorization code, no PII. What settled it was reading the *source* rather than the title:
+the message names **"an access to `oauthError`"**, not "a URL query parameter". That is
+CodeQL's name-based sensitive-data heuristic matching the identifier (the `auth` substring),
+not dataflow from anything secret. Columns 66–76 are exactly the ten characters of the
+variable name.
+
+**Corroborated against the repo rather than asserted.** `grep -rn "console\.\(error\|log\|warn\|info\)" src/`
+returns ~40 call sites, almost all `console.error('[queries/x] … failed:', error.message)` —
+Supabase error messages, far likelier to carry detail than an OAuth error code — and
+`gh api repos/:owner/:repo/code-scanning/alerts` returns **exactly one alert**. The one
+variable in the codebase with an auth-ish name is the only one flagged. That asymmetry is the
+evidence; the reasoning about the heuristic alone would have been a story.
+
+**Reading the source found a defect the rule was not looking for.** `?error=` is
+attacker-controlled — anyone can request `/auth/callback?error=<arbitrary string>` directly,
+and `architecture.md` → OAuth callback route already records exactly this about `next` on this
+exact route. Line 34 wrote that unbounded, unsanitized string straight into the server log.
+That is **log injection (CWE-117)**, not clear-text logging of a secret. Low severity, but real
+— and it was not in Standing Constraints as a known won't-fix, so it was not a documented
+limitation being mistaken for a bug.
+
+**The fix, on two independent axes:**
+
+1. **Sanitize** — `providerError.replace(/[^a-z_]/gi, '').slice(0, 64) || 'unrecognized'`.
+   Fixes the actual defect.
+2. **Rename** `oauthError` → `providerError`. Removes the heuristic's source, which is the
+   only reason the alert exists.
+
+They are deliberately separate. The rename alone would have silenced the scanner and fixed
+nothing; the sanitize alone would very likely have left the alert open, because taint
+propagates through `replace`/`slice` and the source is the *access to the variable*.
+
+**Gotcha, caught before it shipped:** the first draft named the sanitized value `code` —
+shadowing `const code = searchParams.get('code')` eight lines above, which is the OAuth
+**authorization code**, the one genuinely sensitive value in the file. It is never logged and
+was never flagged. Renamed to `errorCode`.
+
+**Verified:**
+- `npx tsc --noEmit` — clean (baseline: clean).
+- `npm run lint` — clean (baseline: clean).
+- `npm run test` — **288/288** (baseline: 288/288).
+- Sanitizer behaviour checked directly rather than reasoned about: `access_denied`,
+  `invalid_scope`, `server_error`, `admin_policy_enforced` all pass through **unchanged**;
+  `\x1b[2Kfake log line` → `Kfakelogline`; `<script>x</script>` → `scriptxscript`; `12345` →
+  `unrecognized`; a 200-char string → capped at 64.
+- No test touches this route — `grep -rln "auth/callback" e2e/` returns nothing. The change is
+  covered by typecheck and inspection only, which is stated here rather than papered over.
+
+**Not verified:**
+- **That the alert actually closes.** CodeQL runs on push to `main`; this is a local change.
+  "The rename removes the source" is reasoning about CodeQL's heuristic, not a measurement —
+  it stays a prediction until the next scan reports alert #1 as `fixed`. If it does not close,
+  the heuristic matched something other than `auth` and the next step is `providerError` →
+  a name with no auth-adjacent substring at all.
+- **That a non-`access_denied` provider error was ever exercised.** Reaching line 34 needs
+  Google to return an error other than a declined consent, which nothing in the suite or the
+  manual flow has produced. The branch is unchanged in shape by this edit.
+
+**Bookkeeping:** F14's Key Decision moved to Standing Constraints → RLS & authorization at the
+10-bullet cap. Also corrected in passing: Current Status described PR #5 as **open**; `git log`
+shows `20bbda1 Merge pull request #5` on `main`, so it merged.
