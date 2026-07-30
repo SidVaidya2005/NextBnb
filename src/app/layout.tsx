@@ -33,11 +33,27 @@ export default function RootLayout({
             it, activating this link scrolls the viewport and leaves focus where
             it was — the page looks like it jumped while the keyboard user is
             still in the nav. */}
-        <a href="#main" className="sr-only">
+        {/* `z-[60]` is deliberate and must outrank the header's `z-50`: revealed
+            at top-4 the link sits inside the sticky header's 80px band, so a
+            lower z-index paints it underneath — visible to a geometry check and
+            unclickable at the same time. Not an arbitrary value to tidy away. */}
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-sm focus:border focus:border-hairline focus:bg-canvas focus:px-4 focus:py-3.5 focus:text-sm focus:font-medium focus:text-ink focus:shadow-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+        >
           Skip to content
         </a>
         <TopNav />
-        <main id="main" tabIndex={-1}>
+        {/* `focus:outline-none` — measured, not assumed. Browsers paint a
+            default focus ring on any element focused via script (a `tabindex=
+            "-1"` target included), and Chrome's `getComputedStyle` confirmed one
+            here (`outlineStyle: auto`, `outlineWidth: 1px`) after landing via
+            the skip link. The skip link itself already carries the project's
+            one focus treatment
+            (`focus-visible:outline-2 focus-visible:outline-offset-2
+            focus-visible:outline-ink`), so <main> gaining a second, unstyled
+            ring on arrival is redundant rather than useful. */}
+        <main id="main" tabIndex={-1} className="focus:outline-none">
           {children}
         </main>
       </body>
