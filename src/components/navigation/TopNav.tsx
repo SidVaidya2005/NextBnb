@@ -38,7 +38,7 @@ export async function TopNav() {
 
         {/* Account cluster. The menu is the only control on mobile, so it is
             never hidden — the hamburger lives inside it. */}
-        <div className="flex shrink-0 items-center gap-2">
+        <nav aria-label="Main" className="flex shrink-0 items-center gap-2">
           {/* `desktop:`, not `tablet:`. Between 744 and 833 the full 3-segment
               pill, the logo, this link and the account menu do not fit the row
               together — the page scrolled horizontally by 89px at 744. The link
@@ -51,7 +51,7 @@ export async function TopNav() {
             Become a host
           </Link>
           <AccountMenu profile={profile} />
-        </div>
+        </nav>
       </div>
     </header>
   )

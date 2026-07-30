@@ -346,3 +346,25 @@ test.describe('a two-step confirm control', () => {
     }
   })
 })
+
+// -----------------------------------------------------------------------------
+// Layout landmarks — the skip link and the main navigation region (F21).
+//
+// These two additions live in markup shared by all 16 routes, and one of them
+// (the skip link) is invisible until Tab is pressed. That is the same class of
+// state that let F18's focus bugs survive seventeen features and F20's
+// `StarRating` announce silence from F15 to F19 — so it is asserted here rather
+// than eyeballed once.
+// -----------------------------------------------------------------------------
+
+test.describe('layout landmarks', () => {
+  test('the main navigation is an exposed landmark', async ({ page }) => {
+    await page.goto('/')
+
+    // `getByRole`, never `getByLabel`. F20: `getByLabel()` matches the
+    // `aria-label` *attribute* rather than the computed accessible name, so it
+    // resolves against markup no screen reader can read — which is exactly how
+    // two specs asserted `StarRating`'s label and both passed the whole time.
+    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
+  })
+})
