@@ -93,6 +93,20 @@ either, and a bullet that says so is the only thing standing between the two.
   `fullyParallel: true` orders nothing *between* files, so exactly one spec file may own
   the `is_admin` flag — which is why `keyboard.spec.ts` asserts its two-step confirm on a
   host control rather than an admin one.
+- **RLS refuses a write by filtering, not by raising — so a refused UPDATE is
+  indistinguishable from a successful one** (F13). The cancellation window lives entirely in
+  `bookings_update_cancel_own_or_admin`'s USING clause, so `cancelBooking` re-checking it would
+  buy nothing; what only the action can do is notice that **zero rows changed**, because
+  Postgres returns `{ error: null }` either way. Gate-proved: with the `!data` branch removed,
+  cancelling an in-progress stay showed the guest no refusal at all while the row stayed
+  `confirmed`. **After any RLS-scoped UPDATE or DELETE, the row count *is* the authorization
+  result — `.select()` it and treat empty as refusal.** Sibling: `/trips` needed an explicit
+  `guest_id` filter because the `bookings` SELECT policy also admits hosts and admins — the
+  inverse of `getFavorites`, where leaning on RLS is correct — so "does the policy answer
+  exactly my question?" is asked per table, not per project.
+  *(Evicted from `progress-tracker.md` → Key Decisions in F23 at the 10-bullet cap. Read it
+  together with the F16 bullet below, which is its one refinement: the rule assumes emptiness
+  can only mean refusal, and `markThreadRead` is the case where it does not.)*
 - **`message_threads_insert_participant` is looser than the app** (F16). Its
   `guest_id = uid OR host_id = uid` would accept a thread naming an arbitrary stranger as
   the guest; `getOrCreateThread` derives both participants and never builds one. Tightening
@@ -4526,3 +4540,159 @@ with the attribution attached rather than silently re-based.
   `<table>` screenshot grid and the `<details>` blocks are all GitHub-flavoured features
   verified only by construction — fences balanced, syntax reviewed. No rendered preview was
   seen, because the repository is private and nothing in this session can render one.
+
+---
+
+### Phase 6 · F23 — the site footer, and the two specs it broke  *(2026-07-30)*
+
+`DESIGN.md` has specified `footer-light` since F01 and `code-standards.md` lists it in the
+**USE** column of component specs. Nothing had ever built it: before this change the document
+was `<body>` → skip link → `TopNav` → `<main>` → `</body>`, so every one of the 15 routes ended
+abruptly. `src/components/navigation/Footer.tsx` (a Server Component, no client bundle cost),
+wired into `layout.tsx`, plus 15 tests across two new spec files.
+
+#### Decisions
+
+- **The columns are not Support / Hosting / Airbnb.** NextBnb has no help centre, careers or
+  press page, and `href="#"` columns are the most common portfolio tell there is. All six links
+  point at routes that exist. Protected ones are included deliberately — signed out the proxy
+  bounces them to Google and returns the visitor, the same contract `TopNav`'s "Become a host"
+  already relies on, so **a link that requires a session is not a dead link.**
+- **No `legal-band` language or currency picker.** i18n and multi-currency are out of scope and
+  the Airbnb legal copy is on the IGNORE list, so the band keeps only the copyright, the
+  simulated-bookings notice, and attribution.
+- **Column headings are `<p id>` + `<ul aria-labelledby>`, not `<h2>`.** Three real headings
+  would be injected into the outline of all 15 routes, *below* each page's own h1/h2s. `<ul>`
+  accepts an accessible name, so the groups are still announced and still navigable — the
+  distinction `code-standards.md` → Accessibility already draws between a bare `div` (which
+  cannot be named) and a `ul` (which can).
+- **`flex-1` on `<main>` and `flex flex-col` on `<body>`.** Without it, a short page (an empty
+  `/messages`) leaves the footer floating mid-viewport above dead white space. The sticky header
+  still sticks: its containing block is `<body>`, which is not a scroll container.
+- **`pb-24` at mobile, `tablet:pb-12`.** `BookingWidget`'s reserve bar is
+  `fixed inset-x-0 bottom-0 z-40 tablet:hidden`, so on a phone the footer's last rows sit under
+  it on `/listings/[id]`. The listing page's own `pb-28` clears its *content* but cannot clear
+  chrome rendered after it.
+
+- **Contact links are the developer's, supplied deliberately**: the name links to the portfolio
+  site, plus LinkedIn, a `mailto:`, and the repository. The email was flagged before it went in —
+  publishing a personal address in a repo that may go public invites scraping — and confirmed.
+  The label is **"Email me", not "Email"**, because `AdminUsersTable` renders a literal `Email`
+  column header: the bare label would have put two identically-named things on `/admin`. That is
+  the *same* collision class that broke `second-user.spec.ts` an hour earlier, caught this time
+  by grepping first, which is now the rule in `code-standards.md`.
+
+#### Gate proofs — nine, all executed
+
+Each break was applied, the suite run, the failure read, and the break reverted.
+
+| Break | Expected to fail | Observed |
+| ----- | ---------------- | -------- |
+| `flex-1` removed from `<main>` | sticky-foot test | footer bottom short of the floor |
+| `aria-label="Footer"` → `"Main"` | distinct-landmark test | `locator resolved to 2 elements` |
+| `aria-labelledby` removed | group-name test | `resolved to 0 elements` |
+| `/favorites` → `/help` | no-dead-link test | `unexpected value "/help"` |
+| `tablet:grid-cols-3` removed | 5 non-stacked breakpoints | "groups should share a row"; **both mobile ones still passed** |
+| `min-h-11` removed | 2 mobile breakpoints | each of the 6 links named, under 44px; **all 5 larger ones still passed** |
+| footer `pb-24` → `pb-12` | occlusion check | 25.2px overlap, matching the arithmetic (812 − 48 vs a bar top of 739) |
+| `min-h-11` off the LinkedIn link | 2 mobile breakpoints | "LinkedIn tap target is under 44px" — proves the exemption narrowing is real, i.e. that the attribution row is genuinely held to the floor and only the in-prose name is exempt |
+| `target="_blank"` added to the `mailto:` | attribution test | `not.toHaveAttribute` failed — F11's rule applied to a negative assertion, which would otherwise pass whether the attribute were absent *or* the element mislocated |
+
+The two partial-failure rows are the informative ones: they show the responsive assertions are
+**band-scoped rather than global**, which a break that failed all seven breakpoints would not
+have distinguished.
+
+#### Two regressions, both found only by the full suite
+
+Neither was a defect in the footer's own terms, and neither was reachable from its own specs.
+
+1. **`second-user.spec.ts:56` — strict-mode violation.** The footer's `Browse stays` link
+   duplicated the **empty-state CTA** on `/messages`, `/favorites` and `/trips`, so an unscoped
+   `getByRole('link', { name: 'Browse stays' })` suddenly matched two elements. **The label
+   changed, not the spec** — two links with one accessible name is a real defect for anyone
+   listening to a link list, and the spec had every right to be unscoped for nineteen features.
+   `getByRole` matches names by **substring**, so "Browse all stays" would *not* have escaped
+   it; the label is now "All stays". Rule filed in `code-standards.md` → Accessibility, per
+   F20's lesson about rules recorded only at their crime scene.
+2. **`listing-detail-responsive.spec.ts:88` — a premise that expired.** It asserted the reviews
+   section was in view after pressing `End`, on its own stated premise that reviews "is the last
+   thing on the page". True when written; false the instant anything renders after `<main>`.
+   **Generalises: adding chrome to a layout invalidates every spec whose premise is "X is
+   last/first/only" — and those premises live in prose comments that no type checker reads.**
+
+#### The replacement assertion was stronger than the original, which could never have worked
+
+Rewriting that test exposed that **`toBeInViewport()` cannot see occlusion**: an element sitting
+underneath a `fixed` bar is still in the viewport. So "the bottom bar never hides the end of the
+page" was measuring reachability-by-scroll, not hiding, for as long as it has existed. The
+replacement compares boxes, and its gate proof (above) fails by exactly the predicted amount.
+
+**And the fix had its own trap.** The first version read `boundingBox()` once and reported a
+56px overlap — a failure indistinguishable from a real one, and one that a tolerance bump would
+have "fixed". `boundingBox()` does not retry, and `toBeInViewport()` is satisfied by a
+*partially* visible element, so the read landed mid-scroll while the assertion above it had
+already passed. `expect.poll()` is the difference between measuring the layout and measuring
+the scroll animation. Both facts are now in `code-standards.md`.
+
+#### The trap documented above, reproduced in my own new spec within the hour
+
+`footer-responsive.spec.ts` read the three heading positions with three separate
+`boundingBox()` calls. It passed in isolation, at every breakpoint, across four separate runs —
+then failed at `desktop (1280px)` in a full-suite run with "groups should share a row". **Not a
+layout defect.** Three round trips are three different moments, and an Unsplash image finishing
+above the footer between the first read and the third shifts the footer underneath them, so the
+three `y` values describe three different layouts. Under contention images load slowly enough to
+interleave with the reads; in isolation they do not. All three are now taken in a single
+`page.evaluate()`, which makes the comparison reflow- and scroll-invariant because only the
+*relative* positions matter. **Generalises: an assertion that compares two or more measured
+positions must take them in one frame.** This is the same non-retry property that produced the
+fake 56px overlap earlier in this entry — and here it produced a fake **pass** for hours before
+it produced a fail, which is the more dangerous direction.
+
+#### A saturated dev server is indistinguishable from a broken app
+
+The run that surfaced the above also produced **fifteen-plus
+`page.goto: Test timeout of 30000ms exceeded`** failures scattered across `keyboard`,
+`messages`, `host-manage`, `host-listings` and `host-reservations`. None were real. Cause:
+several full-suite runs back to back, a dev server left bound to port 3000 by an earlier one,
+and a machine at load average ~6. Killing the stray listener and re-running gave **417 / 3 / 0,
+no failures**. Two things worth keeping. First, **a wall of `page.goto` timeouts across
+unrelated specs is an environment signal, not a defect signal.** Second, **the two genuine
+failures in that run were the only ones that failed fast** — 0.9s and 2.1s, while every spurious
+one burned its full 30s. Read the fast failures first.
+
+Also seen in that run and **not** reproduced on the clean one: `search.spec.ts:152`
+("matches an independent overlap calculation"), the exact-count availability comparison that
+`fixtures.ts` warns is inflated by any published fixture listing. Load-sensitive, and a sibling
+of Open work item 4's race. Recorded rather than tidied away — one green re-run is not evidence
+it cannot recur.
+
+#### Verified
+
+- `npx tsc --noEmit` — clean · `npm run lint` — clean.
+- `npm run test` (unit) — **288 passed / 288**. Baseline unmoved; the footer adds no unit-testable logic.
+- `npm run test:e2e` — **420 total: 417 passed / 3 skipped / 0 failed**, across 30 spec files.
+  405 + 15 exactly, so both new files registered in full. **Open work item 4's
+  `home.spec.ts:31` race did not fire on either full run** — consistent with an intermittent,
+  not evidence it is fixed.
+- **Screenshots re-captured** with the harness restored from the session scratchpad and deleted
+  again. **Only 4 of the 8 changed** — `02-search`, `06-host-listings`, `07-messages`,
+  `08-trips`, all short pages where the footer now occupies what was dead white space. The other
+  four are byte-identical because the footer is below the fold at 1280×860 on a long page. That
+  is the expected result, recorded so it does not read as a capture that half-failed.
+- **Footer eyeballed, not merely measured**, at desktop (`/trips`, 1280) and at phone width on
+  `/listings/[id]` (390) — the attribution line clears the reserve bar, matching the gate proof.
+- Post-run table counts unchanged from F22's corrected baseline: 26 / 130 / 18 / 7 / 1 / 1 / 0 / 5.
+- Advisors and migrations **not** re-run: no SQL changed.
+
+#### What this does not prove
+
+- **That any of it announces.** The footer adds a `contentinfo` landmark, a second navigation
+  landmark and three named lists — all asserted as DOM semantics, none heard. Open work item 1
+  (the VoiceOver pass) now has more surface than it did this morning, not less.
+- **Anything outside Chromium.** One project, one browser, as with F21.
+- **That the footer links' `focus-visible` treatment is exercised.** Same gap F21 recorded: the
+  specs reach elements via `locator.focus()` and geometry, neither of which guarantees
+  `:focus-visible`.
+- **That production renders it.** Every observation is against `npm run dev`. The deployment has
+  not been redeployed or re-verified since F18.

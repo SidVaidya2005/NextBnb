@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
+import { Footer } from '@/components/navigation/Footer'
 import { TopNav } from '@/components/navigation/TopNav'
 import './globals.css'
 
@@ -22,7 +23,12 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className="min-h-dvh bg-canvas text-ink">
+      {/* `flex flex-col` + `flex-1` on <main> is what keeps the footer at the
+          bottom of a short page (an empty /messages or /favorites) instead of
+          floating mid-viewport above dead white space. The sticky header still
+          sticks: its containing block is <body>, which is not a scroll
+          container. */}
+      <body className="flex min-h-dvh flex-col bg-canvas text-ink">
         {/* Skip link — first focusable element in the document, so a keyboard
             user can bypass the nav on all 16 routes. Inline rather than a
             component on purpose: the `href` here and the `id` on <main> below
@@ -53,9 +59,10 @@ export default function RootLayout({
             (`focus-visible:outline-2 focus-visible:outline-offset-2
             focus-visible:outline-ink`), so <main> gaining a second, unstyled
             ring on arrival is redundant rather than useful. */}
-        <main id="main" tabIndex={-1} className="focus:outline-none">
+        <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
           {children}
         </main>
+        <Footer />
       </body>
     </html>
   )
