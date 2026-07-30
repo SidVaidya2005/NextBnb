@@ -367,4 +367,55 @@ test.describe('layout landmarks', () => {
     // two specs asserted `StarRating`'s label and both passed the whole time.
     await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   })
+
+  test('the skip link is the first Tab stop', async ({ page }) => {
+    await page.goto('/')
+
+    await page.keyboard.press('Tab')
+
+    await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused()
+  })
+
+  test('activating the skip link moves focus past the navigation', async ({ page }) => {
+    await page.goto('/')
+
+    await page.keyboard.press('Tab')
+    const skip = page.getByRole('link', { name: 'Skip to content' })
+    await expect(skip).toBeFocused()
+
+    // Enter, not `.click()` — this is the keyboard journey the feature exists
+    // for, and a click would move focus by a different route than the one a
+    // real user takes.
+    await page.keyboard.press('Enter')
+
+    // **This is the assertion that gates `tabIndex={-1}`.** Without it, <main>
+    // never becomes document.activeElement — measured as BODY. A screen reader
+    // announces arrival only at a genuinely focused element, so this is the line
+    // that separates a working skip link from a bare scroll.
+    await expect(page.locator('#main')).toBeFocused()
+
+    // **Kept deliberately, and it does NOT gate `tabIndex={-1}`.** Chromium
+    // implements the HTML Standard's "sequential focus navigation starting
+    // point" fixup for fragment links: activating href="#main" moves the Tab
+    // origin to #main whether or not that element is focusable, so this passes
+    // with tabIndex present or absent. Measured, not assumed — with tabIndex
+    // deleted, activeElement after Enter was BODY and the next Tab still landed
+    // on a <summary> inside <main>.
+    //
+    // It stays because it documents the outcome a keyboard user actually gets,
+    // and because WebKit has historically not implemented the same fixup — so it
+    // would gate there if this suite ever grows a second browser project.
+    await page.keyboard.press('Tab')
+
+    const landedInsideMain = await page.evaluate(() => {
+      const main = document.getElementById('main')
+      const active = document.activeElement
+      // `Node.contains` is true for the node itself, so `active !== main` is
+      // what separates "moved into the content" from "still parked on the
+      // target element".
+      return !!(main && active && active !== main && main.contains(active))
+    })
+
+    expect(landedInsideMain, 'Tab after the skip link should land inside <main>').toBe(true)
+  })
 })
