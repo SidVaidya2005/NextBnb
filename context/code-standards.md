@@ -123,6 +123,24 @@ it contains Airbnb-specific structure that NextBnb does **not** build. Take the
   deleted, `activeElement` after activation was `BODY` while the next Tab still landed on a
   `<summary>` inside the target. Assert the focus, keep the next-Tab check as documentation
   of the user-visible outcome, and know which of the two is load-bearing.
+- **Before adding site chrome, grep for the accessible names it introduces.** Two links with
+  the same accessible name on one page are a defect in both directions: a screen-reader user
+  listing the page's links hears the same name twice with nothing to tell them apart, and any
+  unscoped `getByRole('link', { name })` becomes a strict-mode violation rather than a wrong
+  answer. F23's footer shipped a "Browse stays" link, which is *already* the empty-state CTA on
+  `/messages`, `/favorites` and `/trips` — so it collided on exactly the three routes where
+  that state renders, and `second-user.spec.ts` failed on a locator it had every right to
+  leave unscoped. The label changed; the spec did not. Note that `getByRole` name matching is
+  **substring by default**, so "Browse all stays" would not have avoided it — only a genuinely
+  different word does.
+- **A second navigation landmark needs a distinct `aria-label`.** F21's is `Main`; F23's footer
+  is `Footer`. Two navigations announced identically are worse than one unlabelled, because a
+  landmark list offers the user a choice it cannot explain.
+- **`toBeInViewport()` cannot see occlusion, and `boundingBox()` does not retry.** An element
+  underneath a `fixed` bar is still "in viewport", so any assertion about fixed chrome covering
+  content has to compare boxes. Comparing them with a single `boundingBox()` read lands
+  mid-scroll — measured in F23 as a 56px overlap that settled to none a frame later — so wrap
+  the comparison in `expect.poll()`.
 
 ---
 

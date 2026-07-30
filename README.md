@@ -5,7 +5,7 @@
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20RLS-3ecf8e?style=flat-square&logo=supabase&logoColor=white)
 ![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-06b6d4?style=flat-square&logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-288%20unit%20%2B%20405%20e2e-success?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-288%20unit%20%2B%20420%20e2e-success?style=flat-square)
 ![License MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
 A full-stack short-term rental marketplace. Guests search stays by destination, dates,
@@ -234,10 +234,10 @@ Each of these is enforced by a database constraint or policy, not only by applic
 | Suite | Count | Covers |
 | ----- | ----- | ------ |
 | Vitest (unit) | **288** across 6 files | Price breakdown and fee rounding, night counting, availability and overlap helpers, and every Zod schema |
-| Playwright (E2E) | **405** across 28 spec files | Auth gates, search and filters, booking and cancellation, hosting, availability, reviews, messaging, admin, keyboard access, and responsive layout at every breakpoint |
+| Playwright (E2E) | **420** across 30 spec files | Auth gates, search and filters, booking and cancellation, hosting, availability, reviews, messaging, admin, keyboard access, landmark semantics, and responsive layout at every breakpoint |
 | SQL verification | 2 scripts | Schema, RLS policies and grants; seeded data shape, asserted before the E2E suite runs |
 
-Most recent full run: 402 passed, 3 skipped, 0 failed.
+Most recent full run: 417 passed, 3 skipped, 0 failed.
 
 Four practices matter more than the totals:
 
