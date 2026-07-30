@@ -44,11 +44,11 @@ export default function RootLayout({
           Skip to content
         </a>
         <TopNav />
-        {/* `focus:outline-none` — measured, not assumed. Browsers paint a
-            default focus ring on any element focused via script (a `tabindex=
-            "-1"` target included), and Chrome's `getComputedStyle` confirmed one
-            here (`outlineStyle: auto`, `outlineWidth: 1px`) after landing via
-            the skip link. The skip link itself already carries the project's
+        {/* `focus:outline-none` — measured, not assumed. Chrome's `getComputedStyle`
+            painted a focus ring on <main> (`outlineStyle: "auto"`, `outlineWidth:
+            "1px"`) when it was reached by activating the skip link from the
+            keyboard — focus followed an Enter keypress, so the last input was a
+            keyboard one. The skip link itself already carries the project's
             one focus treatment
             (`focus-visible:outline-2 focus-visible:outline-offset-2
             focus-visible:outline-ink`), so <main> gaining a second, unstyled

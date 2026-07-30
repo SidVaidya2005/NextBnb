@@ -110,9 +110,11 @@ it contains Airbnb-specific structure that NextBnb does **not** build. Take the
 - **A skip link's target needs `tabindex="-1"`, or focus never lands on it** — the viewport
   scrolls and the page *looks* like it jumped while nothing is actually focused. Measured in
   F21: with `tabindex` deleted, `document.activeElement` after activating `href="#main"` was
-  `BODY`, and a screen reader announces arrival only at a genuinely focused element. The
-  target is programmatically focusable **only**; it is never a Tab stop. Reference:
-  `<main id="main" tabIndex={-1}>` in `src/app/layout.tsx`.
+  `BODY`; with `tabindex="-1"` present, it was the target. The rule matters because a screen
+  reader announces arrival only at a genuinely focused element — that announcement itself is
+  unverified (no screen-reader pass has been run; Open work item 1), so this is the standing
+  reason for the rule, not an F21 finding. The target is programmatically focusable **only**;
+  it is never a Tab stop. Reference: `<main id="main" tabIndex={-1}>` in `src/app/layout.tsx`.
 - **For a skip link, assert the target actually received DOM focus —
   `expect(target).toBeFocused()`. Do *not* rely on "the next Tab lands inside the target":
   that passes with or without `tabindex="-1"`,** because Chromium implements the HTML

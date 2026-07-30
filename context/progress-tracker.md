@@ -21,8 +21,9 @@
 **Last completed:** F21 — layout landmarks: `<nav aria-label="Main">` around `TopNav`'s
 account cluster, and a skip link whose target is `<main id="main" tabIndex={-1}>`, revealed
 on focus above the sticky header and verified at all 7 breakpoints *(2026-07-30, branch
-`feat/layout-landmarks`, commits `b72d0af` / `8809c8c` / `88e053d`; 10 new Playwright tests,
-4 gate proofs, one of which disproved the plan's own reasoning — see Key Decisions)*. Before
+`feat/layout-landmarks`, commits `b72d0af` / `8809c8c` / `88e053d`, plus a fourth carrying
+this tracker update and the journal entry; 10 new Playwright tests, 4 gate proofs, one of
+which disproved the plan's own reasoning — see Key Decisions)*. Before
 it, F20 — static accessibility audit; two ARIA-on-generic defects fixed (`StarRating` was
 announcing nothing on every review) *(2026-07-29, PR #2, merged and **verified live**: 0
 div/span elements on `/listings/[id]` carry a name without a role)*.
@@ -102,8 +103,11 @@ still outstanding.
 ## Live baselines
 
 Current as of 2026-07-30 for the five gates F21 re-ran (tsc, lint, unit, e2e, build). The
-database rows are 2026-07-29 and unmoved: **F21 changed no SQL**, so advisors and the
-migration count were deliberately *not* re-measured — see the note under the table.
+database rows are 2026-07-29 and not re-measured for F21: **F21 changed no SQL**, so advisors
+and the migration count are carried forward by that reasoning — see the note under the table.
+The seed count, whole-table counts, and fixture-residue rows below are also from 2026-07-29;
+they were not re-checked either, and F21's full 405-test run (including one failure) is
+exactly the kind of run that can leave fixture residue behind.
 **Treat any deviation as a finding, not a new normal.**
 
 | Gate | Value |
@@ -122,7 +126,7 @@ migration count were deliberately *not* re-measured — see the note under the t
 | Migrations vs remote | 9/9 matching |
 
 **Security advisors and the migration count were deliberately not re-run for F21** (2026-07-30).
-That change is three commits of markup and tests — no schema, no route, no server action, no
+The change touched no SQL across all four commits — no schema, no route, no server action, no
 dependency — and both numbers are functions of the database schema and its grants, which it
 structurally cannot move. They are carried forward from the 2026-07-29 baseline **by reasoning,
 not by measurement**; treat them as unchecked-since-2026-07-29 rather than as re-verified.

@@ -234,8 +234,8 @@ either, and a bullet that says so is the only thing standing between the two.
 ### Accessibility
 
 - **The skip link and the main-navigation landmark now ship** (F21, 2026-07-30) — read this
-  before assuming either is still missing, as F18's and F20's bullets below imply. `<a
-  href="#main">Skip to content</a>` is the first child of `<body>` in `src/app/layout.tsx`,
+  before assuming either is still missing. `<a href="#main">Skip to content</a>` is the first
+  child of `<body>` in `src/app/layout.tsx`,
   its target is `<main id="main" tabIndex={-1} className="focus:outline-none">`, and
   `TopNav`'s account cluster is a `<nav aria-label="Main">` (the logo stays outside it, in
   the existing `<header>` banner). Three constraints come with them. **First, `tabIndex={-1}`
@@ -4188,10 +4188,11 @@ labelling is clean.
 ### Phase 6 · F21 — layout landmarks: a skip link, a `<nav>`, and a gate proof that refuted the plan  *(2026-07-30)*
 
 **Scope: the two static findings F20 recorded and deliberately did not fix.** Both live in
-markup shared by all 16 routes, which is why they were their own change. Three commits on
+markup shared by all 16 routes, which is why they were their own change. Four commits on
 `feat/layout-landmarks`: `b72d0af` (the landmark), `8809c8c` (the skip link and its focus
-target), `88e053d` (the visible reveal, verified at 7 breakpoints). No SQL, no route, no
-dependency, no server action.
+target), `88e053d` (the visible reveal, verified at 7 breakpoints), and a fourth — this one —
+carrying the two `code-standards.md` rules, the tracker rewrite, and this entry. No SQL, no
+route, no dependency, no server action.
 
 #### Decisions
 
@@ -4319,10 +4320,11 @@ identical conditions. Two distinct pieces of evidence — do not cite the assert
   CSS guarantees it, and if an upgrade reorders those utilities the link will reveal itself in
   the document flow instead of pinned. The fix then is the documented fallback — an off-screen
   slide (`-top-20 focus:top-4`) that never changes `position`. It is not in the code today.
-  → **Did not happen.** The plan predicted the fallback would be needed. All 7 breakpoint
-  tests passed on the first run after the primary technique went in, and the emission order
-  above is why — measured rather than assumed, per the plan's own instruction not to stop at
-  "it passed".
+  The plan branched on a measurement here rather than predicting an outcome: it flagged that
+  the `position` collision *may* occur and said the fallback "must be checked, not assumed."
+  All 7 breakpoint tests passed on the first run after the primary technique went in, and the
+  emission order above is why — measured rather than assumed, per the plan's own instruction
+  not to stop at "it passed".
 - **A pre-existing latent race in the E2E suite surfaced, and it falsifies a baseline line.**
   `e2e/home.spec.ts:31` failed in the full run and passed 8/8 in isolation. Mechanism,
   confirmed from source: the test asserts the **first** card's image `src` matches
@@ -4341,6 +4343,13 @@ identical conditions. Two distinct pieces of evidence — do not cite the assert
   files" call `addListingPhotoRow`. Measured with a call-site grep on 2026-07-30: **17 spec
   files call it, 13 of which also call `publishFixtureListing`** — the 13 are the ones that
   can reach the grid's first slot. The number was never measured before it was written down.
+- **`focus:z-[60]` is now the app's highest z-index, not merely above the header.** Two other
+  surfaces are `fixed inset-0 z-50` full-screen overlays — `SearchBar`'s mobile search dialog
+  (`src/components/search/SearchBar.tsx:211`) and `BookingWidget`'s mobile reserve sheet
+  (`src/components/listings/BookingWidget.tsx:351`) — so the skip link now outranks both of
+  them too, not only the sticky header. Harmless today only because both overlays are
+  focus-trapped, which `e2e/keyboard.spec.ts` gate-proves — a dependency, not a coincidence,
+  and worth knowing before either trap is loosened.
 
 #### Verified
 
@@ -4365,6 +4374,12 @@ identical conditions. Two distinct pieces of evidence — do not cite the assert
   is DOM state and geometry. `tabIndex={-1}` makes `<main>` a genuine focus target, which is
   the *precondition* for an announcement, not the announcement. That is the remaining half of
   Open work item 1 — the VoiceOver pass — and F21 narrows it without closing it.
+- **That the reveal's `:focus-visible` styling is exercised by anything.** The 7 breakpoint
+  tests trigger the reveal via `locator.focus()`, which sets `:focus` but not necessarily
+  `:focus-visible` — Playwright's `.focus()` calls the DOM API directly rather than simulating
+  a keyboard interaction. So `focus-visible:outline-2 focus-visible:outline-offset-2
+  focus-visible:outline-ink`, the skip link's only DESIGN.md focus treatment, is asserted by
+  nothing in this suite.
 - **Anything about Safari/WebKit**, in either the fragment-focus fixup or the outline
   behaviour. One `chromium` project, one browser's answers.
 - **That the reveal survives a Tailwind upgrade.** See the emission-order fragility above.

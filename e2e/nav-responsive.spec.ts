@@ -207,8 +207,14 @@ const SKIP_LINK_SELECTOR = 'a[href="#main"]'
  */
 async function expectSkipLinkHiddenAtRest(page: Page, label: string) {
   const box = await page.locator(SKIP_LINK_SELECTOR).boundingBox()
+  // Guard before measuring: `box?.height ?? 0` reads a *missing* element as
+  // height 0, which would satisfy `toBeLessThanOrEqual(1)` below — this helper
+  // would then pass for a skip link deleted outright, not one merely hidden.
+  expect(box, `${label}: the skip link should exist in the DOM`).not.toBeNull()
+  if (!box) return
+
   expect
-    .soft(box?.height ?? 0, `${label}: the skip link is visible before it is focused`)
+    .soft(box.height, `${label}: the skip link is visible before it is focused`)
     .toBeLessThanOrEqual(1)
 }
 
