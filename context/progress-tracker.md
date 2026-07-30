@@ -24,10 +24,11 @@ of six real routes, attribution, source link and a simulated-bookings notice, pl
 `flex-1` on `<main>` so it sits at the floor of a short page, plus portfolio / LinkedIn / email
 attribution. 15 new Playwright tests, **9 gate proofs**, two regressions it caused in the
 existing suite and one latent flake in its own new spec — all three found by full-suite runs and
-all three fixed *(2026-07-30, branch `docs/readme-rewrite`, PR #4)*. Before it, F22 — `README.md`
+all three fixed *(2026-07-30, branch `feat/site-footer`, PR #5 — **open**)*. Before it, F22 — `README.md`
 rewritten from a 98-line developer note into a 370-line layered document, plus
 `docs/screenshots/`: 8 screenshots and a 13-second booking-flow GIF, captured by a temporary
-Playwright harness that deleted itself and its rows afterwards *(2026-07-30, same PR)*.
+Playwright harness that deleted itself and its rows afterwards *(2026-07-30, branch
+`docs/readme-rewrite`, **merged** as PR #4)*.
 **Next:** no feature work queued. Four items open in Open work; none blocks the build.
 **One live deviation from the baselines below:** the whole-table-counts row, which was stale
 rather than moved and is now corrected with its cause attached. Item 4's `e2e/home.spec.ts`
