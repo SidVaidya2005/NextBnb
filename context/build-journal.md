@@ -286,6 +286,21 @@ either, and a bullet that says so is the only thing standing between the two.
   that did not work. It moves here because it has become a standing habit rather than a
   pending decision, and `code-standards.md` → Testing now states it.)*
 
+- **Before writing a gate proof, ask which layer would catch the defect if this layer were
+  missing** (F12). The spec proving `createBooking` refuses taken dates was written against a
+  *booking* overlap, and it **passed with the availability check deleted** — because
+  `bookings_no_overlap` refused the insert and `23P01` maps to the same sentence the guard
+  produces. The gate had to move to the case no constraint can reach: a booking over a host's
+  `blocked_dates`, where nothing in Postgres expresses a rule spanning two tables. The same
+  reasoning re-priced the fixture listing: at $123.00 the service fee is 51660 cents whether
+  you round or truncate, so the cents assertion passed against `Math.floor`; at $123.33 the two
+  answers differ and the spec gates the rounding rule end to end.
+  *(Evicted from `progress-tracker.md` → Key Decisions in F22 at the 10-bullet cap. It is the
+  companion to the F08 bullet above — F08 says prove the test fails, this one says make sure it
+  fails **for your reason** — and it still binds: every constraint-backed guard in the project
+  (the exclusion constraint, the `reviews` unique index, the column grants) can absorb a
+  deleted application check and leave the spec green.)*
+
 - **Testing is Vitest (unit) + Playwright (E2E)**; a feature is done only when its tests
   pass. E2E runs against the seeded DB with a seed-verification step.
   `code-standards.md` → Testing specifies which logic is unit-tested and which flows are E2E.
@@ -4396,3 +4411,118 @@ identical conditions. Two distinct pieces of evidence — do not cite the assert
 - **Anything about Safari/WebKit**, in either the fragment-focus fixup or the outline
   behaviour. One `chromium` project, one browser's answers.
 - **That the reveal survives a Tailwind upgrade.** See the emission-order fragility above.
+
+---
+
+### Phase 6 · F22 — the README rewrite, and the capture harness it needed  *(2026-07-30)*
+
+Documentation rather than product code: `README.md` rewritten from a 98-line developer note
+into a 370-line layered document — portfolio framing above the fold, setup and architecture
+below it — plus a new `docs/screenshots/` directory holding 8 screenshots and a 13-second
+animated demo of the booking flow. **No `src/`, SQL, or dependency changed.**
+
+#### Decisions, all the developer's, recorded because two of them cut against the house style
+
+- **Voice is conventional professional-neutral**, deliberately *not* the forensic register of
+  `CLAUDE.md` and `context/`. Chosen after being offered the alternative. A later reader
+  noticing the tonal seam between the README and these docs should know it is intentional.
+- **The AI tooling is not named in the README**; the workflow is documented on its own merits
+  (context docs, recorded baselines, corrections-in-place, gate proofs). `CLAUDE.md` sits in
+  the repo root naming it plainly, so **"unnamed" means "not discussed", not "concealed"** —
+  and nothing in the README claims solo hand-authorship. The risk was raised before the
+  choice was made and the choice was reaffirmed.
+- **Known limitations are omitted from the README** and reduced to one pointer at
+  `progress-tracker.md`. Open work item 1 (no screen-reader pass) and the Cloudinary-transform
+  gap are therefore visible only to a reader who follows the link.
+- **Badges are static shields, including `tests 288 unit + 405 e2e`.** There is no public CI,
+  so that badge asserts a number rather than measuring one and **will go stale silently** the
+  first time either suite changes. A deliberate trade for a conventional-looking header; the
+  honest alternative was no test badge at all.
+
+#### Gotchas — the assets cost far more than the prose
+
+- **Playwright's bundled `ffmpeg` cannot produce a GIF, and it is not obvious from its
+  presence.** `~/Library/Caches/ms-playwright/ffmpeg-1011/ffmpeg-mac` exists and looks like a
+  general-purpose ffmpeg; it is a stripped build for webm capture. `-formats` shows `image2`
+  as **E only** (write, not read), there is **no PNG decoder**, and **no GIF encoder** at all.
+  The first attempt failed on `f%02d.png` with "No such file or directory", which reads as a
+  path bug and is actually a missing demuxer. Nothing else was installed: `sharp@0.34.5` is
+  already present transitively and its libvips reports `format.gif.output.buffer === true`.
+- **libvips merges byte-identical consecutive frames into a single page.** Twelve captured
+  frames became `pages: 7`, because holding a beat on screen by duplicating its frame does
+  exactly nothing. Holds must be expressed as per-frame delays, which means deduplicating
+  first so the delay array lines up with the pages that survive.
+- **A scalar `delay` in `sharp().gif()` applies to the FIRST page only.** The rest get 0 and
+  render as fast as the decoder can go. The first GIF written reported
+  `delay: [1150,0,0,0,0,0,0]` — a 1.15s opening frame followed by six frames flashing past.
+  **Both of these were caught by reading the output's metadata back, not by trusting the
+  write**; the file was the right size and the right dimensions and would have shipped.
+  The script now asserts `pages === distinct.length` and that no delay is 0.
+- **`addListingPhotoRow` cannot express `public_id = null`** — it is
+  `options.publicId ?? <fabricated value>`, so passing `null` yields the default. A non-null
+  `public_id` routes `ListingImage` to `CldImage`, producing a Cloudinary URL for an asset that
+  was never uploaded: **a broken image in every screenshot**. Photo rows had to be inserted
+  directly. **This is independent evidence for Open work item 4's third candidate fix** — with
+  `public_id = null` the stored Unsplash URL renders through `next/image` exactly as all 24
+  seeded listings do. It does not close the item: nothing here reproduces the race or
+  gate-proves a fix.
+- **A fixture listing looks like test scaffolding in a screenshot.** `createDraftListing`
+  hardcodes `property_type: 'other'`, `country: 'Testland'` and `amenities: []`, which renders
+  as "Other in Big Sur, Testland" over "No amenities listed for this stay". The first capture
+  pass produced technically-correct, unusable images. The second moved **every** visual onto
+  seeded data — real titles, cities, amenities, and seeded host names with avatars — leaving
+  fixture rows only where the surface genuinely requires them, which is the host dashboard
+  alone. Corollary worth keeping: **the same property now appears in the messages, booking and
+  trips shots**, so the screenshots read as one session rather than three unrelated ones.
+- **`waitForLoadState('networkidle')` never resolves on `/messages`**, because the Realtime
+  subscription holds a websocket open for as long as the page lives. Every screenshot helper
+  has to treat idle as best-effort.
+- **The authenticated screens are unreachable by hand.** The app offers Google sign-in only,
+  and consent cannot be automated — so the host dashboard, messages and trips shots exist only
+  because `auth.setup.ts`'s `mintSessionCookies()` storageState can be loaded into an ordinary
+  browser context. Anyone re-capturing these without Playwright will get three blank spots.
+
+#### Verified
+
+- `npm run test` (unit) — **288 passed / 288**, 6 files, 2.35s. Matches baseline exactly.
+- **Every image path in the README resolves** — 9 references checked against the filesystem,
+  0 missing.
+- **GIF integrity asserted rather than assumed** — `pages: 7`, `delay:
+  [2000,1600,1400,1000,2200,2200,2600]`, 900×605, 0.25 MB, `loop: 0`.
+- **The capture harness cleaned up after itself.** `e2e/_capture.spec.ts` was deleted after the
+  run (a copy is in the session scratchpad, not the repo). Post-run counts: **26 listings /
+  130 photos / 7 reviews / 5 blocks / 0 favorites / 24 published — every seed-derived number
+  identical to the baseline**, and `listingsOwnedByFixtureUser()` empty, asserted inside the
+  harness's own `finally`.
+- `tsc`, `lint`, `build`, `test:e2e`, advisors and migrations were **not** re-run. No `src/`,
+  config, SQL or dependency changed, so they cannot have moved. Carried forward by reasoning,
+  not measurement.
+
+#### Finding — the whole-table-counts baseline was already stale
+
+`progress-tracker.md` recorded *"26 listings / 17 bookings / 7 reviews / 0 threads —
+**identical to the seed counts** since the 2026-07-29 re-seed"*. Measured today: **18
+bookings, 1 thread, 1 message.** Investigated rather than overwritten, and the three extra
+rows are **not** fixture residue and **not** from this change — all three belong to
+`127c885a-…` ("Siddarth Vaidya", the developer's own Google account) and are stamped
+`2026-07-29T18:45:30` to `18:46:00` UTC, the message body being `hello`. So the claim was
+false within hours of being written: hand-testing against the live database after the re-seed
+is what moved it. **Generalises, and it is this file's own rule turned on itself: a baseline
+that is a side effect of the developer's own manual use will drift without any change to the
+code, so "identical to the seed counts" is a statement with a short shelf life** — unlike
+`tsc`/lint/test counts, which only move when something is edited. The row is now corrected
+with the attribution attached rather than silently re-based.
+
+#### What this does not prove
+
+- **That the deployment looks like these screenshots.** Every asset was captured against
+  `npm run dev` on localhost, pointed at the live Supabase database. The deployment's own
+  behaviour is hand-verified separately in F18; nothing here re-checks it. The GIF in
+  particular shows a booking completing **locally**.
+- **That the booking in the demo is reproducible against production.** It was written and then
+  deleted; production still has never had a Cloudinary-uploaded photo (Standing Constraints →
+  Images), which remains the gap that would exercise `CldImage` for real.
+- **That the README renders as intended on GitHub.** The two Mermaid diagrams, the HTML
+  `<table>` screenshot grid and the `<details>` blocks are all GitHub-flavoured features
+  verified only by construction — fences balanced, syntax reviewed. No rendered preview was
+  seen, because the repository is private and nothing in this session can render one.
