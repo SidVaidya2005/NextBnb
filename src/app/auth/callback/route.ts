@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
   const next = safeNextPath(searchParams.get('next'))
-  const oauthError = searchParams.get('error')
+  const providerError = searchParams.get('error')
 
   // Behind a load balancer (Render) `origin` is the internal address, so the
   // forwarded host is the only way back to the URL the user actually typed.
@@ -26,12 +26,16 @@ export async function GET(request: Request) {
 
   // Declining at the Google consent screen is a normal choice, not a failure —
   // send them home quietly rather than showing an error.
-  if (oauthError === 'access_denied') {
+  if (providerError === 'access_denied') {
     return NextResponse.redirect(`${base}/`)
   }
 
-  if (oauthError) {
-    console.error('[auth/callback] provider returned an error:', oauthError)
+  if (providerError) {
+    // `error` is attacker-controlled the same way `next` is — anyone can hit this
+    // route directly — so the code is stripped to the RFC 6749 shape and capped
+    // before it reaches the log, rather than writing an arbitrary string there.
+    const errorCode = providerError.replace(/[^a-z_]/gi, '').slice(0, 64) || 'unrecognized'
+    console.error('[auth/callback] provider returned an error:', errorCode)
     return NextResponse.redirect(`${base}/?signin=error`)
   }
 
