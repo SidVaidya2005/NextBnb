@@ -4188,11 +4188,19 @@ labelling is clean.
 ### Phase 6 · F21 — layout landmarks: a skip link, a `<nav>`, and a gate proof that refuted the plan  *(2026-07-30)*
 
 **Scope: the two static findings F20 recorded and deliberately did not fix.** Both live in
-markup shared by all 16 routes, which is why they were their own change. Four commits on
-`feat/layout-landmarks`: `b72d0af` (the landmark), `8809c8c` (the skip link and its focus
-target), `88e053d` (the visible reveal, verified at 7 breakpoints), and a fourth — this one —
-carrying the two `code-standards.md` rules, the tracker rewrite, and this entry. No SQL, no
-route, no dependency, no server action.
+markup shared by all 16 routes, which is why they were their own change. The work is the
+`6.21.x` series on `feat/layout-landmarks`: `b72d0af` (the landmark), `8809c8c` (the skip link
+and its focus target), `88e053d` (the visible reveal, verified at 7 breakpoints), then the docs
+commit carrying the two `code-standards.md` rules and this entry, then a review-fix pass over
+all of it. No SQL, no route, no dependency, no server action.
+
+> **No commit total is stated here, deliberately.** The first draft of this sentence said
+> "three"; a review caught it and the correction said "four"; the commit that made the
+> correction became the fifth. An entry written *inside* a series cannot count the commits that
+> follow it, and each attempt to fix the number requires a commit that invalidates it again.
+> Identify the work by the `6.21.x` prefix and let `git log` do the counting. **Generalises: a
+> self-referential count in a versioned file is not a fact that can be kept true — the fix is to
+> stop asserting it, not to assert it more carefully.**
 
 #### Decisions
 
@@ -4356,11 +4364,16 @@ identical conditions. Two distinct pieces of evidence — do not cite the assert
 - `npx tsc --noEmit` — clean, exit 0 · `npm run lint` — clean, exit 0.
 - `npm run test` (unit) — **288 passed / 288**, 6 files. Baseline unmoved; no unit-testable
   logic added.
-- `npm run test:e2e` — **405 total: 401 passed / 3 skipped / 1 failed.** The total is the
-  pre-F21 395 plus exactly the 10 new tests (3 in `keyboard.spec.ts`, 7 in
-  `nav-responsive.spec.ts`), so both files registered in full. The 1 failure is the
-  `home.spec.ts` race above, attributed and re-run 8/8 green in isolation — **the 0-failed
-  baseline was not met, and that is recorded as a finding rather than smoothed over.**
+- `npm run test:e2e` — **405 total: 402 passed / 3 skipped / 0 failed**, measured on the final
+  tree at the end of the change. The total is the pre-F21 395 plus exactly the 10 new tests
+  (3 in `keyboard.spec.ts`, 7 in `nav-responsive.spec.ts`), so both files registered in full.
+  **An earlier run of the same suite, mid-change, came back 401 / 3 / 1** — the `home.spec.ts`
+  race above, which also passed 8/8 in isolation. Nothing between the two runs touched
+  `home.spec.ts`, the query it exercises, or the fixture it collides with, so **the green
+  re-run is not evidence the race was fixed — it is evidence the race is intermittent**, which
+  is the strongest support for the diagnosis in Open work item 4. Both numbers are recorded
+  because either alone would mislead: the failing run looks like a regression, the green one
+  looks like a clean bill of health.
 - `npm run build` — green, **16 routes**, `ƒ Proxy (Middleware)` printing. Next.js 16.2.11,
   compiled in 2.8s.
 - **Security advisors and migrations were deliberately not re-run.** This change touches no
