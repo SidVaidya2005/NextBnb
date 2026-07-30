@@ -193,3 +193,97 @@ test.describe('nav responsive — signed in', () => {
     })
   }
 })
+
+const SKIP_LINK_SELECTOR = 'a[href="#main"]'
+
+/**
+ * At rest the link must be inaudible to sighted users and invisible on all 16
+ * routes.
+ *
+ * **Why height and not `toBeHidden()`:** Tailwind's `sr-only` is a 1×1 clipped
+ * box, not `display: none`, so Playwright counts it as *visible* and
+ * `toBeHidden()` would fail against correct markup. Height is the property that
+ * actually distinguishes the two states.
+ */
+async function expectSkipLinkHiddenAtRest(page: Page, label: string) {
+  const box = await page.locator(SKIP_LINK_SELECTOR).boundingBox()
+  // Guard before measuring: `box?.height ?? 0` reads a *missing* element as
+  // height 0, which would satisfy `toBeLessThanOrEqual(1)` below — this helper
+  // would then pass for a skip link deleted outright, not one merely hidden.
+  expect(box, `${label}: the skip link should exist in the DOM`).not.toBeNull()
+  if (!box) return
+
+  expect
+    .soft(box.height, `${label}: the skip link is visible before it is focused`)
+    .toBeLessThanOrEqual(1)
+}
+
+/**
+ * Focused, it must actually reveal — and the revealed HEIGHT is the assertion
+ * that can fail. `toBeVisible()` cannot: it passes against the 1×1 `sr-only`
+ * state too, so a link that never reveals would sail through it (F08 — ask what
+ * a green assertion would still accept).
+ */
+async function expectSkipLinkRevealed(page: Page, label: string) {
+  const skip = page.locator(SKIP_LINK_SELECTOR)
+  await skip.focus()
+
+  const box = await skip.boundingBox()
+  expect(box, `${label}: the focused skip link should have a box`).not.toBeNull()
+  if (!box) return
+
+  const viewport = page.viewportSize()
+  if (!viewport) return
+
+  expect
+    .soft(box.height, `${label}: skip link tap target is under ${MIN_TAP_TARGET}px`)
+    .toBeGreaterThanOrEqual(MIN_TAP_TARGET)
+  expect.soft(box.x, `${label}: skip link overflows the left edge`).toBeGreaterThanOrEqual(0)
+  expect
+    .soft(box.x + box.width, `${label}: skip link overflows the right edge`)
+    .toBeLessThanOrEqual(viewport.width)
+  expect
+    .soft(box.y, `${label}: skip link is clipped above the viewport`)
+    .toBeGreaterThanOrEqual(0)
+}
+
+/**
+ * The header is `sticky top-0 z-50` and the revealed link sits inside its 80px
+ * band, so a link that does not outrank 50 is painted UNDERNEATH it — visible to
+ * a bounding-box check and unclickable at the same time. Only a hit test can
+ * tell those apart, which is why this helper exists rather than another
+ * geometry assertion.
+ */
+async function expectSkipLinkOnTop(page: Page, label: string) {
+  const onTop = await page.evaluate(() => {
+    const link = document.querySelector('a[href="#main"]')
+    if (!link) return null
+
+    const box = link.getBoundingClientRect()
+    const topmost = document.elementFromPoint(
+      box.left + box.width / 2,
+      box.top + box.height / 2,
+    )
+    return !!(topmost && link.contains(topmost))
+  })
+
+  expect
+    .soft(onTop, `${label}: the skip link is painted under the sticky header`)
+    .toBe(true)
+}
+
+test.describe('skip link responsive', () => {
+  for (const bp of BREAKPOINTS) {
+    test(`${bp.name} (${bp.width}px): the skip link hides at rest and reveals above the header`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: bp.width, height: bp.height })
+      await page.goto('/')
+
+      await expectSkipLinkHiddenAtRest(page, bp.name)
+      await expectSkipLinkRevealed(page, bp.name)
+      await expectSkipLinkOnTop(page, bp.name)
+      await expectNoHorizontalScroll(page, `${bp.name} skip link`)
+    })
+  }
+})

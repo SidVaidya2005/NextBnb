@@ -136,6 +136,20 @@ either, and a bullet that says so is the only thing standing between the two.
 
 ### Data, schema & migrations
 
+- **An FK cascade is a destructive path with no error, no test and no type pointing at it**
+  (F10). `bookings.listing_id` is `on delete cascade`, so a host deleting a listing does not
+  *cancel* its reservations — it erases them, leaving the guest nothing in `/trips` and no
+  record a stay ever existed. It is now guarded in the action (refuse while a confirmed stay
+  is still coming, steer to unpublish), stated in the UI rather than only disabled, and the
+  cutoff is widened by a day so the JS/`current_date` boundary can only ever err toward
+  refusing. **Generalises: before shipping a delete, read the FK actions on every table that
+  references the row — the blast radius is in the schema, not in the feature.** F17's admin
+  delete is the same cascade with the guard deliberately absent.
+  *(Evicted from `progress-tracker.md` → Key Decisions in F21 at the 10-bullet cap. It still
+  binds, and unusually literally: the guard lives in `deleteListing` alone, nothing in the
+  schema or the types enforces it, and F17 deliberately ships a second delete path without
+  it — so any future delete, admin or host, has to re-answer the question this bullet asks.
+  The bullet below is the same reading applied to `on delete set null`.)*
 - **`on delete set null` can collide with `nulls not distinct` and fail a listing delete**
   (F16). Nulling `message_threads.listing_id` collapses a thread onto `(guest, host, null)`,
   and the unique constraint treats those nulls as equal — so a guest holding threads about
@@ -219,6 +233,30 @@ either, and a bullet that says so is the only thing standing between the two.
 
 ### Accessibility
 
+- **The skip link and the main-navigation landmark now ship** (F21, 2026-07-30) — read this
+  before assuming either is still missing. `<a href="#main">Skip to content</a>` is the first
+  child of `<body>` in `src/app/layout.tsx`,
+  its target is `<main id="main" tabIndex={-1} className="focus:outline-none">`, and
+  `TopNav`'s account cluster is a `<nav aria-label="Main">` (the logo stays outside it, in
+  the existing `<header>` banner). Three constraints come with them. **First, `tabIndex={-1}`
+  on `<main>` is load-bearing and only one assertion gates it** —
+  `expect(page.locator('#main')).toBeFocused()`. The next-Tab check beside it in
+  `e2e/keyboard.spec.ts` passes with or without `tabIndex`, because Chromium moves the Tab
+  *origin* to a fragment target regardless of focusability; both are kept, with comments
+  saying which is which, and `code-standards.md` → Accessibility states the rule.
+  **Second, the reveal depends on Tailwind's utility emission order, which is a build-tool
+  detail rather than a CSS guarantee.** `focus:not-sr-only` sets `position: static` and
+  `focus:fixed` sets `position: fixed`; they have equal specificity, and `fixed` wins only
+  because `.focus\:fixed:focus` is emitted *after* `.focus\:not-sr-only:focus` in the same
+  `@layer utilities` (measured — `getComputedStyle` reads `"fixed"`). If a Tailwind upgrade
+  reorders them the link will reveal itself in the document flow instead of pinned; the fix is
+  the off-screen slide (`-top-20 focus:top-4`), which never changes `position`. **Third, all
+  of this is Chrome-only.** `playwright.config.ts` runs a single `chromium` project, so
+  WebKit's fragment-focus fixup and whether Safari paints an outline on a programmatically
+  focused `<main>` are **unverified, not verified-absent** — `focus:outline-none` was added
+  on a measured Chrome observation (`outlineStyle: "auto"`, `outlineWidth: "1px"`,
+  `focusVisible: true`), and it is `:focus` rather than `:focus-visible`, a known imprecision
+  with no behavioural difference in Chrome today.
 - **`DateRangePicker`'s day cells are plain buttons — no `role="grid"`, no roving
   tabindex** (F18), so a two-month calendar is ~60 tab stops. Deliberate: the primitive sits
   under three features (`SearchBar`, `BookingWidget`, `AvailabilityManager`) and ~6 spec
@@ -4063,6 +4101,11 @@ was answered, and it found two real defects.
 - **Two findings were left unfixed and recorded instead** — no skip link, and no `<nav>`
   landmark inside `TopNav`'s `<header>`. Both touch the layout shared by all 16 routes, so
   they are a separate change with its own responsive verification, not a rider on this one.
+  → **Closed by F21** (2026-07-30): both shipped, on their own branch with 10 new Playwright
+  tests and 4 gate proofs. Deferring was the right call for a reason F20 could not have
+  predicted — the skip link's own gate proof disproved the plan's reasoning about which
+  assertion was load-bearing, which would have been an awkward thing to discover as a rider
+  on an audit. See F21 below.
 - **The rule is now in `code-standards.md`**, not in a component comment. That is the
   actual fix: see below.
 
@@ -4141,3 +4184,215 @@ labelling is clean.
 > showed the old build still serving; it landed ~40s later. Third instance in two days of
 > F18's rule — **probe the artifact the change produces, never the health of the things
 > around it.**
+
+### Phase 6 · F21 — layout landmarks: a skip link, a `<nav>`, and a gate proof that refuted the plan  *(2026-07-30)*
+
+**Scope: the two static findings F20 recorded and deliberately did not fix.** Both live in
+markup shared by all 16 routes, which is why they were their own change. The work is the
+`6.21.x` series on `feat/layout-landmarks`: `b72d0af` (the landmark), `8809c8c` (the skip link
+and its focus target), `88e053d` (the visible reveal, verified at 7 breakpoints), then the docs
+commit carrying the two `code-standards.md` rules and this entry, then a review-fix pass over
+all of it. No SQL, no route, no dependency, no server action.
+
+> **No commit total is stated here, deliberately.** The first draft of this sentence said
+> "three"; a review caught it and the correction said "four"; the commit that made the
+> correction became the fifth. An entry written *inside* a series cannot count the commits that
+> follow it, and each attempt to fix the number requires a commit that invalidates it again.
+> Identify the work by the `6.21.x` prefix and let `git log` do the counting. **Generalises: a
+> self-referential count in a versioned file is not a fact that can be kept true — the fix is to
+> stop asserting it, not to assert it more carefully.**
+
+#### Decisions
+
+- **`TopNav`'s account cluster became the landmark, in place.** The `<div className="flex
+  shrink-0 items-center gap-2">` was *replaced* by `<nav aria-label="Main" …>` rather than
+  wrapped — a wrapper would have inserted a flex child into the row that
+  `nav-responsive.spec.ts` measures. The logo `<Link>` stays outside it, inside the existing
+  `<header>` banner. The 14 pre-existing nav-responsive tests passed unchanged, which is the
+  evidence that the swap was layout-neutral.
+- **The skip link is inline in `src/app/layout.tsx`, not a component.** It is four lines of
+  markup with one consumer and no state; a `SkipLink.tsx` would add a file and an import to
+  make the layout read one line shorter. It is the first child of `<body>`, before `<TopNav
+  />`, because "first Tab stop" is a document-order property and nothing else can guarantee it.
+- **`<main id="main" tabIndex={-1}>` — programmatically focusable only, never a Tab stop.**
+  This is the line the whole change turns on; see the wrong turn below for why the test that
+  proves it is not the test the plan expected.
+- **The primary reveal technique shipped:** `sr-only focus:not-sr-only focus:fixed
+  focus:left-4 focus:top-4 focus:z-[60]` plus token styling (`focus:rounded-sm focus:border
+  focus:border-hairline focus:bg-canvas focus:px-4 focus:py-3.5 focus:text-sm
+  focus:font-medium focus:text-ink focus:shadow-card`) and the project's single sanctioned
+  focus treatment (`focus-visible:outline-2 focus-visible:outline-offset-2
+  focus-visible:outline-ink`). **The documented off-screen-slide fallback was not needed and
+  is not in the code** — see the gotcha about `position`. `z-[60]` is deliberate: it must
+  outrank the sticky header's `z-50`, and that is a hit test, not a guess.
+- **`focus:outline-none` on `<main>` was added on a measurement, not a suspicion.** The plan
+  deliberately shipped `<main>` with no suppression class and then measured what Chrome paints
+  on a keyboard-activated skip. Verbatim diagnostic output:
+  `[DIAGNOSTIC] main focus ring: {"isActiveElement":true,"focusVisible":true,"outlineStyle":"auto","outlineWidth":"1px"}`
+  A ring **is** painted, so the class went in and the reasoning is recorded at the element:
+  the skip link already carries the one sanctioned focus treatment, and a second unstyled
+  Chrome-default ring on arrival is redundant. The diagnostic test was deleted afterwards.
+  **Known imprecision, flagged in review and left as-is:** `focus:` compiles to `:focus`, not
+  `:focus-visible`, so `focus-visible:outline-none` would be the more precise class. No
+  behavioural difference in Chrome today. **Safari/WebKit is unverified** — this suite runs a
+  single `chromium` project — and that is a gap, not a result.
+
+#### The wrong turn, which is the most valuable thing in this entry
+
+**The plan's reasoning about which assertion was strong was backwards, and only running the
+gate proof could show it.** The plan asserted that *"focus moved past the navigation"* (a
+Tab after the skip link lands inside `<main>`) was the strong assertion and *"focus landed on
+`<main>`"* was the weak one, on the mechanical story that a fragment link whose target lacks
+`tabindex="-1"` leaves focus on the anchor while the viewport scrolls. The story is plausible,
+specific, and standards-flavoured. It is also wrong here.
+
+The implementer deleted `tabIndex={-1}` as instructed and the test **passed** — 3 passed, 0
+failed. Rather than rewriting the assertion to manufacture a failure, they stopped, confirmed
+it was not a stale build (`curl … | grep -o '<main[^>]*>'` against a live dev server showed
+`<main id="main">` with no `tabindex`), and instrumented `document.activeElement` at each step
+with a temporary probe:
+
+```
+AFTER FIRST TAB: <a href="#main" class="sr-only">Skip to content</a>
+AFTER ENTER:     {"tag":"BODY","id":"","hash":"#main"}
+AFTER SECOND TAB:{"tag":"SUMMARY", …}
+```
+
+**Chromium implements the HTML Standard's "sequential focus navigation starting point" fixup
+for fragment links**: activating `href="#main"` moves the *Tab origin* to `#main` whether or
+not that element can hold focus. So without `tabIndex={-1}` nothing is focused (`BODY`) —
+the plan's premise about *focus* was right — but the next Tab still lands inside `<main>`
+anyway, via the browser rather than via our markup. The two assertions' strengths were exactly
+inverted: `expect(page.locator('#main')).toBeFocused()` is the one that gates `tabIndex={-1}`;
+the next-Tab check gates nothing in the only browser this suite runs.
+
+Both are now in the test, with comments saying which is load-bearing and why the other stays
+(it documents the outcome a keyboard user actually gets, and WebKit has historically not
+implemented the same fixup, so it *would* gate there if this suite ever grows a second browser
+project). **This is F08's rule turned on the plan author's own reasoning: a plausible
+mechanical story about why an assertion is strong is not evidence — only the revert is.** The
+generalisation is now in `code-standards.md` → Accessibility, not only here, per F20's rule
+about rules recorded at their crime scene.
+
+**Precision note, because these two facts get merged on retelling.** Playwright's
+`toBeFocused()` failure reports `Received: inactive` and **never names the element that holds
+focus**. The `BODY` claim comes from the separate `page.evaluate` probe above, run under
+identical conditions. Two distinct pieces of evidence — do not cite the assertion for the
+`BODY` finding.
+
+#### The four gate proofs, and what each one actually did
+
+1. **The `<nav>` landmark** — reverted `<nav aria-label="Main">` to `<div>`:
+   `getByRole('navigation', { name: 'Main' })` **failed** with `element(s) not found`, a real
+   locator timeout rather than a syntax error. Restored → passed.
+2. **The skip link is the first Tab stop** — moved the anchor below `<TopNav />`: **failed**
+   with `14 × locator resolved to <a href="#main" class="sr-only">…` / `unexpected value
+   "inactive"`, i.e. the element exists and the first Tab reaches the logo instead. Restored →
+   passed.
+3. **`<main>` is the focus target** — deleted `tabIndex={-1}`: **passed** the first time, which
+   is the wrong turn above. After the assertion was amended on the user's ruling, re-run both
+   ways: without `tabIndex` it **failed on line 395**, the new `toBeFocused()` line
+   (`locator('#main')` / `Expected: focused` / `Received: inactive`); restored → passed. The
+   proof the first attempt could not produce.
+4. **The reveal is painted above the sticky header** — changed `focus:z-[60]` to `focus:z-40`
+   (below the header's `z-50`): **all 7 breakpoints failed** with
+   `${label}: the skip link is painted under the sticky header` (e.g. `tablet-min: …`), and
+   only that assertion — the
+   geometry assertions still passed, which is precisely the point. `expectSkipLinkOnTop` is a
+   real hit test, not scenery. Restored → 7 passed.
+
+#### Gotchas
+
+- **`toBeVisible()` cannot test an `sr-only` element's reveal.** Tailwind's `sr-only` is a 1×1
+  clipped box that is still in the layout, so Playwright counts it as visible at rest — the
+  obvious assertion accepts the broken state, which is F08 again in geometry costume. The 7
+  breakpoint tests therefore measure: tap target ≥44px, both edges ≥0, no horizontal scroll,
+  plus the hit test. Evidence that this is the right shape: the pre-implementation run failed
+  on `Received: 1` (height), `Received: -1` (left edge), `Received: -1` (top edge) and
+  `painted under the sticky header` — **never** on a missing element.
+- **The predicted `position` collision did not happen, and the reason is a build-tool detail
+  rather than a CSS guarantee.** `focus:not-sr-only` sets `position: static` — confirmed via
+  Context7 against the Tailwind v4 `display` docs, which is also where the full property list
+  came from — and `focus:fixed` sets `position: fixed`, at equal specificity. In the compiled
+  stylesheet:
+
+  ```css
+  .focus\:not-sr-only:focus { clip-path: none; white-space: normal; width: auto; height: auto; margin: 0px; padding: 0px; position: static; overflow: visible; }
+  .focus\:fixed:focus { position: fixed; }
+  ```
+
+  `.focus\:fixed:focus` is emitted **after**, in the same `@layer utilities`, so equal
+  specificity lets the later rule win; `getComputedStyle(link).position` read `"fixed"` while
+  focused. Tailwind v4 emits utilities in its own canonical category order, not in `className`
+  order, so this pair happens to sort our way. **Record it as a fragility:** nothing in the
+  CSS guarantees it, and if an upgrade reorders those utilities the link will reveal itself in
+  the document flow instead of pinned. The fix then is the documented fallback — an off-screen
+  slide (`-top-20 focus:top-4`) that never changes `position`. It is not in the code today.
+  The plan branched on a measurement here rather than predicting an outcome: it flagged that
+  the `position` collision *may* occur and said the fallback "must be checked, not assumed."
+  All 7 breakpoint tests passed on the first run after the primary technique went in, and the
+  emission order above is why — measured rather than assumed, per the plan's own instruction
+  not to stop at "it passed".
+- **A pre-existing latent race in the E2E suite surfaced, and it falsifies a baseline line.**
+  `e2e/home.spec.ts:31` failed in the full run and passed 8/8 in isolation. Mechanism,
+  confirmed from source: the test asserts the **first** card's image `src` matches
+  `/_next/image`; `src/lib/queries/listings.ts:192` orders the grid `created_at DESC`, so the
+  newest published listing holds slot one; `e2e/fixtures.ts:602` — `addListingPhotoRow`
+  defaults `public_id` to a **non-null** fabricated value; and a non-null `public_id` routes
+  `ListingImage` to `CldImage`, so the src is a Cloudinary URL
+  (`https://res.cloudinary.com/…/nextbnb/listings/95a0b89e…`, `alt="E2E draft a24c0e64"`) and
+  the assertion fails. **Not caused by F21** — it adds no listing-creating spec — but
+  plausibly *surfaced* by it, since the 3 new tests sit in `keyboard.spec.ts`, itself one of
+  the files that publishes a listing with a photo row, so that file's timing shifted. Filed as
+  `progress-tracker.md` → Open work item 4 with three candidate fixes, none chosen, and
+  **deliberately not fixed here**. The tracker's "longest-standing flake: none open" line was
+  true when written and is now false; it has been rewritten rather than absorbed.
+- **Counting note, in the spirit of F20's two bad greps.** F21's working notes said "ten spec
+  files" call `addListingPhotoRow`. Measured with a call-site grep on 2026-07-30: **17 spec
+  files call it, 13 of which also call `publishFixtureListing`** — the 13 are the ones that
+  can reach the grid's first slot. The number was never measured before it was written down.
+- **`focus:z-[60]` is now the app's highest z-index, not merely above the header.** Two other
+  surfaces are `fixed inset-0 z-50` full-screen overlays — `SearchBar`'s mobile search dialog
+  (`src/components/search/SearchBar.tsx:211`) and `BookingWidget`'s mobile reserve sheet
+  (`src/components/listings/BookingWidget.tsx:351`) — so the skip link now outranks both of
+  them too, not only the sticky header. Harmless today only because both overlays are
+  focus-trapped, which `e2e/keyboard.spec.ts` gate-proves — a dependency, not a coincidence,
+  and worth knowing before either trap is loosened.
+
+#### Verified
+
+- `npx tsc --noEmit` — clean, exit 0 · `npm run lint` — clean, exit 0.
+- `npm run test` (unit) — **288 passed / 288**, 6 files. Baseline unmoved; no unit-testable
+  logic added.
+- `npm run test:e2e` — **405 total: 402 passed / 3 skipped / 0 failed**, measured on the final
+  tree at the end of the change. The total is the pre-F21 395 plus exactly the 10 new tests
+  (3 in `keyboard.spec.ts`, 7 in `nav-responsive.spec.ts`), so both files registered in full.
+  **An earlier run of the same suite, mid-change, came back 401 / 3 / 1** — the `home.spec.ts`
+  race above, which also passed 8/8 in isolation. Nothing between the two runs touched
+  `home.spec.ts`, the query it exercises, or the fixture it collides with, so **the green
+  re-run is not evidence the race was fixed — it is evidence the race is intermittent**, which
+  is the strongest support for the diagnosis in Open work item 4. Both numbers are recorded
+  because either alone would mislead: the failing run looks like a regression, the green one
+  looks like a clean bill of health.
+- `npm run build` — green, **16 routes**, `ƒ Proxy (Middleware)` printing. Next.js 16.2.11,
+  compiled in 2.8s.
+- **Security advisors and migrations were deliberately not re-run.** This change touches no
+  SQL — no schema, no grants, no functions — and both numbers are functions of the schema, so
+  the 8 WARNs and 9/9 migrations are carried forward from the 2026-07-29 baseline **by
+  reasoning, not measurement**. They were not checked; do not read them as re-verified.
+
+#### What this does not prove
+
+- **That a screen reader announces the landmark or the arrival on skip.** Every assertion here
+  is DOM state and geometry. `tabIndex={-1}` makes `<main>` a genuine focus target, which is
+  the *precondition* for an announcement, not the announcement. That is the remaining half of
+  Open work item 1 — the VoiceOver pass — and F21 narrows it without closing it.
+- **That the reveal's `:focus-visible` styling is exercised by anything.** The 7 breakpoint
+  tests trigger the reveal via `locator.focus()`, which sets `:focus` but not necessarily
+  `:focus-visible` — Playwright's `.focus()` calls the DOM API directly rather than simulating
+  a keyboard interaction. So `focus-visible:outline-2 focus-visible:outline-offset-2
+  focus-visible:outline-ink`, the skip link's only DESIGN.md focus treatment, is asserted by
+  nothing in this suite.
+- **Anything about Safari/WebKit**, in either the fragment-focus fixup or the outline
+  behaviour. One `chromium` project, one browser's answers.
+- **That the reveal survives a Tailwind upgrade.** See the emission-order fragility above.

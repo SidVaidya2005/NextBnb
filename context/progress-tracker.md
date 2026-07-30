@@ -18,13 +18,19 @@
 ## Current Status
 
 **Phase:** All six phases complete — the project is **shipped and in maintenance**.
-**Last completed:** F20 — static accessibility audit; two ARIA-on-generic defects fixed
-(`StarRating` was announcing nothing on every review) *(2026-07-29, PR #2, merged and
-**verified live**: 0 div/span elements on `/listings/[id]` now carry a name without a role,
-both ratings render `role="img"`, the gallery `role="group"`)*. Before it, F19 — the
-production-build `<Suspense>`/`router.refresh()` defect and the `messages.spec.ts` inbox
-flake, both root-caused and fixed; seed re-run to 46/46 *(PR #1, merged and deployed)*.
-**Next:** no feature work queued. See **Open work** below for the three items still outstanding; none blocks the build.
+**Last completed:** F21 — layout landmarks: `<nav aria-label="Main">` around `TopNav`'s
+account cluster, and a skip link whose target is `<main id="main" tabIndex={-1}>`, revealed
+on focus above the sticky header and verified at all 7 breakpoints *(2026-07-30, branch
+`feat/layout-landmarks`, the `6.21.x` commit series — no total stated, and the journal entry
+says why; 10 new Playwright tests, 4 gate proofs, one of
+which disproved the plan's own reasoning — see Key Decisions)*. Before
+it, F20 — static accessibility audit; two ARIA-on-generic defects fixed (`StarRating` was
+announcing nothing on every review) *(2026-07-29, PR #2, merged and **verified live**: 0
+div/span elements on `/listings/[id]` carry a name without a role)*.
+**Next:** no feature work queued. **Open work item 1 is now down to the screen-reader pass
+alone** — F21 shipped the two static findings F20 had left it carrying. Four items are open;
+none blocks the build, but item 4 (a newly surfaced, fully attributed `e2e/home.spec.ts`
+race) is the one live deviation from the baselines below.
 
 Live at **https://nextbnb-h4ov.onrender.com**, with Google sign-in completing and the
 host create → publish → unpublish → delete flow hand-verified against the deployment.
@@ -39,7 +45,9 @@ never commits and the row shows pre-mutation state, with disabled controls, long
 after the database write has landed. `next dev` does not stream it that way,
 which is why the suite was green for eight features. Removing the boundary takes
 the production-build suite to **392 passed / 0 failed, matching the dev baseline
-exactly**. Full detail, including the two rejected hypotheses and the 15-second
+exactly** *(both numbers are the 395-test suite as it stood at F19–F20; F21 has since
+taken the dev suite to 405 tests and the production run has not been repeated — see
+Live baselines)*. Full detail, including the two rejected hypotheses and the 15-second
 repro recipe: `build-journal.md` → F19.
 
 **Deployed 2026-07-29 (PR #1).** Verified anonymously against the live URL after the
@@ -94,15 +102,21 @@ still outstanding.
 
 ## Live baselines
 
-Current as of 2026-07-29. **Treat any deviation as a finding, not a new normal.**
+Current as of 2026-07-30 for the five gates F21 re-ran (tsc, lint, unit, e2e, build). The
+database rows are 2026-07-29 and not re-measured for F21: **F21 changed no SQL**, so advisors
+and the migration count are carried forward by that reasoning — see the note under the table.
+The seed count, whole-table counts, and fixture-residue rows below are also from 2026-07-29;
+they were not re-checked either, and F21's full 405-test run (including one failure) is
+exactly the kind of run that can leave fixture residue behind.
+**Treat any deviation as a finding, not a new normal.**
 
 | Gate | Value |
 | ---- | ----- |
 | `npx tsc --noEmit` / `npm run lint` | clean |
 | `npm run test` (unit) | 288/288 |
-| `npm run test:e2e` (dev server — the committed config) | **395 total — 392 passed / 3 skipped / 0 failed** |
-| Longest-standing flake | **none open.** The `messages.spec.ts` inbox-ordering intermittent, open F16→F19, was a test-side read-too-early and is fixed |
-| `npm run test:e2e` against a **production** build | **392 passed / 3 skipped / 0 failed** — matches the dev baseline exactly since F19. Was 3–4 failed in `host-manage.spec.ts` (Suspense/`router.refresh()`) plus the intermittent `messages.spec.ts` inbox flake; both root-caused and fixed |
+| `npm run test:e2e` (dev server — the committed config) | **405 total — 402 passed / 3 skipped / 0 failed** *(2026-07-30, F21, measured on the final tree)*. Was 395 total before F21's 10 new tests; the total is +10 exactly, so both new spec files registered in full. **An earlier mid-change run of the same suite gave 401 / 3 / 1** — `e2e/home.spec.ts:31`, an intermittent race tracked as Open work item 4. If that test fails on a future run, it is that race firing again, not a new regression |
+| Longest-standing flake | **one open, attributed rather than mysterious.** `e2e/home.spec.ts:31` failed on one F21 full run (401/3/1), then passed on a later run of the same suite (402/3/0) **and 8/8 in isolation** — the signature of a race, not a break. Nothing between those runs touched that spec, its query, or the fixture it collides with. Mechanism traced to source in four steps — grid `created_at DESC`, `addListingPhotoRow`'s non-null `public_id` default, the `CldImage` branch — and written up as Open work item 4 with three candidate fixes, none chosen. Pre-existing and latent since the fixture was written; F21 plausibly shifted the timing that exposes it. *(The `messages.spec.ts` inbox-ordering intermittent, open F16→F19, was a test-side read-too-early and is fixed — that one is genuinely closed.)* |
+| `npm run test:e2e` against a **production** build | **392 passed / 3 skipped / 0 failed** — last measured at F20, against the 395-test suite; **not re-run for F21**, so this row predates the 10 new tests. Matched the dev baseline exactly at the time. Was 3–4 failed in `host-manage.spec.ts` (Suspense/`router.refresh()`) plus the intermittent `messages.spec.ts` inbox flake; both root-caused and fixed |
 | `npm run build` | green, **16 routes**, `ƒ Proxy (Middleware)` printing |
 | `seed-verification.sql` | **46/46** — re-seeded 2026-07-29 |
 | Seed rows | 26 listings (24 published) / 130 photos / 17 seeded bookings / 7 reviews / 5 blocks / 0 favorites |
@@ -110,6 +124,12 @@ Current as of 2026-07-29. **Treat any deviation as a finding, not a new normal.*
 | Fixture residue after a full run | 0 listings, 0 bookings, 0 reviews, 0 fixture-owned threads, **exactly one admin** (developer's Google account) |
 | Security advisors | **8 WARNs — a 9th is a finding** |
 | Migrations vs remote | 9/9 matching |
+
+**Security advisors and the migration count were deliberately not re-run for F21** (2026-07-30).
+The change touched no SQL anywhere in the `6.21.x` series — no schema, no route, no server action, no
+dependency — and both numbers are functions of the database schema and its grants, which it
+structurally cannot move. They are carried forward from the 2026-07-29 baseline **by reasoning,
+not by measurement**; treat them as unchecked-since-2026-07-29 rather than as re-verified.
 
 **The 8 WARNs are all intentional:** `authenticated` EXECUTE on `is_admin()`,
 `admin_list_users()` and `admin_unpublish_listing()` (all three load-bearing, all three
@@ -143,7 +163,7 @@ availability RPC, search filters, branding — is recorded in
 
 ## Open work
 
-Three items. **None blocks the build**; all are recorded rather than tidied away.
+Four items. **None blocks the build**; all are recorded rather than tidied away.
 
 > **Closed 2026-07-29** — *"`messages.spec.ts` › a reply moves its conversation to the top
 > of the inbox fails intermittently"*, open since F16 and unattributed through F17 and F18.
@@ -179,9 +199,7 @@ Three items. **None blocks the build**; all are recorded rather than tidied away
    at all (it is the project's only live region that mounts *with* its content), how F16's
    asynchronous message announcement behaves while a focus trap is open, and whether the
    two-step delete/confirm swaps say anything. A seven-step listening script is in
-   `build-journal.md` → F20. **Two audit findings are also left deliberately unfixed:** no
-   skip link and no `<nav>` landmark — both touch the layout shared by all 16 routes, so
-   they are their own change with their own responsive verification.
+   `build-journal.md` → F20.
 2. **A separate Supabase project for E2E**, so production can disable the email/password
    provider outright. This is the real fix for the open-signup finding; F18 scoped it out as
    large enough to rival the rest of the feature. Detail in Standing Constraints → Auth.
@@ -190,6 +208,36 @@ Three items. **None blocks the build**; all are recorded rather than tidied away
    `FUNCTIONS_DEPLOYED`/`ACTIVE_HEALTHY` rather than F02's `MIGRATIONS_FAILED`, but what
    changed it was not observed, so the F02 migration rename remains documented-correct and
    unverified. No preview-branch billing is accruing.
+4. **`e2e/home.spec.ts:31` — "a card shows a cover photo, a price and a location" — races the
+   parallel workers that publish listings.** Surfaced by one F21 full run (401 passed / 3 skipped
+   / **1 failed**); a later run of the same suite came back **402 / 3 / 0**, and `home.spec.ts`
+   passed **8/8** re-run in isolation. It is **intermittent, not fixed** — nothing between those
+   runs touched the spec, its query, or the fixture. **Not a defect
+   in F21** — it adds no listing-creating spec — but plausibly surfaced *by* it, because the 3
+   new keyboard tests live in `keyboard.spec.ts`, itself one of the 13 spec files that publish
+   a listing with a photo row, so that file's timing shifted. The mechanism is confirmed from
+   source, not inferred:
+   1. The test asserts the **first** card's image `src` matches `/\/_next\/image/`, i.e. the
+      `next/image` branch that seed data takes.
+   2. `src/lib/queries/listings.ts:192` orders the grid `created_at DESC`, so the **newest**
+      published listing holds slot one.
+   3. `e2e/fixtures.ts:602` — `addListingPhotoRow` defaults `public_id` to a **non-null**
+      fabricated value (`nextbnb/listings/<id>/<hex>`), and **17 spec files call it, 13 of
+      which also call `publishFixtureListing`** — those 13 are the ones that can reach slot
+      one. *(Counted 2026-07-30 with a call-site grep. F21's own working notes said "ten spec
+      files"; that number was never measured and is wrong — recorded rather than silently
+      corrected, because a plausible count is how the last two bad greps got in.)*
+   4. A non-null `public_id` routes `ListingImage` to `CldImage`, so the `src` is a Cloudinary
+      URL and the assertion fails.
+
+   Any worker that publishes a listing with a photo row therefore takes slot one and breaks
+   that assertion. **Three candidate fixes, none chosen:** assert against a known *seeded*
+   listing rather than "first"; accept either image branch; or default `addListingPhotoRow`'s
+   `public_id` to `null` (closest to reality — all 24 seeded listings have `public_id = null`,
+   see Standing Constraints → Images). **Deliberately not fixed inside F21**: `CLAUDE.md` says
+   not to widen a change, and this is its own change with its own gate proof — the fix must be
+   shown to fail without it, which means reproducing the race on demand. The unit, tsc, lint
+   and build gates were all unmoved by F21, so this is the only baseline deviation.
 
 ---
 
@@ -197,6 +245,8 @@ Three items. **None blocks the build**; all are recorded rather than tidied away
 
 The 10 most recent, newest first. Older decisions are filed by topic in
 `build-journal.md` → **Standing Constraints**.
+
+- **F21** — **a plausible mechanical story about *which* assertion is load-bearing is not evidence; only the revert is — and this time the story was the plan's own.** The skip link's gate proof was specified as "delete `tabIndex={-1}` from `<main>`, and the focus test must fail", on the reasoning that a fragment link with a non-focusable target leaves focus on the anchor — which made *"the next Tab moved past the navigation"* the strong assertion and *"`#main` is focused"* the weak one. **It passed with `tabIndex={-1}` deleted.** The implementer refused to rewrite the assertion to manufacture a failure and traced why instead: **Chromium implements the HTML Standard's *sequential focus navigation starting point* fixup**, so activating `href="#main"` moves the Tab **origin** to `#main` whether or not that element can hold focus. Measured with `tabIndex` removed: `activeElement` after Enter was `BODY`, and the next Tab still landed on a `<summary>` inside `<main>`. The ordering was exactly inverted — `expect(page.locator('#main')).toBeFocused()` is the assertion that gates `tabIndex={-1}`; the next-Tab check gates **nothing** in the only browser this suite runs (`playwright.config.ts` has one project, `chromium`). Both now ship, with comments naming which is which, and the rule is in `code-standards.md` rather than only here. **Generalises: F08's rule applies to the plan as much as to the code — a gate proof tests the author's reasoning about an assertion, not just the assertion, and "this is the strong one" is a prediction until the revert is run.** Precision note, because two pieces of evidence get conflated easily: Playwright's `toBeFocused()` failure reports only `Received: inactive` and never names the element that *does* hold focus — the `BODY` finding came from a separate `page.evaluate` probe under identical conditions. Sibling finding, and it is F08 again wearing the geometry costume: **`toBeVisible()` cannot test an `sr-only` element's reveal**, because Tailwind's `sr-only` is a 1×1 clipped box that is still in the layout and Playwright counts it as visible — so the 7 breakpoint tests assert measured geometry (tap target ≥44px, both edges ≥0) plus a real hit test, and the pre-implementation run failed on `height: 1` / `x: -1` / `y: -1` rather than on "element not found". Second sibling, a **fragility rather than a fix**: the design predicted `focus:not-sr-only` (`position: static`, confirmed via Context7 against the Tailwind v4 docs) would fight `focus:fixed`, and it does not — in the compiled output `.focus\:fixed:focus` is emitted *after* `.focus\:not-sr-only:focus` in the same `@layer utilities`, so equal specificity lets `fixed` win (`getComputedStyle` reads `"fixed"`). That rests on Tailwind's emitted property order, **not on anything the CSS guarantees**; if an upgrade reorders those utilities, the fix is the documented off-screen slide (`-top-20 focus:top-4`, which never touches `position`). Third sibling: one full-suite run came back **401 passed / 3 skipped / 1 failed** while a later run of the identical suite gave **402 / 3 / 0**, which falsifies this file's "longest-standing flake: none open" — a pre-existing `home.spec.ts` race, attributed in four steps and filed as Open work item 4, not absorbed. **Both numbers are on the record deliberately: the failing run alone reads as a regression this change caused, the green run alone reads as a clean bill of health, and only the pair shows a race.**
 
 - **F20** — **a rule written in the wrong file is a rule that will be broken, and this project broke the same one three times.** F07 shipped `aria-label` on a bare `<div>` latently; F12 found it, fixed it, and wrote the reason into `BookingWidget`'s docblock — *"ARIA ignores an accessible name on a generic element, so `aria-label` on a bare div is announced by nothing"*; then **F15's extraction of `StarRating` reintroduced it verbatim**, because the rule lived in the one place a person building a *different* component would never read. The consequence was not cosmetic: a bare `div` is `role="generic"`, where ARIA *prohibits* a name, and with all five stars `aria-hidden` the rating — the app's central trust signal, and the one element DESIGN.md gives its loudest treatment — was announced as **silence** on every review and every trip card. **Generalises: when a fix turns on a general rule, the fix belongs in the component and the rule belongs in `code-standards.md`; a rule recorded only at its first crime scene is a rule scoped to that crime scene.** Sibling finding, and it is F08's rule wearing a new costume: **two specs asserted the rating's label and both passed the whole time**, because Playwright's `getByLabel()` matches the `aria-label` *attribute* rather than the computed accessible name — so it resolves happily against markup no screen reader can read. The assertion named the right string and tested the wrong layer; `getByRole(role, { name })` is the one that resolves a real name, and swapping to it made the spec fail the moment `role="img"` was removed. Second sibling, from the audit method rather than its findings: **the first sweep produced 14 findings of which 12 were false**, because a grep for `aria-label` on non-button elements flags `<ul>` and `<section>` — both of which legitimately accept a name. An over-broad audit that "finds" a dozen problems in correct markup costs more than no audit, because someone will dutifully edit all twelve.
 
@@ -208,4 +258,3 @@ The 10 most recent, newest first. Older decisions are filed by topic in
 - **F14** — **a policy that admits three principals answers a question none of them asked.** `bookings_select_participant_or_admin` is `guest OR host OR is_admin()`, so the *same row* is legitimately readable by two screens that must never show it to each other — and every query over that table has to say which reader it is for. F13 filtered `guest_id`; F14 filters `listing_id` to owned listings, and its gate proof is F13's inverted: a stay where the fixture user is the **guest** must not surface among their reservations. It failed exactly as intended with the filter deleted, and RLS never would have caught it. **Generalises: RLS scopes to a union of principals, not to a role — so "which of these principals am I rendering for?" is a question the query must answer, never the policy.** Corollary found the same way: read the policy before deciding what a screen *can't* do. "Read-only for the host" looked like scope, but the UPDATE policy names only the guest and `is_admin()`, so a host has no write path to `bookings` at all and a cancel button would need a migration, not a component.
 - **F13** — **RLS refuses a write by filtering, not by raising — so a refused UPDATE is indistinguishable from a successful one.** The cancellation window lives entirely in `bookings_update_cancel_own_or_admin`'s USING clause, so `cancelBooking` re-checking it would buy nothing; what only the action can do is notice that **zero rows changed**, because Postgres returns `{ error: null }` either way. Gate-proved: with the `!data` branch removed, cancelling an in-progress stay showed the guest no refusal at all while the row stayed `confirmed`. **Generalises: after any RLS-scoped UPDATE or DELETE, the row count *is* the authorization result — `.select()` it and treat empty as refusal.** Its sibling finding: `/trips` needed an explicit `guest_id` filter because the `bookings` SELECT policy also admits hosts and admins — **the inverse of `getFavorites`, where leaning on RLS is correct** — so "does the policy answer exactly my question?" has to be asked per table, not per project.
 - **F12** — **a guard the database also enforces cannot be gated by a test, and the test will pass anyway.** The spec proving `createBooking` refuses taken dates was written against a *booking* overlap — and it **passed with the availability check deleted**, because `bookings_no_overlap` refused the insert and `23P01` maps to the same sentence the guard produces. The gate had to move to the case no constraint can reach: a booking over a host's `blocked_dates`, where nothing in Postgres expresses a rule spanning two tables. **Generalises: when writing a gate proof, first ask which layer would catch the defect if this layer were missing** — if a lower one would, the spec is measuring that instead. The same reasoning re-priced F12's fixture listing: at $123.00 the service fee is 51660 cents whether you round or truncate, so the cents assertion passed against `Math.floor`; at $123.33 the two answers differ and the spec gates the rounding rule end to end.
-- **F10** — **an FK cascade is a destructive path with no error, no test and no type pointing at it.** `bookings.listing_id` is `on delete cascade`, so a host deleting a listing does not *cancel* its reservations — it erases them, leaving the guest nothing in `/trips` and no record a stay ever existed. It is now guarded in the action (refuse while a confirmed stay is still coming, steer to unpublish), stated in the UI rather than only disabled, and the cutoff is widened by a day so the JS/`current_date` boundary can only ever err toward refusing. **Generalises: before shipping a delete, read the FK actions on every table that references the row — the blast radius is in the schema, not in the feature.** F17's admin delete is the same cascade with the guard deliberately absent.
