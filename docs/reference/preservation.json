@@ -1,0 +1,32 @@
+{
+  "docs/reference/architecture-notes.md": {
+    "source": "context/architecture.md",
+    "sha256": "9732c3fca9eb4bba506d305e53e95377737e0b4f9b9f58d5c375bc7f83ecc6da",
+    "prefixBytes": 476
+  },
+  "docs/reference/engineering-notes.md": {
+    "source": "context/code-standards.md",
+    "sha256": "59a05b5922005a04c22d055c92632e72cc675d177dbc40db212822d54bcdcd1a",
+    "prefixBytes": 478
+  },
+  "docs/reference/library-examples.md": {
+    "source": "context/library-docs.md",
+    "sha256": "28e4ad498e0e04cd88252efc924bf74e92a964b42011cf1ba7d722f71ac5b0e4",
+    "prefixBytes": 476
+  },
+  "docs/reference/design-reference.md": {
+    "source": "context/DESIGN.md",
+    "sha256": "aefe37e06c845d5718ba2259cd56132c21f735b346907fd5c9d7fd30b252d1f8",
+    "prefixBytes": 470
+  },
+  "docs/reference/build-record.md": {
+    "source": "context/build-plan.md",
+    "sha256": "ed371b3956daf25de7ecc8232daa7c6334f78bfbd9bd657342f864e7325cffdd",
+    "prefixBytes": 474
+  },
+  "docs/reference/maintenance-notes.md": {
+    "source": "context/progress-tracker.md",
+    "sha256": "b55882c820afafc913e0f0fc8a4cc351028f8e0b74828f0259c75a8076061b59",
+    "prefixBytes": 480
+  }
+}

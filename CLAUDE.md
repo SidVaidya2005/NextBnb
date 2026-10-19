@@ -1,61 +1,89 @@
 # NextBnb
 
-A full-stack Airbnb-style marketplace where users discover, filter, and instantly book short-term stays, and any user can host — create listings, upload photos, set pricing and availability, and manage reservations — with favorites, reviews, and guest↔host messaging.
+NextBnb is a short-term rental marketplace built with Next.js and Supabase. Guests book stays; the same account can host properties. Bookings are simulated and no payment is taken.
 
-**Status: all 18 features shipped; the app is live and in maintenance.** New work is not a
-feature in `build-plan.md` — it comes from `progress-tracker.md` → **Open work**, or from you.
+## Project documentation
 
-## Project context lives in `context/`
+Use this file as the only agent entry point, including in Codex. Do not create a second agent file. The application is shipped and in maintenance; the original six-phase build is complete.
 
-The `context/` folder is the source of truth for this project. **Read it before
-writing any code**, and keep it current as you work. Read in this order:
+The layout separates rules needed for every change from implementation details and build history. This keeps routine reading manageable while preserving the original explanations. The documentation decisions and their reasons are recorded in [Decision records](context/decisions.md#documentation-decisions).
 
-1. **`context/project-overview.md`** — what the product is, who it's for, what's in and out of scope.
-2. **`context/architecture.md`** — stack, folder structure, system boundaries, data model, and the **invariants you must never violate**.
-3. **`context/code-standards.md`** — the rules every change must follow.
-4. **`context/library-docs.md`** — project-specific usage patterns for each library (read the relevant section before using one).
-5. **`context/progress-tracker.md`** — live status, current baselines, and the open worklist.
-6. **`context/build-journal.md` → Standing Constraints** — what still binds, by topic. Read before any change that might conflict with past work.
+## Information locations
 
-Two files are read on demand rather than every session: **`context/build-plan.md`** (the
-build record — read a feature's entry before changing the code it produced) and
-**`context/build-journal.md` → Feature Log** (the dated archive — read when investigating a
-regression or revisiting how one feature went).
+| Information | File and section |
+| --- | --- |
+| Product, users, scope and success criteria | [Project overview](context/project-overview.md) |
+| Architecture, boundaries and invariants | [Architecture](context/architecture.md), especially [Invariants](context/architecture.md#invariants) |
+| Standing constraints and their reasons | [Standing constraints](context/standing-constraints.md) |
+| Code standards and testing | [Code standards](context/code-standards.md) |
+| Current status, progress and recorded baselines | [Progress tracker](context/progress-tracker.md#current-status) |
+| Recent decisions | [Key Decisions](context/progress-tracker.md#key-decisions) |
+| Authoritative decision records, including historical and superseded choices | [Decision records](context/decisions.md); future work may also own records beside governing rules or in [Work notes](context/work-notes.md) |
+| Open questions and unverified claims | [Open Questions](context/progress-tracker.md#open-questions) |
+| Original feature descriptions and completion checks | [Build record](context/build-plan.md) |
+| Active maintenance work, fuller reasoning and completion history | [Work notes](context/work-notes.md) |
+| Library ranges, local implementations and verification limits | [Library guide](context/library-docs.md) |
+| Binding visual rules | [Design system](context/DESIGN.md) |
+| Original build history and original constraint explanations | [Build journal](context/build-journal.md); the Feature Log is historical, not routine reading |
+| Preserved pre-rewrite detail | [Reference index](docs/reference/README.md) |
+| Deployment | [Render runbook](docs/deploy-render.md) |
+| Documentation checks and manual review procedure | [Documentation checks](context/documentation-checks.md) |
+
+## Always read, in this order
+
+Read these complete files before changing code. Read each physical file once.
+
+1. `context/project-overview.md`
+2. `context/architecture.md`
+3. `context/standing-constraints.md`
+4. `context/code-standards.md`
+5. `context/progress-tracker.md`
+6. `context/DESIGN.md`
+
+Then use Current Status to find the relevant work notes. The essential-reading ceiling is 40,000 estimated tokens, including this entry point, calculated as file bytes divided by four. It is a ceiling, not a target. Preserve growing detail in indexed references rather than deleting it. A higher ceiling requires a deliberate commit explaining the change.
+
+## Read references when needed
+
+| Task | Read |
+| --- | --- |
+| Change an original feature | Its numbered heading in `context/build-plan.md`; follow the detailed-record link when the explanation matters |
+| Plan or continue maintenance | The relevant heading in `context/work-notes.md` and the matching Open work item |
+| Use or change an integration | The matching section in `context/library-docs.md`, the linked source file, and current library documentation |
+| Change schema, policies or grants | The migrations, generated types, and the schema/policy sections in `docs/reference/architecture-notes.md`; compare historical notes with the actual SQL |
+| Investigate a regression or accepted limitation | The named feature in `context/build-journal.md`; its original Standing Constraints remain available as historical evidence |
+| Investigate an old diagnosis or measurement | `docs/reference/maintenance-notes.md` and the journal entry it cites |
+| Change the documentation layout or checker | `context/documentation-checks.md` and the records in `context/decisions.md` |
+| Deploy or change environment configuration | `docs/deploy-render.md` and Code standards → Environment Variables |
 
 ## Standing rules
 
-- **Read `context/` first.** Never assume — verify against `project-overview.md` and `architecture.md`.
-- **Obey the invariants** in `architecture.md`. They are non-negotiable (RLS everywhere, mutations only via server actions, money in cents, no double-booking, `getUser()` for auth).
-- **Follow `code-standards.md`** on every change.
-- **Check Standing Constraints before deciding something is a bug.** `build-journal.md` holds a dozen limitations that are deliberate and a dozen branches that are untested-but-reasoned. "Untested" is not "broken", and a documented won't-fix is not a defect to go and fix.
-- **For libraries**, follow the authority order: **Context7** (`resolve-library-id` → `query-docs`) and the **Supabase MCP** → `context/library-docs.md` → official docs via web search. Never write an API shape from training-data memory — if none of those answers it, ask.
-- **Stay in scope.** No real payments, no maps, no notifications (see out-of-scope). Do not widen a change beyond what was asked.
-- **Design system is `context/DESIGN.md`.** Use its tokens (encoded in `globals.css @theme`); Rausch `#ff385c` is the only accent, canvas is white, ink is `#222222`, font is Inter. Don't introduce off-palette colors or ad-hoc values.
-- **Fully responsive, mobile-first.** Verify every screen at the DESIGN.md breakpoints (`tablet:744` / `desktop:1128` / `wide:1440`) — phone, iPad, laptop, desktop. Images render via `next-cloudinary` `CldImage` with `sizes`, never a bare `<img>`.
-- **Use logical commits.** Keep each commit focused, easy to review, and in a working state whenever possible.
-- **Ask before committing.** Never create a commit without explicit approval, and never add coauthors unless explicitly requested.
-- **Verify against the baselines before claiming done.** `progress-tracker.md` → Live baselines holds the current numbers for typecheck, lint, unit, e2e, build routes, migrations and security advisors. Run what the change touches and compare; a deviation is a finding to report, not a number to overwrite.
-- **Update `progress-tracker.md`** after every completed change — tick any box, **overwrite** Current Status (never append to it), and add the single most important decision to the **top** of Key Decisions. That section holds the 10 most recent, newest first — when adding an 11th, **move** the oldest into `build-journal.md` → Standing Constraints under its topic.
-- **Append to `build-journal.md` → Feature Log** after each completed piece of work — a dated entry with decisions, gotchas, and verification results.
-- **Maintain the journal, don't just append to it.** Follow its "How this file is maintained" block: when a past claim turns out false add a dated `> **Corrected …:**` note *beneath the original*; when a "Not verified"/"Deferred" item closes append `→ **Closed by F<NN>**`; when a prediction fails append `→ **Did not happen.**`. Never delete wrong turns, verification numbers, or gotchas.
-- **The Feature Log is never compacted** — a deliberate deviation from the `setup-context` skill, recorded in the journal itself. The build is complete and the file is read on demand, so its length costs nothing per session, while the `Verified:` lines are measurements that cannot be re-taken.
+- Follow the scope, invariants, active constraints, standards and visual rules in essential reading. Do not expand a change to fix unrelated findings.
+- Record environment variable names, never credential values. Treat an uncertain value as sensitive.
+- Check tool availability each session. Context7 is required before writing new library API guidance; use official documentation only for gaps or ambiguity and record the fallback. If Context7 is unavailable, continue independent work and leave dependent guidance explicitly unverified. Do not invent an API from memory.
+- Use `/architect` for meaningful features or unresolved implementation choices. Use its small-change path for simple edits. Use `/remember restore` at session start and `/remember save` at the end, following these information locations rather than creating another memory system.
+- Keep commits focused. Ask for explicit approval before each commit; add no coauthors unless requested. Keep the existing commit conventions when continuing an existing work item.
+- Run the checks relevant to the change and compare their results with the recorded baselines. Investigate a deviation; do not overwrite it merely to make the numbers match.
+- Update Current Status after every completed change, replacing its contents. Update the existing checklist in place. Record completion, gotchas, decisions and verification in the work's notes.
+- Append the usual dated completion entry to the journal for future work. For this documentation rewrite, the user explicitly requires the journal to remain unchanged; the completion record is in `context/work-notes.md` instead.
+- Preserve the journal's full Feature Log. Correct a wrong past claim beneath its original text, mark resolved gaps with their closing feature, and retain failed hypotheses and verification measurements. Do not compact it.
+- Record consequential choices when confirmed, using the next unused `D-NNN` number with at least three digits. Each ID has one authoritative bullet: `- **D-NNN — Choice.** Reason: ... Source: ...`. Other mentions are references. Preserve existing feature labels such as F19 and M1 as source identifiers.
+- Keep ten recent decisions, newest first. Classify an older record before moving it: ongoing rules belong with standing constraints; historical, superseded and retired choices belong in reachable work notes or history. Preserve reasons and IDs, remove the old authoritative copy, and update links. Never turn a decision into a rule merely because it is old.
+- A changed choice gets a new ID; mark the former record superseded with its replacement ID and reason. A retired choice needs its retirement reason. Keep unresolved choices in Open Questions without assigning decision IDs.
+- Before marking work complete, check that discussion and work notes have not left an important choice or reason undocumented. Ask about a missing reason rather than inventing it.
+- Run `npm run check:context` whenever documentation changes and before completion. When the checker changes, also run `npm run test:context`. Follow the manual checks in `context/documentation-checks.md`; automation cannot judge whether two differently worded decisions mean the same thing.
 
-## Runtime & Commands
+## Commands
 
-Requires **Node.js ≥20.9 (LTS)** and **TypeScript ≥5.1** (Next.js 16 minimums). Pin via `.nvmrc` + `package.json` `engines`.
+Use the Node version pinned in `.nvmrc`; the manifest requires Node ≥20.9. These commands assume dependencies have already been installed.
 
-- `npm run dev` — start the Next.js dev server
-- `npm run build` — production build
-- `npm run start` — serve the production build
-- `npm run lint` — run ESLint
-- `npx tsc --noEmit` — typecheck without emitting
-- `npm run test` — Vitest unit/component tests
-- `npm run test:e2e` — Playwright end-to-end tests
-
-Deploys to **Render** as a Web Service: build `npm run build`, start `npm start`. Env vars are set in the Render dashboard (see `code-standards.md` → Environment Variables).
-
-## Tooling available
-
-- **Context7 MCP** — current library docs (`resolve-library-id` → `query-docs`) for Next.js, Supabase SSR, Zod, react-hook-form, date-fns, Tailwind, Cloudinary. Use before writing library code.
-- **Supabase MCP** — inspect/manage the project: `list_tables`, `apply_migration`, `execute_sql`, `generate_typescript_types`, `get_advisors`, `get_logs`. Regenerate `src/types/database.types.ts` after every schema change.
-- **Cloudinary** — image storage/delivery (not an MCP): configured in `src/lib/cloudinary.ts`, signed via `/api/sign-cloudinary`. See `library-docs.md` → Cloudinary.
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the local application |
+| `npm run build` | Build for production |
+| `npm run start` | Serve the production build |
+| `npm run typecheck` | Check TypeScript |
+| `npm run lint` | Run ESLint |
+| `npm run test` | Run Vitest |
+| `npm run test:e2e` | Run Playwright against the configured database |
+| `npm run check:context` | Check documentation structure, references, decisions and reading cost; no app dependencies required |
+| `npm run test:context` | Prove the documentation checker detects failures in temporary copies |

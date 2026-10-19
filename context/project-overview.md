@@ -1,166 +1,68 @@
-# Project Overview
+# Project overview
 
-> **Role:** Product source of truth — what this product is, who it's for, what's in and out of scope.
-> **Read first**, before any other context file.
-> **Relates to:** scope drives `build-plan.md`; progress tracked in `progress-tracker.md`.
+> **Role:** Explain what NextBnb does, who uses it and what belongs in scope. Read first in every session.
 
-## About the Project
+## The product
 
-NextBnb is a full-stack Airbnb-style marketplace for short-term stays. Guests
-discover accommodations (homes, apartments, villas, cabins, and other unique
-stays), filter by destination, dates, guests, price, property type, and
-amenities, save favorites, and book instantly. Any signed-in user can also
-become a host: create listings, upload photos, set pricing, availability, and
-house rules, and manage the reservations that come in. Guests and hosts message
-each other in-app, and guests review stays after they finish.
+NextBnb is a portfolio application for finding and booking short-term stays. A guest can search for a place, inspect its photos and reviews, and reserve available dates. The reservation is confirmed immediately. No card details are collected and no money changes hands.
 
-## The Problem It Solves
+Guests and hosts share one account model. Any signed-in user can create a listing and act as a host. A small set of administrators can moderate users, listings and bookings.
 
-Travelers need one place to find and book a stay that fits their trip — the
-right city, dates, group size, and budget — while property owners need a simple
-way to list a space and manage bookings. Without a unified platform, discovery,
-availability, and reservation management are scattered across listings, emails,
-and spreadsheets. NextBnb brings search, booking, hosting, and communication
-into a single application.
+The original 18-feature build is complete. The last recorded live deployment is at [nextbnb-h4ov.onrender.com](https://nextbnb-h4ov.onrender.com). Deployment and verification claims retain their recorded dates; the URL has not been retested as part of the documentation rewrite.
 
-## Pages
+## What users can do
 
-- **Home / Search Results (`/`)** — Search bar (destination, dates, guests) plus a filterable grid of listing cards; the primary discovery surface.
-- **Listing Detail (`/listings/[id]`)** — Photo gallery, description, amenities, house rules, location text, host info, reviews, and the booking widget.
-- **Favorites (`/favorites`)** — The signed-in user's saved listings.
-- **Trips (`/trips`)** — The user's bookings as a guest: upcoming and past reservations, with cancel.
-- **Host — Listings (`/host/listings`)** — The user's own listings with create / edit / publish / delete.
-- **Host — Create/Edit Listing (`/host/listings/new`, `/host/listings/[id]/edit`)** — Multi-section form for listing details, photos, pricing, availability, and rules.
-- **Host — Reservations (`/host/reservations`)** — Incoming bookings across the user's listings.
-- **Messages (`/messages`)** — Inbox of guest ↔ host conversation threads with realtime updates.
-- **Admin (`/admin`)** — Internal moderation dashboard (users, listings, bookings); admins only.
-- **Auth callback (`/auth/callback`)** — OAuth redirect handler; not a user-facing page.
+A guest searches by destination, dates, number of guests, price, property type and amenities. Filters stay in the URL, so searches can be shared and restored after a reload. Listing pages show photos, amenities, house rules, location text, the host and reviews.
 
-## Navigation
+After choosing dates, the guest sees the nightly charge, cleaning fee and service fee before reserving. Upcoming and past stays appear under Trips. An eligible upcoming booking can be cancelled, freeing its dates. After checkout has passed, the booking's guest can leave one review.
 
-A persistent top navigation bar exposes search (on `/`), a favorites link, a
-"Trips" and "Host" menu, a messages link, and a user avatar menu (profile,
-sign out) when signed in, or a "Sign in with Google" action when signed out.
-Listing cards link to Listing Detail. Attempting a protected action or page
-(favoriting, booking, `/trips`, `/host/**`, `/messages`, `/admin`) while signed
-out redirects to Google sign-in and returns the user to where they were. The
-`/admin` area is reachable only by users flagged as admins; everyone else is
-redirected home.
+A host creates a draft listing, adds photos, sets a cover image and publishes it. The host can edit details, change pricing, block dates, unpublish, and delete a listing when the deletion rules allow it. Reservations across the host's listings appear in one view. Hosts cannot cancel guest reservations in this build.
 
-## Core User Flow
+Guests can start a conversation from a listing page. Messages arrive live while the thread is open. Hosts can reply; the inbox updates when revisited. Administrators can view users, unpublish or delete listings, and cancel bookings. They cannot read private message threads.
 
-### Discover
+## Pages and navigation
 
-The guest lands on Home, enters a destination, check-in/check-out dates, and a
-guest count, and applies filters (price range, property type, amenities). The
-system queries published listings that match and are available for the dates,
-and renders a grid of listing cards with cover photo, title, location, price
-per night, and average rating.
+| Page | Purpose and access |
+| --- | --- |
+| `/` | Public search and listing grid |
+| `/listings/[id]` | Listing details; published listings are public, drafts are visible to their host and admins |
+| `/favorites` | A signed-in user's saved listings |
+| `/trips` | The user's bookings as a guest |
+| `/host/listings` | The host's published listings and drafts |
+| `/host/listings/new` | Create a draft |
+| `/host/listings/[id]/edit` | Edit listing details |
+| `/host/listings/[id]/photos` | Manage photos, order, cover and publishing |
+| `/host/listings/[id]/availability` | Add and remove blocked dates |
+| `/host/reservations` | Incoming reservations across owned listings |
+| `/messages` and `/messages/[threadId]` | Inbox and private conversation |
+| `/admin` | Admin-only moderation |
+| `/auth/callback` | OAuth return handler; no page UI |
+| `/api/sign-cloudinary` | Authenticated upload-signing endpoint; no page UI |
 
-### Inspect
+The top navigation provides access to search, favorites, trips, hosting, messages and the account menu. Signed-out users see Google sign-in. A protected action sends a signed-out user through sign-in and returns them to a safe local destination. Non-admins visiting `/admin` are sent home.
 
-The guest opens a Listing Detail page and sees the photo gallery, full
-description, amenities, house rules, location text, host, and existing reviews.
-A booking widget shows the price per night and a date/guest picker.
+## Scope
 
-### Book
+The build includes Google sign-in, discovery and filtering, listing details, favorites, instant reservations, trips and cancellation, hosting with photo uploads and blocked dates, reviews, private messaging, an admin dashboard and sample data.
 
-The guest selects available check-in/check-out dates and a guest count. The
-system verifies the range is free (no overlapping confirmed booking and no
-host-blocked dates), computes a price breakdown (nights × nightly rate +
-cleaning fee + service fee), and on "Reserve" creates a **confirmed** booking
-immediately (Instant Book, no payment). Those dates are then blocked for other
-guests.
+The following remain outside scope: real payments or payouts; maps or geocoding; email, SMS or push notifications; host approval before booking; multiple currencies or languages; Superhost status; multiple wishlists; seasonal pricing; and native mobile apps. Location is text only. These choices keep the project focused on the marketplace flows. See D-001 in [Decision records](decisions.md#product-and-system-decisions).
 
-### Manage as guest
+## Success criteria
 
-The booking appears under Trips. The guest can view details and cancel an
-upcoming reservation, which frees the dates. After checkout has passed, the
-guest can leave a rating and review for that stay.
+These were reported met at the original build's close on 2026-07-29. They remain the acceptance criteria for future changes, subject to the verification limits below.
 
-### Host
+- Google sign-in returns the user to the page they started from.
+- Search returns matching, published listings available for the requested dates.
+- A reservation appears in Trips and prevents an overlapping confirmed reservation.
+- An eligible cancellation frees the dates.
+- A host can create a listing with photos, publish it, block dates and inspect reservations.
+- A guest can leave exactly one review per completed booking, and averages display correctly.
+- Guests and hosts can exchange messages without reloading an open thread.
+- Admin functions are available only to admins; private records remain restricted to their permitted users.
+- Every screen works across the documented phone, tablet, laptop and wide layouts.
 
-Any signed-in user opens the Host area, creates a listing (details, photos,
-pricing, availability blocks, house rules), and publishes it. Incoming bookings
-appear under Host → Reservations. Hosts and guests can message each other about
-a listing.
+The recorded acceptance evidence combines automated tests against a development server with manual checks of the deployment. The production-build suite has an older baseline. Cloudinary transform delivery on the deployed site and a human screen-reader pass remain unverified. See [Open work](progress-tracker.md#open-work) and [Standing constraints](standing-constraints.md).
 
-## Data Architecture
+## How this file is maintained
 
-### Identity
-
-User profiles mirrored from Supabase Auth (Google accounts), including display
-name, avatar, and an admin flag. "Host" is not a separate account type — any
-user who creates a listing acts as a host.
-
-### Listings
-
-The core catalog: each listing has descriptive details, location text, property
-type, capacity, pricing, amenities, house rules, publish state, its photos, and
-host-managed blocked-date ranges (availability).
-
-### Reservations
-
-Bookings link a guest to a listing for a date range, storing a price snapshot,
-guest count, and status. Availability is derived from confirmed bookings plus
-host-blocked dates.
-
-### Engagement
-
-Favorites (saved listings per user), reviews (one per completed booking), and
-messaging (threads between a guest and host, with messages).
-
-## Features In Scope
-
-- Google (OAuth) sign-in and sign-out with cookie-based sessions.
-- Browse published listings in a responsive card grid.
-- Search and filter by destination/city, check-in/check-out dates, guest count, price range, property type, and amenities.
-- Listing detail page with photo gallery, amenities, house rules, location text, host info, and reviews.
-- Save/remove favorites and a dedicated favorites page.
-- Instant Book: date + guest selection, availability check, price breakdown, confirmed reservation, with booked dates blocked.
-- Trips: guest reservation history (upcoming/past) with cancellation.
-- Hosting: create, edit, publish/unpublish, and delete listings, including photo uploads.
-- Host-managed availability via blocked-date ranges.
-- Host reservations view across owned listings.
-- Reviews & ratings after a completed stay, with average rating on listings.
-- In-app guest ↔ host messaging with realtime message delivery.
-- Admin dashboard to view/moderate users, listings, and bookings.
-- Seeded sample data (listings, photos, demo users) for a populated first run.
-
-## Features Out of Scope
-
-- Real payments / payout (bookings are simulated — no card capture, no money movement).
-- Interactive/pannable maps and geocoding (location is text only; no lat/lng, no map pins).
-- Email / SMS / push notifications (transactional emails are not built).
-- Request-to-book / host approval flow (all bookings are Instant Book).
-- Multi-currency and internationalization (single currency, single locale).
-- Superhost status, wishlists beyond a single favorites list, and dynamic/seasonal pricing.
-- Mobile native apps (responsive web only).
-
-## Target User
-
-Two roles sharing one account model: **guests** planning a trip who want to
-search, compare, and book a stay quickly; and **hosts** — ordinary users who
-own a space and want a simple way to list it, control availability and pricing,
-and manage incoming reservations. A small set of **admins** moderate the
-platform's users and content.
-
-## Success Criteria
-
-**All met as of 2026-07-29**, across 18 features and a live deployment. They remain the
-acceptance bar for any future change — a change that breaks one of these is a regression,
-not a trade-off. Two carry a caveat, both recorded in `progress-tracker.md`: the criteria
-below are proven by the E2E suite against a dev server plus a hand-verified pass over the
-live deployment, and `CldImage` transform delivery has never been exercised in production
-because every seeded photo is an external Unsplash URL.
-
-- A user can sign in with Google and is returned to the page they started from.
-- Search with any combination of destination, dates, guests, price, property type, and amenities returns only matching, available, published listings.
-- A guest can complete a booking end to end; the reserved dates become unavailable to other guests and the booking shows under Trips.
-- A guest can cancel an upcoming booking and the dates are freed.
-- A host can create a listing with photos, publish it, block dates, and see incoming reservations for it.
-- Availability is never double-booked: two confirmed bookings can never overlap on the same listing.
-- A guest can leave exactly one review per completed booking, and the listing shows the correct average rating.
-- A guest and host can exchange messages in a thread and see new messages without reloading.
-- An admin can view and moderate users, listings, and bookings; a non-admin cannot reach `/admin`.
-- Every data access is correctly scoped by ownership (no user can read or mutate another user's private data).
+Update this file when product behavior, access, scope or acceptance criteria change. Record the decision and reason in its authoritative home, then update the build/work notes and tracker. Keep implementation details in Architecture and preserve old acceptance evidence in history rather than relabelling it as current.

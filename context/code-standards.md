@@ -1,417 +1,96 @@
-# Code Standards
+# Code standards
 
-> **Role:** The rules every change must follow — language, framework, naming, error handling, dependencies.
-> **Read before writing code**; obey on every change.
-> **Relates to:** derives from the stack in `architecture.md`.
+> **Role:** Define the conventions used for every change. Read after Standing constraints in every session.
 
-Implementation rules and conventions for the entire project. The AI agent must
-follow these in every session without exception. These rules prevent pattern
-drift across sessions.
+## Working approach
 
----
+Understand the behavior and its boundaries before editing. Keep a change within the requested scope, finish one work item before starting another, and choose code a future maintainer can follow. Handle foreseeable failure deliberately. Use `/architect` for meaningful features and unresolved choices, and `/remember` with the information locations in `CLAUDE.md`.
 
-## Engineering Mindset
-
-The AI agent on this project operates as a senior engineer. This means:
-
-- **Think before implementing** — understand what is being built and why before writing a single line
-- **Read context files first** — never assume, always verify against `architecture.md` and `project-overview.md`
-- **Scope is sacred** — only build what the current feature requires; never go beyond scope even if it seems helpful
-- **Every feature must be testable** — if it cannot be verified immediately after implementation, it is incomplete
-- **Clean over clever** — simple readable code a junior can follow beats clever abstractions
-- **One thing at a time** — complete one feature fully before touching the next
-- **Failures are expected** — handle errors deliberately; never let one failure crash everything
-
----
+The existing workflow remains in place: every feature needs relevant automated tests; every completed change updates status and records its decisions, gotchas and checks. The journal is not compacted. This rewrite alone leaves it untouched at the user's request and records completion in [Work notes](work-notes.md). See D-053 and D-067.
 
 ## TypeScript
 
-- `strict` mode is on. No implicit `any`; if a type is truly unknown, use `unknown` and narrow.
-- TypeScript ≥5.1 (Next 16 minimum). Prefer `type` aliases for data shapes; reserve `interface` for extensible object contracts.
-- Server-action and query inputs from the client are `unknown` until validated by Zod — never trust their shape.
-- Row and enum types come from `src/types/database.types.ts` (generated). Derive with helpers like `type Listing = Database['public']['Tables']['listings']['Row']`; do not re-declare table columns by hand.
-- No non-null assertions (`!`) except on **env vars read at a client/SDK construction boundary** — the Supabase client factories (`lib/supabase/*`) and the Cloudinary signing call in `/api/sign-cloudinary`, whose rationale is recorded in `architecture.md` → Key Patterns. Handle `null`/`undefined` explicitly everywhere else.
-- Use `async/await`; no floating promises (await or explicitly void them).
-- Prefer immutable data — `const`, and don't mutate function parameters or shared arrays/objects.
-- Exhaustively handle union/enum branches (e.g. `booking_status`); use a `never` check in the default case where practical.
+Keep strict mode enabled. Use `unknown` until input is validated and narrowed; do not introduce implicit `any`. Prefer type aliases for data shapes and interfaces when an extensible contract needs one. Derive database row and enum types from the generated file. See D-019.
 
----
+Await promises or explicitly discard them with `void`. Prefer `const`, avoid mutating shared data or parameters, and handle union branches exhaustively where practical. Non-null assertions are restricted to environment values at the existing Supabase/SDK construction and signing boundaries; handle missing values explicitly elsewhere.
 
-## Next.js (App Router) Conventions
+## Next.js conventions
 
-- Components are **Server Components by default**. Add `'use client'` only when the file needs interactivity, browser APIs, state/effects, or realtime subscriptions — keep client components small and at the leaves.
-- Data **reads** for a page happen in Server Components via `src/lib/queries/*`; do not fetch in `useEffect` when the data can be rendered on the server.
-- Data **writes** happen only through server actions in `src/lib/actions/*` (`'use server'`). Client components call these actions; they never touch Supabase directly.
-- After a mutation, call `revalidatePath` (or `revalidateTag`) for every route whose data changed. Never rely on the client to refetch stale data.
-- Route files use framework names: `page.tsx`, `layout.tsx`, `loading.tsx`, `error.tsx`, `not-found.tsx`, `route.ts`. Provide `loading.tsx` and `error.tsx` for data-backed routes — **except on a route that can 404** (see below).
-- **A route that can `notFound()` must not have a `loading.tsx`.** That file wraps the page in an implicit `<Suspense>`, so the response starts streaming and the HTTP status is committed **before** `notFound()` runs. Next's own docs: *"a 404 HTTP status code for non-streamed responses and a 200 status code for streamed responses"* — the headers are already sent, so the status cannot be updated. A 200 on a missing or unpublished resource means search engines index it and monitoring never sees it. Prefer the correct status; stream only what genuinely cannot 404. (Found in F07: with `loading.tsx`, every draft listing returned 200.)
-- Request-level interception lives in `src/proxy.ts` exporting `proxy` — Next 16 renamed the `middleware` convention. The proxy runtime is Node-only (no edge).
-- Read search/filter state from `searchParams` (the URL is the source of truth for search); do not mirror it into client state.
-- Never import `src/lib/supabase/server.ts`, `next/headers`, or any secret-bearing module into a client component.
-- `params`, `searchParams`, `cookies()`, and `headers()` are **async and must be awaited** — Next 16 removed synchronous access.
-- **Runtime:** Node.js ≥20.9 (LTS) and TypeScript ≥5.1 (Next 16 minimums). Pin with a `.nvmrc` (`20`) and `"engines": { "node": ">=20.9" }` in `package.json`. Do not use Next 16 Cache Components / `use cache` — authenticated pages read cookies and render dynamically.
+Use Server Components by default. Add a client boundary only for interaction, browser APIs, state, effects or subscriptions, and keep it near the leaves. Page reads use query modules rather than effects. Writes use server actions; revalidate every route whose rendered data changed.
 
----
+Await framework request values such as params, search params, cookies and headers in this project. Request interception is `src/proxy.ts`; the library helper remains `src/lib/supabase/middleware.ts`. Keep search filters in the URL. Do not add Cache Components or `use cache` to the authenticated, cookie-dependent pages. See D-002 and D-018.
 
-## Design System & Responsive Standards
+Provide appropriate error and loading states, but do not add `loading.tsx` to a route that can return a true 404. Preserve the host-grid production refresh exception in Standing constraints. Server-only imports and secrets never cross into client components. See D-036 and D-042.
 
-The visual language is defined by `context/DESIGN.md` (Airbnb-style). Tokens are
-encoded once in the Tailwind v4 `@theme` block of `src/app/globals.css` and used
-via utilities — never hardcode a hex, size, or radius that a token already covers.
+## Files, exports and imports
 
-**Applying DESIGN.md to NextBnb.** DESIGN.md is an analysis of Airbnb's live site, so
-it contains Airbnb-specific structure that NextBnb does **not** build. Take the
-*visual language*, not the literal product:
+Use kebab-case folders, PascalCase component files and camelCase non-component modules. Name domain modules for their domain, such as `bookings.ts`, and schema exports with a `Schema` suffix. Framework route filenames follow framework conventions.
 
-- **USE:** the color tokens, type scale, radii, spacing, elevation (one shadow tier), and the component specs — `button-primary`, `search-bar-pill`, `search-orb`, `property-card`, `reservation-card`, `text-input`, `date-picker-day`, `amenity-row`, `host-card`, `footer-light`, and the responsive breakpoints/behaviors.
-- **IGNORE (Airbnb-only, out of scope):** the three-product nav (Homes / Experiences / Services) — NextBnb has one product, stays; the **Airbnb wordmark and any "Airbnb" name/branding** (use "NextBnb"); the **"© Airbnb, Inc." legal copy** and legal-link blue band; the **Luxe (`#460479`) / Plus (`#92174d`) sub-brand colors**; and the **Mapbox map view** (maps are out of scope).
-- The top nav is a single-product marketplace bar (logo "NextBnb" + search + account menu), not a product-tab switcher. Never render Experiences/Services tabs or Airbnb branding.
+Use one primary named export per file; framework-required defaults are the exception. `proxy` is a named export. Avoid barrel re-export files. Arrange a component as imports, types, the component, then small local helpers. A named `Props` type and destructured props keep the public shape easy to find.
 
-- **Color:** white canvas (`#ffffff`), ink text (`#222222`), body `#3f3f3f`, muted `#6a6a6a`, hairline `#dddddd`. The **only** accent is Rausch `#ff385c` (`primary`), reserved for primary CTAs, the search orb, and the saved-heart state — used scarcely. Errors use `#c13515`. No off-palette colors.
-- **Type:** ship **Inter** via `next/font/google` (the Cereal VF substitute named in DESIGN.md), mapped to the DESIGN.md scale. Display headlines stay modest (22–28px, weight 500–600); the one loud moment is the 64px rating number. Body is 16px/400.
-- **Radii:** buttons/inputs `8px` (`sm`), cards `14px` (`md`), search bar / hearts / orbs fully pill (`full`). No hard corners on interactive elements.
-- **Spacing:** 4px base scale; major sections `64px`, card padding `24px`, card-grid gutters `16px`.
-- **Elevation:** one shadow tier only (the DESIGN.md card-hover/dropdown shadow); everything else is flat. Depth comes from photography and hairlines, not stacked shadows.
-- Build components in `src/components/ui/` to the DESIGN.md component specs (`button-primary`, `search-bar-pill`, `property-card`, `reservation-card`, `text-input`, etc.); feature components compose these.
+Import packages first, then internal modules through `@/`, with type-only imports using `import type`. Import the Supabase factory that matches the runtime. Never construct another client elsewhere. See D-003.
 
-**Responsive is mandatory and mobile-first.** Every screen must be verified at all four DESIGN.md breakpoints — phone, iPad, laptop, desktop. Define these custom Tailwind breakpoints in `@theme` (they intentionally differ from Tailwind defaults so iPad maps cleanly):
+## Boundary patterns
 
-| Screen | Range | Tailwind key | Layout rules |
-| ------ | ----- | ------------ | ------------ |
-| Mobile | `<744px` | (base, no prefix) | 1-up cards; nav → logo + hamburger; search → single pill opening a full-screen overlay; reservation card → sticky bottom bar |
-| Tablet / iPad | `744–1128px` | `tablet:` (744px) | 2-up cards; product tabs visible; reservation card stays as a narrower right rail |
-| Desktop / laptop | `1128–1440px` | `desktop:` (1128px) | 4-up cards; full search pill with 3 segments; 2-column listing detail with sticky rail |
-| Wide | `>1440px` | `wide:` (1440px) | content caps at 1440px (search/listing) / ~1280px (editorial); gutters absorb the rest |
+A server action validates unknown input, verifies the user, checks the business rules, performs its write and revalidates affected routes, in that order. Expected failures return `ActionResult` with a user-safe message. Navigation-only auth actions redirect and return no value; do not catch a framework redirect accidentally. See D-004 and D-017.
 
-- Grids **drop columns** at each breakpoint — never reflow or reorder rows.
-- Touch targets: primary CTAs and the search orb ≥ 48×48px; never ship a tap target below 44px.
-- Test the mobile collapse behaviors explicitly (search overlay, sticky reserve bar, hamburger) — they are part of "done", not polish.
+A read query is server-only, performs no writes, logs internal failures with its source prefix and returns its documented safe value. A failed availability lookup must not look like verified free dates. Keep route handlers thin. The upload-signing route's inline ownership read is a deliberate exception, not permission to scatter page reads. Actual examples live in source; start with the [Library guide](library-docs.md).
 
-### Accessibility rules that have already been broken here twice
+## Errors and logs
 
-- **`aria-label` on a bare `<div>` or `<span>` is announced by nothing.** Those map to
-  `role="generic"`, where ARIA *prohibits* an accessible name. If a wrapper needs a name,
-  give it a role that accepts one — `role="img"` for a value drawn from icons,
-  `role="group"` for a set, or use the real element (`<aside>`, `<section>`, `<ul>`,
-  `<nav>`). `<section>`/`<ul>` **do** accept `aria-label`; a bare `div`/`span` does not.
-  Found and fixed three times: F12 (`BookingWidget`'s reservation summary), and the
-  2026-07-29 audit (`StarRating`, silent on every review; `PhotoGallery`'s strip).
-- **Do not gate an accessible name with Playwright's `getByLabel()`.** It matches the
-  `aria-label` *attribute*, not the computed accessible name, so it passes against markup
-  no screen reader can read — which is exactly how `StarRating` stayed green from F15 to
-  F19 while announcing nothing. **Assert `getByRole(role, { name })`**, which resolves the
-  real name and fails when the role is wrong.
-- **A live region must be in the DOM before it has content.** A polite region mounted
-  together with its text often never announces. The always-mounted `sr-only` span with
-  changing text (`MessageThread`, `SaveButton`) is the pattern to copy; `role="alert"` on
-  a conditionally-rendered error paragraph is the sanctioned exception.
-- Decorative icons carry `aria-hidden`; an icon-only control carries `aria-label` on the
-  **button**, never on a wrapping div.
-- **A skip link's target needs `tabindex="-1"`, or focus never lands on it** — the viewport
-  scrolls and the page *looks* like it jumped while nothing is actually focused. Measured in
-  F21: with `tabindex` deleted, `document.activeElement` after activating `href="#main"` was
-  `BODY`; with `tabindex="-1"` present, it was the target. The rule matters because a screen
-  reader announces arrival only at a genuinely focused element — that announcement itself is
-  unverified (no screen-reader pass has been run; Open work item 1), so this is the standing
-  reason for the rule, not an F21 finding. The target is programmatically focusable **only**;
-  it is never a Tab stop. Reference: `<main id="main" tabIndex={-1}>` in `src/app/layout.tsx`.
-- **For a skip link, assert the target actually received DOM focus —
-  `expect(target).toBeFocused()`. Do *not* rely on "the next Tab lands inside the target":
-  that passes with or without `tabindex="-1"`,** because Chromium implements the HTML
-  Standard's *sequential focus navigation starting point* fixup and moves the Tab **origin**
-  to the fragment target whether or not it is focusable. Measured in F21: with `tabindex`
-  deleted, `activeElement` after activation was `BODY` while the next Tab still landed on a
-  `<summary>` inside the target. Assert the focus, keep the next-Tab check as documentation
-  of the user-visible outcome, and know which of the two is load-bearing.
-- **Before adding site chrome, grep for the accessible names it introduces.** Two links with
-  the same accessible name on one page are a defect in both directions: a screen-reader user
-  listing the page's links hears the same name twice with nothing to tell them apart, and any
-  unscoped `getByRole('link', { name })` becomes a strict-mode violation rather than a wrong
-  answer. F23's footer shipped a "Browse stays" link, which is *already* the empty-state CTA on
-  `/messages`, `/favorites` and `/trips` — so it collided on exactly the three routes where
-  that state renders, and `second-user.spec.ts` failed on a locator it had every right to
-  leave unscoped. The label changed; the spec did not. Note that `getByRole` name matching is
-  **substring by default**, so "Browse all stays" would not have avoided it — only a genuinely
-  different word does.
-- **A second navigation landmark needs a distinct `aria-label`.** F21's is `Main`; F23's footer
-  is `Footer`. Two navigations announced identically are worse than one unlabelled, because a
-  landmark list offers the user a choice it cannot explain.
-- **`toBeInViewport()` cannot see occlusion, and `boundingBox()` does not retry.** An element
-  underneath a `fixed` bar is still "in viewport", so any assertion about fixed chrome covering
-  content has to compare boxes. Comparing them with a single `boundingBox()` read lands
-  mid-scroll — measured in F23 as a 56px overlap that settled to none a frame later — so wrap
-  the comparison in `expect.poll()`.
+Show safe, useful messages for validation, lack of access or unavailable dates. Never expose raw database errors, stack traces or another user's identifiers. Use bracketed log prefixes such as `[actions/bookings]`, `[queries/listings]` and `[auth/callback]`, including the operation and internal error.
 
----
+Return expected failures as results. Throw only for programmer errors or unexpected conditions that the boundary is designed to handle. Check the row result for RLS-scoped UPDATE/DELETE operations when zero rows means refusal; do not apply that rule blindly to an idempotent read receipt. Sanitize untrusted provider error text before logging. See D-024, D-031 and D-037.
 
-## File and Folder Naming
+## Shared values and comments
 
-- Folders: `kebab-case` (`listing-photos/`, `host/`).
-- React component files: `PascalCase.tsx`, one primary component per file (`ListingCard.tsx`, `SearchBar.tsx`). The component's name matches the file.
-- Non-component modules (queries, actions, validations, utils, hooks): `camelCase.ts` (`bookings.ts`, `useFavorite.ts`, `formatPrice.ts`). Domain modules are named after the domain (`lib/actions/listings.ts`).
-- Route segment folders and route files follow Next.js conventions (lowercase, `[id]` for dynamic segments).
-- Zod schemas live in `src/lib/validations/<domain>.ts`; export names end in `Schema` (`createListingSchema`).
-- No barrel `index.ts` re-export files; import directly from the module.
+Import property types, amenities, fees, guest limits and photo limits from `src/lib/constants.ts`. Do not duplicate them in components or validations. Keep the database property-type enum in sync with those constants. The seed's historical fee snapshot is an intentional exception; changing today's fee must not rewrite old prices. See D-005 and D-045.
 
----
+Comments should explain a reason a reader cannot infer from the code. Remove commented-out code and redundant narration. A code TODO names the specific pending work and what would unblock it. Documentation TODOs also need a pointer from essential Open Questions.
 
-## Module / Component Structure
+## Design and accessibility
 
-Canonical ordering for a component file: imports, then types, then the component,
-then any small local helpers. Server Component by default.
+Use the tokens and component rules in [Design system](DESIGN.md). Build mobile-first and verify phone, tablet, laptop and wide layouts at the specified lower boundaries. Do not add off-palette colors or shrink touch targets below 44px. Use the shared image component and responsive `sizes`.
 
-```tsx
-// 1. External imports
-import Link from 'next/link'
-// 2. Internal imports (via @/ alias)
-import { formatPrice } from '@/lib/utils'
-import type { Database } from '@/types/database.types'
+Use native elements with appropriate roles and names. A bare div or span cannot gain a useful accessible name merely by adding `aria-label`. Test computed roles and names with role-based queries rather than just checking an attribute. Decorative icons are hidden from assistive technology; icon-only buttons have a label on the button. See D-039.
 
-// 3. Types
-type Listing = Database['public']['Tables']['listings']['Row']
-type Props = { listing: Listing; coverUrl: string }
+Mount a polite live region before changing its content. An error alert mounted with its message is the existing exception. Test actual focus movement, restore focus on dismissal, and trap it only for modal surfaces. Keep the skip-link focus assertion; the following Tab location alone cannot prove focus landed. See D-038 and D-040.
 
-// 4. Component (named export, PascalCase)
-export function ListingCard({ listing, coverUrl }: Props) {
-  return (
-    <Link href={`/listings/${listing.id}`}>
-      {/* ... */}
-      <span>{formatPrice(listing.price_per_night)}</span>
-    </Link>
-  )
-}
-```
-
-- One primary export per file; helpers used only by that file stay in that file, below the component.
-- Props are a named `Props` type, destructured in the signature.
-- No default exports except where a framework requires them (`page.tsx`, `layout.tsx`, `route.ts` handlers). `src/proxy.ts` is a named export (`proxy`), not a default.
-
----
-
-## Boundary Patterns
-
-Return-shape contract used across all boundaries:
-
-```ts
-// src/lib/utils.ts
-export type ActionResult<T = void> =
-  | { ok: true; data: T }
-  | { ok: false; error: string }
-```
-
-### Server action (`src/lib/actions/*.ts`)
-
-```ts
-'use server'
-
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
-import { someSchema } from '@/lib/validations/<domain>'
-import type { ActionResult } from '@/lib/utils'
-
-export async function doThing(input: unknown): Promise<ActionResult<ResultShape>> {
-  const parsed = someSchema.safeParse(input)
-  if (!parsed.success) return { ok: false, error: 'Invalid input.' }
-
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { ok: false, error: 'Unauthorized.' }
-
-  const { data, error } = await supabase.from('table')./* mutate */.select().single()
-  if (error) {
-    console.error('[actions/<domain>] doThing failed:', error.message)
-    return { ok: false, error: 'Something went wrong. Please try again.' }
-  }
-
-  revalidatePath('/affected-route')
-  return { ok: true, data }
-}
-```
-
-- Always `'use server'`, validate first, authorize with `getUser()`, mutate, revalidate, return `ActionResult` — in that order.
-- **Exception — actions whose only outcome is navigation** (`signInWithGoogle`, `signOut`) return `Promise<void>`, not `ActionResult`: `redirect()` signals by throwing `NEXT_REDIRECT`, so nothing after it runs and there is no value to return. Keep the `redirect()` call outside any `try`, and surface failure as a redirect flag the UI renders (`/?signin=error`).
-- Never `throw` for expected failures; return `{ ok: false, error }` with a **user-safe** message. Log the real error with the `[actions/<domain>]` prefix.
-- Rely on RLS as the authorization backstop; the `getUser()` check is for UX, not the only guard.
-
-### Read query (`src/lib/queries/*.ts`)
-
-```ts
-import 'server-only'
-import { createClient } from '@/lib/supabase/server'
-import type { Database } from '@/types/database.types'
-
-type Listing = Database['public']['Tables']['listings']['Row']
-
-export async function getPublishedListings(filters: ListingFilters): Promise<Listing[]> {
-  const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('listings')
-    .select('*')
-    .eq('is_published', true)
-  if (error) {
-    console.error('[queries/listings] getPublishedListings failed:', error.message)
-    return []
-  }
-  return data ?? []
-}
-```
-
-- Queries are read-only and server-only (`import 'server-only'`); they never mutate.
-- On error, log with the `[queries/<domain>]` prefix and return a safe empty value (`[]` / `null`), so a page renders an empty state rather than crashing.
-
-### Route handler (`src/app/**/route.ts`)
-
-- Handlers do HTTP only — the OAuth callback (`/auth/callback`) and the Cloudinary signature route (`/api/sign-cloudinary`). No UI. Keep them thin: verify the user, do the one job (code exchange, or ownership-checked signing), return a `Response`/redirect. Any real mutation belongs in a server action, not a route handler.
-- **The one sanctioned read outside `lib/queries/`** is the sign route's ownership check (`.from('listings').select('id').eq('host_id', user.id)`), whose rationale is recorded in `architecture.md` → Key Patterns. It stays inline because it *is* the handler's one job — the authorization decision the signature depends on — and routing it through a query module would put the guard a call away from the thing it guards. Do not read this as licence for other inline reads.
-
----
+Before adding navigation or repeated controls, check their accessible names across the whole page. Distinct navigation landmarks need distinct labels. Avoid accidental duplicate link names, including substring matches used by test locators. Geometry assertions must compare positions from the same frame and retry until settled; being in the viewport does not prove an element is unobscured by fixed chrome. Original examples are retained in [Engineering notes](../docs/reference/engineering-notes.md).
 
 ## Testing
 
-Every feature ships with tests — "verifiable" means automated, not just clickable.
+Use Vitest for pure pricing, fee rounding, date/range helpers and validation schemas. Use Playwright for sign-in gates, discovery, reservations/cancellation, hosting, availability, reviews, messages, admin controls, keyboard behavior and responsive layouts. A feature is complete only when its relevant tests pass. See D-022.
 
-**Frameworks & commands:**
-- `vitest` — unit/component tests (`*.test.ts` / `*.test.tsx`), run with `npm run test`.
-- `@playwright/test` — end-to-end tests, run with `npm run test:e2e`.
+Run each new assertion against deliberately broken behavior and confirm it fails for the intended reason. A denial test needs a valid positive control. Keep schema round-trip tests where parsed form values are validated again on the server. Choose fee values that distinguish rounding from truncation. See D-022 and D-027.
 
-**Unit-test (Vitest) — the pure logic:**
-- Price breakdown & fee rounding (`nights × rate + cleaning + service_fee`, half-up cents).
-- `nightsBetween` and availability/overlap helpers (half-open bookings, inclusive blocks, `blocked ∪ booked`).
-- Zod schemas (accept valid input; reject invalid — e.g. `check_out ≤ check_in`, out-of-range rating).
+Use the seeded test setup and verify its expected data before E2E. Use both fixture users for ownership-dependent behavior. Only one spec file owns a shared admin flag, with cleanup in `finally` and teardown. Never leave a fixture account privileged. Mock external upload/OAuth behavior in automated tests rather than contacting real providers. Run against a production build periodically; development mode alone missed a shipped refresh defect. See D-025, D-026, D-042 and D-046.
 
-**E2E-test (Playwright) — the core flows:**
-- Protected route bounces to sign-in when signed out; signed-in user reaches it.
-- Search + filters narrow results; booked/blocked dates are excluded.
-- Book → `confirmed` → shows in Trips; the same dates are then unavailable to a second guest.
-- Cancel an upcoming booking → dates freed.
-- Host: create listing (with a photo) → publish → it appears in search.
-- Guest cannot book their own listing; a review can be left only after checkout.
-
-**Rules:**
-- Keep pricing/date/availability logic as pure functions (`src/lib/utils.ts` + helpers) so it is unit-testable without a database.
-- E2E runs against a seeded test database (Feature 03); a **seed-verification** step asserts expected listing/user counts before the suite runs.
-- **Two fixture accounts exist, and the second one is not interchangeable with the first.** `TEST_USER` is the shared signed-in session almost every spec uses; `SECOND_USER` exists so RLS can be asked the question one principal structurally cannot ask — "what does someone who is *not* the host / *not* the owner see?". Reach for it whenever an assertion depends on the viewer being a different person, and keep specs that own a second-user global (favorites, `is_admin`) in `second-user.spec.ts` under `mode: 'serial'`.
-- **Never leave a fixture account privileged.** A spec that needs `is_admin` grants it, asserts, and revokes it in a `finally`, with `global-teardown.ts` as the backstop — fixture passwords are committed, so a standing admin is a privilege path rather than an untidy row.
-- Mock Cloudinary and the OAuth provider in tests — never call real external services in CI.
-- A feature is "done" only when its unit tests and any relevant E2E flow pass.
-
----
-
-## Error Handling
-
-- User-facing messages are generic and safe ("Those dates are no longer available."). Never surface raw Postgres/Supabase error text, SQL, IDs of other users, or stack traces to the client.
-- Log internal detail server-side with a bracketed source prefix: `[actions/bookings]`, `[queries/listings]`, `[auth/callback]`. Include the operation and the error message.
-- A failed read returns a safe empty value and renders an empty/error state; a failed write returns `{ ok:false, error }`. One failure must not crash the page.
-- Expected, foreseeable failures (validation, unavailable dates, unauthorized) are returned as results — not thrown. Reserve throwing for truly unexpected/programmer errors.
-
----
+Run checks touched by the change and compare with the tracker. Do not update recorded baselines without investigating differences. Full-suite runs matter for shared layout changes because they affect other pages and locators. The documentation checker has its own failure-detection tests; it does not replace product tests.
 
 ## Environment Variables
 
-| Variable | Used In | Secret? |
-| -------- | ------- | ------- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase client factories (server + browser) | No (public) |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase client factories (server + browser) | No (public; RLS-protected) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only seed/migration scripts only — bypasses RLS; **never in a request path** (incl. the admin dashboard, which uses `admin_list_users()`) | **Yes — never expose** |
-| `NEXT_PUBLIC_SITE_URL` | OAuth `redirectTo` base for callbacks (localhost in dev, Render URL in prod) | No (public) |
-| `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Cloudinary config + `CldImage` delivery | No (public) |
-| `CLOUDINARY_API_KEY` | Cloudinary SDK config (`src/lib/cloudinary.ts`) | No — a public identifier (see below) |
-| `NEXT_PUBLIC_CLOUDINARY_API_KEY` | `CldUploadWidget` — sent with a **signed** browser upload so Cloudinary knows which account the signature belongs to | No (public) |
-| `CLOUDINARY_API_SECRET` | Signing uploads in `/api/sign-cloudinary` (server-only) | **Yes — never expose** |
+Use `.env.local` locally and the Render dashboard in production. Document a new variable here and in `.env.example` before using it. Never hardcode credentials or put secret values in documentation.
 
-- **The Cloudinary `api_key` is public; the `api_secret` is not.** `CldUploadWidget`
-  performs the upload from the browser and must send the key with it, so the same
-  value is duplicated as `NEXT_PUBLIC_CLOUDINARY_API_KEY` (found in F09: without
-  it the widget throws *"A Cloudinary API Key is required for signed requests"*
-  and the whole route 500s). This does **not** weaken the upload path — the key
-  identifies the account, the **signature** authorises the upload, and that is
-  minted only by `/api/sign-cloudinary` after verifying the session, whitelisting
-  the signable params, and confirming the target folder belongs to a listing the
-  caller hosts. `architecture.md`'s invariant is worded for exactly this: it
-  names `CLOUDINARY_API_SECRET`, never the key.
-- Never hardcode keys, URLs, or secrets — read them from `process.env`.
-- `SUPABASE_SERVICE_ROLE_KEY` and `CLOUDINARY_API_SECRET` may be used only server-side and never imported into any client component or `NEXT_PUBLIC_*` value. The service-role key is further restricted to **standalone seed/migration scripts** — never a request path (route handler, server action, or RSC); privileged reads in a request path go through a `security definer` function like `admin_list_users()`.
-- The same variables must be set locally in `.env.local` and in the **Render dashboard** for production.
-- Add any new variable to this table and to `.env.example` before using it.
+| Variable | Visibility and purpose |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Public project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anonymous key; database policies still apply |
+| `SUPABASE_SERVICE_ROLE_KEY` | Secret; standalone seed/migration scripts only, never a request path |
+| `NEXT_PUBLIC_SITE_URL` | Public app origin used to build the OAuth callback |
+| `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Public account name for delivery/uploads |
+| `CLOUDINARY_API_KEY` | Public account identifier, read by server SDK configuration |
+| `NEXT_PUBLIC_CLOUDINARY_API_KEY` | The same public identifier, needed by the browser upload widget |
+| `CLOUDINARY_API_SECRET` | Secret used only on the server to sign uploads |
 
----
+The Cloudinary key is public by design; the secret authorizes signing. The signature route authenticates the caller and checks ownership before returning a signature. Public environment values are inlined at build time. See D-014, D-015 and D-044.
 
-## Shared Constants
+## Dependencies and library guidance
 
-Fixed values live once in `src/lib/constants.ts` and are imported everywhere;
-never duplicate these literals inline.
+Use the existing stack before adding a package. A new dependency needs a reason, a maintained typed package, a runtime/bundle assessment, and an update to the approved dependency inventory in [Library guide](library-docs.md#dependency-versions) before installation. No dependencies are installed during context setup. Existing manifest ranges are retained in this rewrite.
 
-```ts
-// src/lib/constants.ts
-export const PROPERTY_TYPES = [
-  'home', 'apartment', 'villa', 'cabin', 'cottage',
-  'loft', 'guesthouse', 'tiny_home', 'treehouse', 'other',
-] as const
-export type PropertyType = (typeof PROPERTY_TYPES)[number]
+Check Context7 and relevant available service tools for current APIs, then the project-specific library guidance. Official docs may resolve missing or ambiguous coverage when that fallback is recorded. Check tool availability rather than assuming a configured server is callable. If current evidence is unavailable, mark the dependent API guidance unverified and continue independent work. See D-052 and D-068.
 
-export const AMENITIES = [
-  'wifi', 'kitchen', 'washer', 'dryer', 'air_conditioning', 'heating',
-  'workspace', 'tv', 'free_parking', 'pool', 'hot_tub', 'ev_charger',
-  'crib', 'gym', 'bbq_grill', 'breakfast', 'fireplace', 'smoke_alarm',
-] as const
-export type Amenity = (typeof AMENITIES)[number]
+## How this file is maintained
 
-export const SERVICE_FEE_PCT = 0.14   // guest service fee, applied to (nights * price)
-export const MAX_GUESTS = 16
-export const MIN_NIGHTS_DEFAULT = 1
-export const MAX_PHOTOS_PER_LISTING = 15
-```
-
-- Amenity/property-type values stored in the DB must come from these constants; the DB `property_type` enum must stay in sync with `PROPERTY_TYPES`.
-- Fee math uses these rates and rounds to whole cents.
-
----
-
-## Import Conventions
-
-- Import from the `@/` alias (`@/lib/...`, `@/components/...`, `@/types/...`), configured to `src/*` in `tsconfig.json`. No `../../..` deep relative paths.
-- Import order: external packages → `@/` internal modules → type-only imports (`import type`). Keep type-only imports as `import type`.
-- Import Supabase clients only from `@/lib/supabase/server` or `@/lib/supabase/client`, matching the runtime (server vs client component).
-
----
-
-## Comments
-
-- Comment the **why**, not the **what** — explain non-obvious decisions, invariants, and gotchas (e.g. why the `setAll` try/catch is empty).
-- No commented-out code and no redundant narration of self-evident lines.
-- `TODO:` comments must name the pending work and, ideally, who/what unblocks it (`// TODO: paginate host reservations once a listing exceeds ~50 bookings`).
-
----
-
-## Dependencies
-
-Before installing anything new, check:
-
-1. Can it be done with the existing stack (Next.js, Supabase, Zod, react-hook-form, date-fns, Tailwind)?
-2. Is it small, actively maintained, and typed?
-3. Does it belong on the server only, and if so is it kept out of client bundles?
-
-Approved dependencies for this project:
-
-- `next` — framework (App Router, RSC, server actions)
-- `react`, `react-dom` — UI runtime
-- `typescript` — language
-- `@supabase/supabase-js` — Supabase client
-- `@supabase/ssr` — cookie-based auth for Server Components / actions / middleware
-- `zod` — input validation and inferred types
-- `react-hook-form` — client form state
-- `@hookform/resolvers` — binds Zod schemas to react-hook-form
-- `date-fns` — date math for availability and bookings
-- `server-only` — marks read/query modules as server-only (build-time guard against client imports)
-- `tailwindcss` — styling engine (tokens from `DESIGN.md` in `globals.css @theme`)
-- `lucide-react` — icons
-- `clsx` / `tailwind-merge` — conditional class composition
-- `cloudinary` — Node SDK: server-side config, upload signing, and asset delete
-- `next-cloudinary` — `CldImage` (responsive delivery) and `CldUploadWidget` (signed uploads)
-- `vitest` + `@testing-library/react` + `@testing-library/jest-dom` — unit/component tests
-- `@playwright/test` — end-to-end tests (dev-only)
-
-Do not install any other packages without updating this list first. If a headless
-UI-primitive library is needed for accessibility (dialogs, popovers, date picker —
-e.g. Radix/shadcn), it must be styled to the `DESIGN.md` component specs and added
-here before install.
+Update a rule when approved behavior or a recurring implementation pattern changes. Put a general lesson here when it applies beyond the original component, and retain the original explanation through a decision/history link. Record consequential changes with an ID and reason; keep completion details in work notes. Run the documentation checker after editing this file.

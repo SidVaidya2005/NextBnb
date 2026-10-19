@@ -1,644 +1,142 @@
 # Architecture
 
-> **Role:** How the system is built — stack, structure, boundaries, data, and the invariants that must never be violated.
-> **Read after** `project-overview.md`, before writing any code.
-> **Relates to:** the stack here drives `code-standards.md` and `library-docs.md`.
+> **Role:** Explain the system's responsibilities and the rules that must always hold. Read after the product overview in every session.
 
 ## Stack
 
-| Layer | Tool | Purpose |
-| ----- | ---- | ------- |
-| Framework | Next.js 16 (App Router) | Full-stack React — routing, React Server Components, server actions |
-| Language | TypeScript ≥5.1 (strict) | Type safety across client and server (Next 16 requires TS ≥5.1) |
-| Runtime | Node.js ≥20.9 (LTS) | Next 16 minimum; Node 18 is unsupported. Pin via `.nvmrc` + `engines` |
-| UI runtime | React 19 | Component model |
-| Styling engine | Tailwind CSS v4 | Utility-first styling. Design tokens (colors, type scale, radii, spacing, breakpoints) come from `context/DESIGN.md` and live in the `@theme` block of `src/app/globals.css` |
-| Design system | `context/DESIGN.md` (Airbnb-style) | Source of truth for visual language: Rausch `#ff385c` on white canvas, `#222222` ink, soft radii, one shadow tier. Component specs map to `src/components/ui/` |
-| Font | Inter via `next/font/google` | Ships as the Airbnb Cereal VF substitute named in DESIGN.md; mapped onto the DESIGN.md type scale |
-| Icons | lucide-react | Icon set |
-| Database | Supabase Postgres | Relational store for all application data |
-| Auth | Supabase Auth (Google OAuth) | Google sign-in with cookie-based sessions via `@supabase/ssr` |
-| Authorization | Postgres Row Level Security | Per-user ownership enforced in the database |
-| Image storage & delivery | Cloudinary | User-uploaded listing photos (and optional custom avatars); on-the-fly responsive transforms (`f_auto`, `q_auto`, per-width) over a CDN |
-| Sample images | Unsplash (curated direct URLs) | Seed-only listing photos via stable `images.unsplash.com/photo-…` URLs |
-| Realtime | Supabase Realtime | Live message delivery in messaging |
-| Validation | Zod | Schema validation for form and server-action inputs |
-| Forms | react-hook-form | Client-side form state, bound to Zod schemas |
-| Dates | date-fns | Date math for availability and booking ranges |
-| Package manager | npm | Dependency management |
-| Deployment target | Render (Web Service) | Node web service: `npm run build` → `npm start`; env vars set in the Render dashboard |
+The browser handles interaction. Next.js renders pages and handles server actions. Supabase stores the data and enforces access rules. Cloudinary stores user-uploaded images. The application deploys as a Node service on Render.
 
----
+| Responsibility | Project choice |
+| --- | --- |
+| Language and runtime | TypeScript ≥5.1 in strict mode; Node ≥20.9, pinned to the Node 20 line in `.nvmrc` |
+| Framework and UI | Next.js 16 App Router; React 19 |
+| Server operations | Next.js Server Components, server actions and two HTTP handlers |
+| Package manager | npm, with exact resolutions in `package-lock.json` |
+| Database and authorization | Supabase Postgres, Row Level Security and column grants |
+| Sign-in | Supabase Auth with Google OAuth and cookie sessions |
+| Images | Cloudinary for uploads; direct Unsplash URLs for sample data |
+| Live messages | Supabase Realtime on `messages` |
+| Validation and forms | Zod 4; react-hook-form where a multi-field form needs it |
+| Dates | date-fns; booking dates are calendar dates |
+| Styling and icons | Tailwind CSS v4, Inter, lucide-react |
+| Testing | Vitest, Playwright and SQL verification scripts |
+| Lint and formatting | ESLint; no separate formatter is declared in the manifest |
+| Hosting | Render Web Service: build, then start |
 
-## Folder Structure
+No product AI integration or analytics service is declared in the inspected manifest or existing architecture. This rewrite adds neither. Dependency ranges and exact local resolutions are in the [Library guide](library-docs.md#dependency-versions); they are not a claim that vendor APIs were rechecked today.
 
-```
-NextBnb/
-├── CLAUDE.md                     → entry point; redirects agent to context/
-├── context/                      → project source-of-truth docs (this folder)
-├── public/                       → static assets (favicon, placeholder images)
-├── supabase/
-│   ├── migrations/               → SQL migrations: tables, enums, RLS policies, triggers
-│   └── seed.sql                  → sample listings, photos, demo users
-├── src/
-│   ├── app/                      → App Router routes (RSC by default)
-│   │   ├── globals.css           → Tailwind + @theme design tokens (from DESIGN.md)
-│   │   ├── layout.tsx            → root layout: nav bar, providers, Inter font
-│   │   ├── page.tsx              → Home / search results
-│   │   ├── listings/[id]/page.tsx→ Listing detail
-│   │   ├── favorites/page.tsx    → saved listings (protected)
-│   │   ├── trips/page.tsx        → guest reservations (protected)
-│   │   ├── host/
-│   │   │   ├── listings/page.tsx  → manage own listings (protected)
-│   │   │   ├── listings/new/page.tsx
-│   │   │   ├── listings/[id]/edit/page.tsx
-│   │   │   └── reservations/page.tsx
-│   │   ├── messages/page.tsx     → inbox + threads (protected)
-│   │   ├── admin/page.tsx        → moderation dashboard (admins only)
-│   │   ├── auth/callback/route.ts→ OAuth code exchange
-│   │   └── api/sign-cloudinary/route.ts → server-signs Cloudinary upload params
-│   ├── components/
-│   │   ├── ui/                   → design-system primitives (per DESIGN.md component specs)
-│   │   └── <domain>/             → feature components (ListingCard, SearchBar, …)
-│   ├── lib/
-│   │   ├── supabase/
-│   │   │   ├── server.ts         → createServerClient (RSC / server actions)
-│   │   │   ├── client.ts         → createBrowserClient (client components)
-│   │   │   └── middleware.ts     → session-refresh helper used by proxy.ts
-│   │   ├── cloudinary.ts         → configured Cloudinary Node SDK (server-only)
-│   │   ├── actions/              → server actions grouped by domain (bookings.ts, listings.ts, …)
-│   │   ├── queries/              → read functions for RSC (listings.ts, bookings.ts, …)
-│   │   ├── validations/          → Zod schemas per domain
-│   │   ├── hooks/                → shared client hooks (useDismissable, useFocusWhen)
-│   │   ├── constants.ts          → PROPERTY_TYPES, AMENITIES, fee rates, limits
-│   │   └── utils.ts              → pure helpers (formatPrice, nightsBetween, …)
-│   ├── types/
-│   │   └── database.types.ts     → generated Supabase types (source of truth for row shapes)
-│   └── proxy.ts                  → refreshes session, guards protected routes
-│                                   (Next 16 renamed the `middleware` convention)
-├── .env.local                    → secrets (gitignored)
-└── package.json
-```
+## System boundaries
 
----
+| Location | Responsibility |
+| --- | --- |
+| `src/app/` | Routes, layouts and page composition; reads are delegated to query modules |
+| `src/app/**/route.ts` | OAuth callback and upload signing; no page UI |
+| `src/components/ui/` | Reusable presentation and interaction primitives; no database or business rules |
+| `src/components/<domain>/` | Feature UI and calls to server actions |
+| `src/lib/supabase/` | Supabase client construction and session-refresh plumbing |
+| `src/lib/queries/` | Server-only reads and typed view models |
+| `src/lib/actions/` | Authenticated, validated writes |
+| `src/lib/validations/` | Shared input schemas |
+| `src/lib/hooks/` | Browser behavior such as dismissal and focus management; no fetching, database access or business rules |
+| `src/lib/cloudinary.ts` | Server-only SDK configuration and asset operations |
+| `src/lib/constants.ts` | Shared property types, amenities, fees and limits |
+| `src/types/database.types.ts` | Database row and enum types generated from the schema |
+| `src/proxy.ts` | Request interception; delegates session work to `src/lib/supabase/middleware.ts` |
+| `supabase/` | SQL migrations, seed data and SQL verification |
 
-## System Boundaries
+The upload-signing route has one deliberate inline ownership read. That check authorizes the signature it is about to issue. It is the documented exception to read queries living in `lib/queries/`. Some actions also read the records needed to authorize and validate their write; the boundary separates page reads from writes, not every individual database statement. See D-003 and D-016.
 
-| Folder | Owns |
-| ------ | ---- |
-| `src/app/` | Routing, page composition, layouts. Server Components fetch via `lib/queries` and render; they must not contain raw SQL/Supabase table queries inline or business logic — delegate to `lib/`. |
-| `src/app/**/route.ts` | HTTP endpoints only (OAuth callback, Cloudinary signature). No UI. |
-| `src/components/ui/` | Presentational design-system primitives only, built to `DESIGN.md` specs. No data fetching, no Supabase, no business rules. |
-| `src/components/<domain>/` | Feature UI. Client interactivity and calling server actions; no direct database access. |
-| `src/lib/supabase/` | The **only** place Supabase clients are constructed. Nothing else may call `createServerClient`/`createBrowserClient`. |
-| `src/lib/cloudinary.ts` | The **only** place the Cloudinary Node SDK (holding `CLOUDINARY_API_SECRET`) is configured. Server-only; never imported by a client component. |
-| `src/lib/queries/` | Read-side data access (server-only). Returns typed rows; no mutations. |
-| `src/lib/actions/` | Write-side server actions: validate → authorize → mutate → revalidate. The only place mutations live. |
-| `src/lib/validations/` | Zod schemas. Single source of truth for input shapes; no side effects. |
-| `src/lib/hooks/` | Shared client-side React hooks (`'use client'`). Browser-behaviour only — focus management, keyboard dismissal. No data fetching, no Supabase, no business rules; a hook that needed either belongs in `actions/` or the component. Added in F18. |
-| `src/lib/constants.ts` | Fixed shared values (property types, amenities, fee rates, limits). |
-| `src/types/` | Generated DB types and shared TS types. No runtime code. |
-| `supabase/` | Schema, RLS policies, triggers, and seed data. The database is the source of truth for authorization. |
+## Data flow
 
----
+A page reads through a server-only query and renders the result. Database policies decide which rows the caller can see. A failed read logs the internal error and returns the documented safe empty or unavailable result.
 
-## Data Flow
+For a write, a component calls a server action. The action validates the input, verifies the signed-in user, checks the relevant business rules, writes the change, and invalidates affected pages. It returns an `ActionResult` with either data or a safe error message. Sign-in and sign-out are navigation-only exceptions: they redirect and return no result value. See D-004 and D-017.
 
-### Server-rendered read
+For a photo, the server authorizes an upload signature for a listing the caller owns. The browser uploads directly to Cloudinary. A server action saves the photo's URL and `public_id`. Deletion also removes the Cloudinary asset when one exists.
 
-```
-Server Component (app/**/page.tsx)
-  → lib/queries/<domain> function
-    → createServerClient() (lib/supabase/server.ts)
-      → Supabase Postgres  [RLS scopes rows to the current user]
-    ← typed rows
-  ← render HTML
-```
+For messaging, the server creates threads and writes messages. The open thread receives new messages through a subscription authorized with the user's session. The inbox itself is server-rendered. See D-030.
 
-### Mutation via server action
+## Data model
 
-```
-Client component (form) → server action (lib/actions/<domain>.ts)
-  → zod schema.safeParse(input)      [invalid → return { ok:false, error }]
-  → getUser()                        [no user → return { ok:false, error:'Unauthorized' }]
-  → createServerClient().from(...).insert/update/delete()  [RLS re-checks ownership]
-  → revalidatePath(affected route)
-  ← ActionResult<T>  ({ ok:true, data } | { ok:false, error })
-```
+The nine tables are `profiles`, `listings`, `listing_photos`, `bookings`, `blocked_dates`, `favorites`, `reviews`, `message_threads` and `messages`. A profile is shared by guest and host behavior; hosting is not a separate account type.
 
-### Image upload (listing photos / avatar)
+Listings belong to hosts. Bookings connect a guest to a listing and retain the price accepted at reservation time. Photos and blocked dates belong to listings. A favorite connects a user and a listing. A review belongs to a completed booking. A thread connects a guest and host, optionally about a listing; its messages belong to that thread.
 
-```
-Client requests a signature → /api/sign-cloudinary (server signs params with API secret)
-  → Cloudinary upload widget/SDK uploads the File directly to Cloudinary (signed)
-    → returns { public_id, secure_url }
-→ server action records the row (listing_photos: public_id + url) → revalidatePath
-Delete: server action removes the row AND cloudinary.uploader.destroy(public_id)
-```
+Money is stored in integer cents. Booking status is `confirmed` or `cancelled`; completion is derived from the checkout date. Sample photos have no Cloudinary `public_id` and use the external-image rendering branch.
 
-### Realtime messaging
+The complete original column tables, policy matrix and grants are preserved in [Schema and policy notes](../docs/reference/architecture-notes.md). Treat them as a dated explanation; migrations and generated types establish the current schema. Read the actual foreign-key actions before changing any deletion path. See D-005, D-008 and D-023.
 
-```
-Client component subscribes: supabase.channel('messages:thread=<id>')
-  .on('postgres_changes', { event:'INSERT', table:'messages', filter:'thread_id=eq.<id>' })
-Send: server action inserts message + bumps thread.last_message_at
-  → Postgres change event → subscribed clients append message to the thread
-```
+## Access and privacy
 
-### Google auth
+Row Level Security (RLS) is a database feature that restricts which rows a caller can read or change. Column grants separately restrict which fields they may write. Both matter: permission to update a profile row must not permit changing `is_admin`.
 
-```
-<form action={signInWithGoogle}> → server action (lib/actions/auth.ts)
-  → supabase.auth.signInWithOAuth({ provider:'google',
-      options:{ redirectTo: `${SITE_URL}/auth/callback?next=…`, skipBrowserRedirect:true } })
-  → redirect(data.url)              [PKCE verifier cookie written server-side]
-  → Google consent → redirect /auth/callback?code=...
-  → route.ts: exchangeCodeForSession(code) sets cookies
-  → DB trigger on auth.users insert upserts a profiles row
-  → redirect to safeNextPath(next) (or /)
-```
+Authenticated writes to sensitive rows are limited to these columns; their row policies still apply:
 
-Sign-in runs **server-side**, not from the browser client: the same client that
-writes the PKCE code verifier reads it back in the callback, and the sign-in
-button needs no `'use client'`. `signInWithGoogle` and `signOut` are the one
-documented exception to the `ActionResult` contract — their only outcome is
-navigation, and `redirect()` signals by throwing, so they return `void` and
-surface failure as `/?signin=error`.
-
----
-
-## Data Model
-
-Postgres via Supabase. All monetary amounts are **integers in cents** (single
-currency). `id` columns are `uuid default gen_random_uuid()` unless noted.
-Timestamps are `timestamptz default now()`.
-
-### `profiles`
-
-| Column | Type | Notes |
-| ------ | ---- | ----- |
-| id | uuid PK | references `auth.users(id)` on delete cascade |
-| full_name | text | from Google profile |
-| avatar_url | text | Google avatar or uploaded avatar |
-| is_admin | boolean | default `false`; gates `/admin` |
-| created_at | timestamptz | |
-
-**No `email` column.** `profiles` is publicly readable (host names, reviewer
-names, message participants), so storing email here would expose every user's
-email. Email lives in `auth.users.email`: the current user reads their own via
-`supabase.auth.getUser()`; the admin user list reads others' **only** via the
-`admin_list_users()` `security definer` function gated on `is_admin()` — never
-through the public `profiles` policy, and never via the service-role key in a
-request path.
-
-`admin_list_users()` returns exactly **`(id uuid, email text)`** — nothing more.
-Names, join dates, and listing/booking counts are already visible to an admin
-through ordinary RLS-scoped reads, so the one function that bypasses RLS exposes
-only the one column RLS cannot reach.
-
-### `listings`
-
-| Column | Type | Notes |
-| ------ | ---- | ----- |
-| id | uuid PK | |
-| host_id | uuid | references `profiles(id)` on delete cascade; not null |
-| title | text | not null |
-| description | text | |
-| property_type | `property_type` enum | not null |
-| city | text | not null |
-| state | text | |
-| country | text | not null |
-| neighborhood | text | text location only (no lat/lng) |
-| max_guests | int | not null, ≥ 1 |
-| bedrooms | int | not null, default 0 |
-| beds | int | not null, default 1 |
-| bathrooms | numeric(3,1) | not null, default 1 |
-| price_per_night | int | not null; **cents** |
-| cleaning_fee | int | not null, default 0; **cents** |
-| amenities | text[] | not null, default `'{}'`; values from `AMENITIES` constant |
-| house_rules | text | |
-| check_in_time | text | e.g. `'15:00'` |
-| check_out_time | text | e.g. `'11:00'` |
-| min_nights | int | not null, default 1 |
-| is_published | boolean | not null, default `false` |
-| created_at / updated_at | timestamptz | |
-
-### `listing_photos`
-
-| Column | Type | Notes |
-| ------ | ---- | ----- |
-| id | uuid PK | |
-| listing_id | uuid | references `listings(id)` on delete cascade |
-| url | text | not null; delivery URL (Cloudinary `secure_url`, or a seed Unsplash URL) |
-| public_id | text | Cloudinary public id; **null** for external/seed (Unsplash) images. Used for transforms + delete |
-| position | int | not null, default 0; gallery order |
-| is_cover | boolean | not null, default false; exactly one cover per listing |
-| created_at | timestamptz | |
-
-### `bookings`
-
-| Column | Type | Notes |
-| ------ | ---- | ----- |
-| id | uuid PK | |
-| listing_id | uuid | references `listings(id)` on delete cascade; not null |
-| guest_id | uuid | references `profiles(id)` on delete cascade; not null |
-| check_in | date | not null |
-| check_out | date | not null; check `check_out > check_in` |
-| guests_count | int | not null, default 1 |
-| nights | int | not null; snapshot of `check_out - check_in` |
-| price_per_night | int | not null; **cents** snapshot at booking time |
-| cleaning_fee | int | not null, default 0; **cents** snapshot |
-| service_fee | int | not null; **cents** snapshot (guest service fee) |
-| total | int | not null; **cents** |
-| status | `booking_status` enum | not null, default `'confirmed'` |
-| created_at / cancelled_at | timestamptz | |
-
-Overlap prevention: an exclusion constraint (`btree_gist`) forbids two rows with
-`status = 'confirmed'` from having overlapping `daterange(check_in, check_out, '[)')`
-for the same `listing_id`. "Completed" is **derived** (`status='confirmed' AND
-check_out < current_date`), not a stored status.
-
-### `blocked_dates` (host-set availability)
-
-| Column | Type | Notes |
-| ------ | ---- | ----- |
-| id | uuid PK | |
-| listing_id | uuid | references `listings(id)` on delete cascade; not null |
-| start_date | date | not null |
-| end_date | date | not null; check `end_date >= start_date` |
-| created_at | timestamptz | |
-
-### `favorites`
-
-| Column | Type | Notes |
-| ------ | ---- | ----- |
-| user_id | uuid | references `profiles(id)` on delete cascade |
-| listing_id | uuid | references `listings(id)` on delete cascade |
-| created_at | timestamptz | |
-| — | PK | composite `(user_id, listing_id)` |
-
-### `reviews`
-
-| Column | Type | Notes |
-| ------ | ---- | ----- |
-| id | uuid PK | |
-| listing_id | uuid | references `listings(id)` on delete cascade; not null |
-| booking_id | uuid | references `bookings(id)` on delete cascade; not null; **unique** (one review per booking) |
-| reviewer_id | uuid | references `profiles(id)` on delete cascade; not null |
-| rating | int | not null; check between 1 and 5 |
-| comment | text | |
-| created_at | timestamptz | |
-
-### `message_threads`
-
-| Column | Type | Notes |
-| ------ | ---- | ----- |
-| id | uuid PK | |
-| listing_id | uuid | references `listings(id)` on delete set null; nullable |
-| guest_id | uuid | references `profiles(id)` on delete cascade; not null |
-| host_id | uuid | references `profiles(id)` on delete cascade; not null |
-| last_message_at | timestamptz | for inbox ordering |
-| created_at | timestamptz | unique `(guest_id, host_id, listing_id)` |
-
-### `messages`
-
-| Column | Type | Notes |
-| ------ | ---- | ----- |
-| id | uuid PK | |
-| thread_id | uuid | references `message_threads(id)` on delete cascade; not null |
-| sender_id | uuid | references `profiles(id)` on delete cascade; not null |
-| body | text | not null |
-| read_at | timestamptz | null until read |
-| created_at | timestamptz | |
-
-Enums: `property_type` = `home | apartment | villa | cabin | cottage | loft |
-guesthouse | tiny_home | treehouse | other`; `booking_status` = `confirmed |
-cancelled`.
-
----
-
-## Row Level Security (per-table policies)
-
-RLS is **enabled on every table** and is the authoritative access control. `auth.uid()`
-is the current user. `is_admin()` is a `security definer` helper returning
-`profiles.is_admin` for the current user (avoids recursive policy evaluation).
-
-| Table | SELECT (read) | INSERT | UPDATE | DELETE |
-| ----- | ------------- | ------ | ------ | ------ |
-| `profiles` | anyone (public — safe: no email/sensitive columns) | via signup trigger only | own row (`id = auth.uid()`), **`full_name` + `avatar_url` columns only** | none (cascade from auth) |
-| `listings` | `is_published = true` **OR** `host_id = auth.uid()` **OR** `is_admin()` | `host_id = auth.uid()` | `host_id = auth.uid()` — **no admin branch**, see below | `host_id = auth.uid()` **OR** `is_admin()` |
-| `listing_photos` | photo's listing is readable (published, or owner, or admin) | listing `host_id = auth.uid()` | listing `host_id = auth.uid()` | owner **OR** `is_admin()` |
-| `blocked_dates` | listing is readable | listing `host_id = auth.uid()` | listing `host_id = auth.uid()` | listing `host_id = auth.uid()` |
-| `bookings` | `guest_id = auth.uid()` **OR** listing `host_id = auth.uid()` **OR** `is_admin()` | `guest_id = auth.uid()`, listing `host_id <> auth.uid()` (no self-booking), and listing `is_published` | guest while `status='confirmed'` **AND** `check_in >= current_date` **OR** `is_admin()` — **`status` + `cancelled_at` columns only** | none (cancel is a status UPDATE) |
-| `favorites` | `user_id = auth.uid()` | `user_id = auth.uid()` | none | `user_id = auth.uid()` |
-| `reviews` | anyone (public) | reviewer is the booking's guest, booking completed, one per booking | none — **reviews are immutable** (to change, delete and re-post) | reviewer **OR** `is_admin()` |
-| `message_threads` | `guest_id = auth.uid()` **OR** `host_id = auth.uid()` | participant creating for self | participants, **`last_message_at` column only** | none |
-| `messages` | thread participant | sender is a thread participant (`sender_id = auth.uid()`) | **recipient** — participant where `sender_id <> auth.uid()`, **`read_at` column only** | none |
-
-- "Listing is readable" = the referencing listing satisfies the `listings` SELECT policy.
-- Ownership on child tables is checked by joining to the parent `listings.host_id` inside the policy (an `EXISTS (…)` subquery), never trusted from the client.
-- Unpublished listings and their photos are invisible to everyone except the owner and admins — this is enforced here, not only in queries.
-- **An admin can read, delete and moderate a listing but cannot UPDATE one.**
-  `listings_update_own` names only the host, in both USING and WITH CHECK. That
-  asymmetry is deliberate and it is why F17's admin unpublish is a definer
-  function (`admin_unpublish_listing()`, below) rather than a policy branch —
-  widening the policy would grant an admin *every* listing column, `host_id`
-  included, because no column grant restricts listing writes. An admin `.update()`
-  on `listings` matches zero rows and returns success; treat that as the failure
-  mode it is.
-
-### The three `security definer` functions, and what each exists to reach
-
-RLS is the authority, so a function that bypasses it needs a stated reason and a
-narrow return. There are three, each hardened the same way — `set search_path =
-''`, fully-qualified references, `EXECUTE` revoked from `PUBLIC`:
-
-| Function | Migration | Bypasses RLS to reach | Granted to |
-| -------- | --------- | --------------------- | ---------- |
-| `admin_list_users()` | `0002` | `auth.users.email` — `profiles` has no email column because it is publicly readable. Returns `(id, email)` and nothing else; self-guarded on `is_admin()` | `authenticated` |
-| `unavailable_listing_ids(check_in, check_out)` | `0007` | `bookings` rows an anon visitor cannot see. Returns **published listing ids only** | `anon`, `authenticated` |
-| `listing_occupied_ranges(listing_id)` | `0008` | the same, transposed — which nights are taken for one listing. Returns inclusive date spans, published listings only | `anon`, `authenticated` |
-| `admin_unpublish_listing(listing_id)` | `0009` | the `listings` UPDATE policy, which has no admin branch. Writes `is_published = false` and **no other column**; self-guarded on `is_admin()`, raises `42501` otherwise, returns the id or null | `authenticated` |
-
-Each shows up as a security-advisor WARN for every role it grants EXECUTE to.
-That is expected and the count is a tracked baseline (`progress-tracker.md`) —
-a *new* WARN beyond it is a finding.
-
-### Column-level grants — RLS filters rows, not columns
-
-Wherever the matrix says *"may update, but only this column"*, **the policy alone
-cannot enforce it**. A row-level policy admits or rejects the whole row, so
-`profiles` UPDATE scoped to "own row" would happily accept
-`set is_admin = true`. Postgres checks column privileges *in addition to* RLS,
-so those rules are carried by `GRANT`, not by policy text:
-
-| Table | Writable columns for `authenticated` |
-| ----- | ------------------------------------ |
-| `profiles` | `full_name`, `avatar_url` — **never `is_admin`** (no self-promotion) |
-| `bookings` | `status`, `cancelled_at` — the price snapshot and dates are unwritable |
+| Table | Writable columns |
+| --- | --- |
+| `profiles` | `full_name`, `avatar_url`; never `is_admin` |
+| `bookings` | `status`, `cancelled_at`; never the dates or price snapshot |
 | `message_threads` | `last_message_at` |
-| `messages` | `read_at` — message bodies are never editable |
+| `messages` | `read_at`; never the message body |
 
-Cells the matrix marks **"none"** are revoked outright rather than left to the
-absence of a policy: an UPDATE/DELETE against a table with RLS on and no
-matching policy affects **zero rows and returns success**, which is
-indistinguishable from "it worked". Revoked: DELETE on `profiles`, `bookings`,
-`message_threads`, `messages`; UPDATE on `reviews` (immutable) and `favorites`.
-`anon` holds no INSERT/UPDATE/DELETE on any table.
+Profiles are public so host and reviewer names can display. Email stays in `auth.users`; the admin user list gets only IDs and emails through the guarded `admin_list_users()` function. The service-role key is reserved for standalone seed and migration scripts, never application requests.
 
-### Policy conventions
+Availability needs narrow database functions because visitors cannot read other guests' bookings. `unavailable_listing_ids()` answers search availability and `listing_occupied_ranges()` supplies a listing's calendar. They expose availability for published listings without returning private booking rows. `admin_unpublish_listing()` changes only publication state; widening an admin UPDATE policy would permit changing unrelated listing fields. These four task-specific helpers are distinct from the `is_admin()` policy helper and the signup trigger. See D-006, D-009 and D-033.
 
-- Predicates use **`(select auth.uid())`**, never bare `auth.uid()` — the subselect is hoisted into an InitPlan and evaluated once per query instead of once per row.
-- Every policy names its roles (`to authenticated`, or `to anon, authenticated`). Public-readable tables whose predicate consults `is_admin()` are split into a separate anon policy that omits the call, because a signed-out visitor is never an admin — this keeps `EXECUTE` on `is_admin()` off `anon` entirely and shortens the hottest read path in the app.
+The app offers Google sign-in. The last recorded project configuration also enabled an email/password provider for the test accounts; that configuration gap remains open. Admin access is checked in the route and database, and sensitive admin actions re-check the role. Private message threads are limited to participants, including when the caller is an admin.
 
----
+## Availability and booking
 
-## Availability Rules
+A booking occupies its check-in date through the night before checkout: `[check_in, check_out)`. Another guest may check in on the checkout day. Host blocks include both their start and end dates. When combining the two range models, convert an inclusive block's end to the following day. See D-007.
 
-Availability is derived, never a stored flag. A listing is available for a
-requested `[check_in, check_out)` range iff **none** of these overlap it:
+A new booking must meet the listing's minimum nights and guest capacity, start today or later, and avoid both confirmed bookings and blocked dates. The database prevents overlapping confirmed bookings. Rules involving listing fields or blocked-date rows also need checks in the action; the accepted block/booking race is described in Standing constraints.
 
-1. Any `confirmed` booking on the listing, compared as half-open `daterange(check_in, check_out, '[)')`.
-2. Any `blocked_dates` range on the listing.
+A guest can cancel a confirmed booking while `check_in >= current_date`. This includes the check-in day, not later days of an in-progress stay. Cancellation changes status and records its time. Admin cancellation has a wider policy. A review becomes eligible only after the checkout date has passed. Prices are never recalculated after booking. See D-008, D-010 and D-011.
 
-- **Booking dates are half-open `[check_in, check_out)`**: the checkout day is *not* occupied — a new guest may check in on another's checkout day. All availability math and the `btree_gist` exclusion constraint use `'[)'`.
-- **`blocked_dates` are inclusive `[start_date, end_date]`** (both ends blocked). When unioning with bookings for a calendar or overlap test, convert a block to the half-open `daterange(start_date, end_date + 1, '[)')` so the two models compose correctly.
-- A host **cannot block dates that already have a confirmed booking**; the add-block action rejects a range overlapping any confirmed booking.
-- A guest **cannot book a range** overlapping either a confirmed booking or a blocked range; the booking action checks both, and the exclusion constraint is the final guard against races.
-- Minimum stay: `check_out - check_in >= listings.min_nights`; dates must be today or later (no past bookings).
+## Authentication and uploads
 
-### Availability must be computed in the database, not in application code
+Session checks on the server use `getUser()`. The proxy refreshes cookies and guards signed-in routes; `/admin` checks the admin flag in the page so ordinary requests do not pay for an extra role query. Return the response carrying refreshed cookies rather than replacing it. Missing Supabase configuration must fail visibly rather than disable route protection. See D-012.
 
-RLS scopes `bookings` SELECT to the guest, the listing's host, and admins — so an
-**anonymous visitor reads zero booking rows**. Any client- or RSC-side
-availability check built on a `bookings` read therefore concludes that the whole
-catalogue is free, silently and without error. (`blocked_dates` is anon-readable
-for published listings, so only the bookings half is affected — which is worse,
-because half the answer looks right.)
+Sign-in begins on the server, returns through `/auth/callback`, and uses `safeNextPath` to reject unsafe return destinations. On Render, the callback accounts for the forwarded host. Provider error text is stripped to letters/underscores and limited to 64 characters before logging; OAuth authorization codes are never logged. M1 is present in the checkout and merged as PR #6; whether GitHub has closed the alert was not checked. See D-013 and D-037.
 
-The date check is therefore a `security definer` function, added in `0007`:
+Three settings must agree during deployment: Google's redirect points to Supabase; Supabase's allowed return URL points to the app callback; and `NEXT_PUBLIC_SITE_URL` is the app's origin, without `/auth/callback`. Public environment values are built into the artifact, so fixing a value requires rebuilding. The [Render runbook](../docs/deploy-render.md) explains the checks. See D-014.
 
-```sql
-public.unavailable_listing_ids(p_check_in date, p_check_out date) returns setof uuid
-```
-
-It returns **published listing ids only** — never guest ids, price snapshots, or
-booking rows — unioning confirmed bookings (`'[)'`) with blocked dates
-(`daterange(start_date, end_date + 1, '[)')`). It is hardened like
-`admin_list_users()`: `set search_path = ''`, fully-qualified references,
-`EXECUTE` revoked from `PUBLIC` and granted to `anon, authenticated`. It refuses
-null bounds, because an unbounded `daterange` overlaps everything and would mark
-every listing unavailable — the difference between "no date filter" and "no
-results at all".
-
-Occupancy is public information in this product (F12's date picker must render
-it), so exposing it is the design, not a leak. Search, the listing calendar, and
-the booking action all read availability through this one function.
-
-## Booking Rules
-
-- **Instant Book only**: a valid reservation is inserted as `confirmed` immediately; there is no pending/host-approval state.
-- **No self-booking**: a host cannot book their own listing (enforced in the action and the `bookings` INSERT policy).
-- **Cancellation**: the **guest** may cancel while `status = 'confirmed'` and `check_in` is today or later (an upcoming/in-progress stay); a stay whose `check_in` has fully passed and started is not cancellable in this build. Cancel sets `status = 'cancelled'` + `cancelled_at`, which frees the dates (cancelled rows are excluded from the exclusion constraint). Admins may also cancel.
-- **Completed** is derived (`status = 'confirmed' AND check_out < current_date`), enabling reviews; it is never a stored status.
-- **Price snapshot & rounding**: at booking time compute in integer cents — `subtotal = nights × price_per_night`, `service_fee = round(subtotal × SERVICE_FEE_PCT)` (round half-up to whole cents), `total = subtotal + cleaning_fee + service_fee`. All five fields are stored and never recomputed later.
-
----
-
-## Image Storage & Delivery (Cloudinary)
-
-All user-uploaded images live in Cloudinary (not Supabase Storage). The DB stores
-only the `url` + `public_id`; Cloudinary handles optimization and responsive
-delivery. Uploads are **signed server-side** — the browser never sees the API secret.
-
-| Folder (Cloudinary) | Naming | Contents | Access |
-| ------------------- | ------ | -------- | ------ |
-| `nextbnb/listings/{listing_id}` | `{public_id}` returned by Cloudinary | Listing gallery images | Public delivery URLs; uploads require a server-generated signature; delete via SDK `destroy(public_id)` |
-| `nextbnb/avatars/{user_id}` | `{public_id}` | Optional custom avatars (default is the Google `avatar_url`) | Same signed-upload rule |
-
-- Delivery uses `f_auto` (auto AVIF/WebP), `q_auto` (auto quality), and per-width transforms via the `sizes`/`width` props of `next-cloudinary`'s `CldImage`.
-- Upload authorization is enforced by the `/api/sign-cloudinary` route (only signed-in users get a signature); the DB row insert is a separate auth-guarded server action.
-- Seed images are curated Unsplash URLs stored directly in `listing_photos.url` with `public_id = null`; they are never uploaded to Cloudinary.
-
----
-
-## Authentication
-
-- Provider: Supabase Auth via Google OAuth (PKCE flow), using `@supabase/ssr` for cookie-based sessions.
-- Methods: "Sign in with Google" only. No email/password, no other providers.
-- **Caveat — the app offers Google only, the Supabase project does not.** The
-  email/password provider is enabled at the project level because the Playwright
-  fixture signs in through it (Google consent cannot be automated), and
-  `disable_signup` is `false`, so email registration is reachable via the Auth API
-  even though no UI exposes it. Low severity — email confirmation is required and the
-  resulting account is an ordinary guest with no privilege path (RLS + column grants) —
-  but it is a real gap between this document and the live config. Turning signups off
-  globally is **not** the fix: it would also block first-time Google users. The fix is
-  a separate Supabase project for E2E so production can disable the email provider
-  outright. **Still open as of 2026-07-29** — F18 explicitly scoped it out as large enough
-  to rival the rest of that feature, so it did not close there. Tracked in
-  `progress-tracker.md` → Open work; background in `build-journal.md` → Phase 1 close-out.
-- Protected: `/trips`, `/favorites`, `/messages`, `/host/**`, and all mutating server actions. `/admin/**` additionally requires `profiles.is_admin = true`.
-- Public: `/`, `/listings/[id]`, `/auth/callback`, and static assets.
-- The session check for pages/actions uses `supabase.auth.getUser()` (verifies with the auth server) — never trust `getSession()` alone for authorization. `src/proxy.ts` refreshes the session cookie on every request and redirects unauthenticated users away from protected routes.
-- The proxy guards **authentication only**. `/admin` additionally needs `is_admin`, and that check lives in `src/app/admin/page.tsx` — putting it in the proxy would add a database round trip to every request in the app. RLS remains the backstop for the data itself.
-- Post-login destination: the `next` query param passed into the OAuth `redirectTo`, defaulting to `/`. The `redirectTo` base is `NEXT_PUBLIC_SITE_URL`.
-- A Postgres trigger on `auth.users` insert creates the matching `profiles` row, so a profile always exists after first sign-in.
-
-### Redirect URL responsibilities (three distinct places — a common source of "OAuth works locally, breaks in prod")
-
-The OAuth hop is **Browser → Google → Supabase → our app**. Each leg has its own allow-list:
-
-1. **Google Cloud OAuth client → Authorized redirect URIs.** This points at **Supabase, not our app**:
-   `https://<project-ref>.supabase.co/auth/v1/callback`
-   (Add exactly this one. It is the same for local and prod because Google talks to Supabase, never directly to our app.)
-2. **Supabase Auth → URL Configuration → Redirect URLs** (where Supabase is allowed to send the user back into *our* app). Add both:
-   - `http://localhost:3000/auth/callback`
-   - `https://<app>.onrender.com/auth/callback`
-   Also set **Site URL** to the production `https://<app>.onrender.com`.
-3. **Our app route `/auth/callback`** (`src/app/auth/callback/route.ts`) — receives `?code=…`, calls `exchangeCodeForSession`, and redirects to `next`. `signInWithOAuth({ redirectTo })` builds this URL from `NEXT_PUBLIC_SITE_URL`.
-
-Missing #1 → Google rejects the sign-in. Missing #2 → Supabase refuses to redirect back and the user lands on an error. Setting the wrong `NEXT_PUBLIC_SITE_URL` → users get bounced to the wrong origin after login.
-
----
-
-## Key Patterns
-
-Every file named in this section exists in `src/` — **read the file, not a copy of
-it.** What follows records *why* each looks the way it does, because that is the
-part source cannot tell you. Verbatim snippets used to live here and three of them
-had silently drifted from their source by F12; a stale snippet is worse than a
-pointer, because it is confidently wrong and it is what gets read *instead of* the
-real file.
-
-### Supabase server client — `src/lib/supabase/server.ts`
-
-Server Components, server actions, and route handlers. Reads/writes session cookies
-via `next/headers`.
-
-- **`setAll`'s try/catch is empty on purpose.** Server Components cannot set cookies —
-  only the proxy and server actions can. The proxy refresh writes them, so swallowing
-  the throw here is correct, not a missing error handler.
-- **`setAll`'s parameter needs an explicit `Parameters<SetAllCookies>[0]` annotation**,
-  with `SetAllCookies` imported from `@supabase/ssr`. `createServerClient` has two
-  cookie overloads (`getAll`/`setAll` vs the deprecated `get`/`set`/`remove`) and
-  strict TS cannot infer the param across them — omitting it is 10 implicit-any
-  errors (F01).
-- The two env vars carry non-null assertions; this is one of the sanctioned
-  boundaries in `code-standards.md` → TypeScript.
-- **Both factories are generic over `Database`** (`createServerClient<Database>` /
-  `createBrowserClient<Database>`) from `@/types/database.types`. Drop the generic and
-  every query silently degrades to `never` — F04 lost an afternoon to exactly that,
-  surfacing as one opaque `TS2698` rather than as a type error where the fault was.
-
-### Supabase browser client — `src/lib/supabase/client.ts`
-
-Client Components only (`'use client'`) — realtime subscriptions and client-side
-Cloudinary uploads. No cookie plumbing: `createBrowserClient` handles it.
-
-**These two files are the only places a Supabase client may be constructed** (see
-System Boundaries). Match the client to the runtime — importing the server module
-into a client component is a build error, and the reverse silently loses the session.
-
-### Proxy session refresh — `src/proxy.ts` + `src/lib/supabase/middleware.ts`
-
-Next 16 renamed the `middleware` file convention to `proxy` (and the export with it);
-the proxy runtime is Node-only, which is what the Supabase client wants. **It is two
-files:** `src/proxy.ts` holds only the convention — the `proxy` export and the
-`matcher` — and delegates to `updateSession`. All logic lives in
-`src/lib/supabase/middleware.ts`, which keeps its filename because it is a library
-helper rather than a file convention, and because client construction is restricted
-to `src/lib/supabase/`.
-
-- **Return the response object the helper builds, unmodified** — it carries the
-  refreshed cookies. Constructing a fresh `NextResponse` instead drops them and
-  silently signs the user out.
-- **Add no logic between client creation and `getUser()`.** That call is what
-  refreshes the token.
-- **It throws when its Supabase env vars are missing.** It is the only thing standing
-  between a signed-out visitor and every protected route, so it must never degrade to
-  a silent no-op — F04 hardened F01's env-skip for exactly this reason.
-- `PROTECTED` is a prefix list; a path matches on exact equality or on `path + '/'`.
-
-### Server action with auth guard + validation — `src/lib/actions/*.ts`
-
-The canonical mutation shape — validate with Zod → `getUser()` → mutate (RLS
-re-checks ownership) → `revalidatePath` → return `ActionResult` — is specified once,
-with a worked example, in **`code-standards.md` → Boundary Patterns**. Follow it
-there; the same sequence is drawn under Data Flow above.
-
-Two domain rules this project's actions add on top:
-
-- **A Supabase error on a `bookings` insert usually means the overlap exclusion
-  constraint fired** (`23P01`). Surface it as "Those dates are no longer available." —
-  never the raw error.
-- **The action is the only enforcement for any rule spanning two tables.** No
-  constraint can express `min_nights`, the per-listing `max_guests`, past dates, or a
-  booking over `blocked_dates` (F12).
-
-### OAuth callback route — `src/app/auth/callback/route.ts`
-
-- **`next` is attacker-controlled** — it round-trips through the provider — so it
-  passes through `safeNextPath` before use. A bare `startsWith('/')` check still
-  admits the protocol-relative `//evil.com`, which browsers treat as absolute.
-- **Behind Render's load balancer `origin` is the internal address**, so the redirect
-  base is built from `x-forwarded-host` in production and from `origin` in
-  development.
-- **`error=access_denied` redirects home with no error banner** — declining at the
-  consent screen is a choice, not a failure. Any other failure lands on
-  `/?signin=error`.
-- **`error` is attacker-controlled too, so it is sanitized before it is logged** (M1).
-  Same reasoning as `next`: anyone can request this route directly, so the code is
-  stripped to `[a-z_]` and capped at 64 chars before reaching `console.error`, which
-  keeps an arbitrary string out of the server log. Real RFC 6749 codes pass through
-  unchanged. The variable is named `providerError`, not `oauthError`, because CodeQL's
-  sensitive-name heuristic flags the latter.
-
-### Cloudinary config + signature route — `src/lib/cloudinary.ts`, `src/app/api/sign-cloudinary/route.ts`
-
-- **`cloudinary.ts` begins with `import 'server-only'`.** That line is what makes
-  "never imported by a client component" a build-time error rather than a convention,
-  and this module holds `CLOUDINARY_API_SECRET`. Do not drop it.
-- **Never blindly sign what the client sends.** The route verifies the user (401),
-  **whitelists** the signable keys — `timestamp`, `folder`, `source`, rejecting
-  `public_id`, `upload_preset`, `eager`, `notification_url` (403) — and confirms the
-  `folder` matches `nextbnb/listings/<uuid>` for a listing the caller hosts (403).
-- **Sign the validated params exactly as received.** Rebuilding a different object
-  makes the signature mismatch the widget's actual upload.
-- The ownership read in that route is the one sanctioned `.from()` outside
-  `lib/queries/` (see `code-standards.md` → Route handler).
-
-
----
+The upload-signing route verifies the user, permits only the intended signing parameters, and confirms the folder belongs to their listing. It signs the validated parameters as received. Image rendering uses the shared `ListingImage` component: Cloudinary assets use `CldImage`; external seed images use `next/image`; missing Cloudinary configuration falls back to the stored URL. See D-015.
 
 ## Invariants
 
-- Supabase clients are created **only** in `src/lib/supabase/`; no other file calls `createServerClient` / `createBrowserClient`.
-- Every mutation goes through a server action in `src/lib/actions/`; components never write to the database directly.
-- Every server action validates input with a Zod schema and verifies the user with `supabase.auth.getUser()` before mutating.
-- Authorization is never enforced by application code alone — every table has Row Level Security policies, and RLS is the backstop for every read and write.
-- Where a rule limits *which columns* a user may write, it is enforced by a column-level `GRANT`, not by a policy — RLS filters rows, not columns. A user can never write `profiles.is_admin`, a booking's price snapshot or dates, or a message body.
-- Use `getUser()` (not `getSession()`) for any authorization decision on the server.
-- Any post-auth redirect target taken from the URL passes through `safeNextPath` before use — a rooted path only, never a protocol-relative or absolute URL.
-- `src/lib/supabase/middleware.ts` **throws** when its Supabase env vars are missing. It is the only thing standing between a signed-out visitor and every protected route, so it must never degrade to a silent no-op.
-- Two `confirmed` bookings can never overlap for the same listing — enforced by the Postgres exclusion constraint, and checked in the booking action before insert.
-- A booking's price fields (`price_per_night`, `cleaning_fee`, `service_fee`, `total`, `nights`) are snapshots written at creation and never recomputed from the current listing afterward.
-- All money is stored and computed as integer **cents**; never store or arithmetic on floating-point currency.
-- Availability = confirmed bookings ∪ `blocked_dates`; every availability check and calendar considers both, with bookings half-open `[check_in, check_out)` and blocks inclusive `[start, end]` (see Availability Rules).
-- Availability for a date range is resolved by the `unavailable_listing_ids()` definer function — never by reading `bookings` from a query or component. RLS hides bookings from anon, so such a read returns "everything is available" instead of failing.
-- A host can never book their own listing (enforced in the action and the `bookings` INSERT policy).
-- The Cloudinary signature route verifies the user, whitelists the signable keys, and signs only when the `folder` targets a listing the caller owns — it rejects `public_id`, `upload_preset`, and any malformed or unowned folder.
-- A review may be created only by the booking's guest, only after checkout has passed, and at most one review per booking (DB unique on `booking_id`).
-- Only listings with `is_published = true` are visible in search and to non-owners; a host always sees their own unpublished listings.
-- Messages and threads are readable and writable only by the thread's `guest_id` and `host_id`.
-- `/admin/**` and admin-only queries require `profiles.is_admin = true`; this is checked in the DB (RLS) as well as the route.
-- **An admin write that RLS also permits to a non-admin must re-check `is_admin` in the action.** `listings_delete_own_or_admin` is `host_id = auth.uid() OR is_admin()`, so `adminDeleteListing` — which deliberately omits `deleteListing`'s upcoming-booking guard — would otherwise be a route for any host to erase their own listing's live reservations. Here the action narrows the policy rather than the other way round.
-- An admin unpublishes a listing through `admin_unpublish_listing()`; a direct `.update()` on `listings` as an admin affects zero rows and reports success.
-- Row shapes come from `src/types/database.types.ts` (generated); do not hand-write types that duplicate table columns.
-- Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `CLOUDINARY_API_SECRET`) never reach client components or `NEXT_PUBLIC_*` variables.
-- All user image uploads go to Cloudinary via a **server-signed** request; the browser never holds the Cloudinary API secret, and every upload is preceded by an auth check.
-- Deleting a listing or a photo also deletes its Cloudinary asset (`destroy(public_id)`) when `public_id` is set; seed images (`public_id = null`) are skipped.
-- Images render through `next-cloudinary` `CldImage` with `f_auto`/`q_auto` and a `sizes` prop — never a bare `<img>` for a Cloudinary asset, so responsive/optimized delivery is guaranteed.
-- The visual design system is defined by `context/DESIGN.md`. Colors, type scale, radii, and spacing come from its tokens (encoded in `globals.css` `@theme`); do not introduce off-palette colors or ad-hoc values.
-- The single accent color is Rausch `#ff385c`, used scarcely (primary CTAs, search orb, saved-heart state); the canvas is white, ink is `#222222`. Star ratings render in ink, not gold.
-- Every screen is built mobile-first and verified at the DESIGN.md breakpoints (mobile `<744`, tablet `744–1128`, desktop `1128–1440`, wide `>1440`); layouts drop columns rather than reflow rows.
+Each sentence below is a rule to check whenever the affected behavior changes. Its reason is explained above or in essential Standing constraints.
+
+- Supabase clients are constructed only within `src/lib/supabase/`.
+- Application writes go through authenticated, validated server actions in `src/lib/actions/`.
+- Components never write directly to the database.
+- Every mutating server action validates its input with its Zod schema and verifies its user before writing.
+- Every application table has RLS policies, and authorization never relies on application code alone.
+- Restrictions on writable columns are enforced with database privileges as well as policies.
+- Server authorization uses `getUser()`, not an unverified session value.
+- Post-authentication return paths pass through `safeNextPath` before use.
+- Missing Supabase configuration never turns protected-route checks into a silent no-op.
+- Two confirmed bookings for the same listing never overlap.
+- A booking's nights and price fields remain the snapshot written at creation.
+- Money is stored and calculated in integer cents, with fees rounded half-up to whole cents.
+- Every availability calculation considers both confirmed bookings and host blocks using their defined date boundaries.
+- Guest-facing availability uses the database availability helpers rather than a bookings read filtered by the guest's permissions.
+- A host never books their own listing.
+- Signed photo uploads target only the caller's owned listing and never expose the API secret.
+- Reviews are created only by the booking's guest, only after checkout has passed, and at most once per booking.
+- Search exposes only published listings, while hosts and admins may inspect permitted drafts.
+- Private threads and messages are readable and writable only by their participants, subject to the recorded thread-creation limitation.
+- Admin-only screens and operations verify the admin role at their applicable route, action and database boundaries.
+- An admin action whose database policy also admits hosts re-checks admin status before using its broader capability.
+- Admin unpublishing uses the narrow database helper rather than a direct listing UPDATE.
+- Database row types come from the generated database types rather than duplicate handwritten columns.
+- Secret values never reach browser components, public environment variables or documentation.
+- Deleting a listing or photo also removes any associated Cloudinary asset with a real `public_id`.
+- Cloudinary images use `CldImage` with responsive sizes and automatic delivery transforms when configured.
+- Visual values follow the design tokens in `context/DESIGN.md` and `globals.css`.
+- Rausch is the only product accent, and ratings use ink rather than gold.
+- Every screen is built mobile-first and checked at the documented breakpoints.
+
+## How this file is maintained
+
+Update boundaries and invariants when an approved change alters them. Keep consequential choices and reasons in their one decision record. Update the affected standards, library guide, work notes and tracker together. Keep task-specific column lists and historical diagnoses out of essential reading; link to their preserved detail. Do not describe a dated remote observation as a fresh measurement.

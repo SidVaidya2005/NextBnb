@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "check:context": "node scripts/check-context.mjs",
+    "test:context": "node --test scripts/check-context.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "5.4.0",

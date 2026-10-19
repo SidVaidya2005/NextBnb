@@ -4,367 +4,163 @@
 ![React 19](https://img.shields.io/badge/React-19-087ea4?style=flat-square&logo=react&logoColor=white)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20RLS-3ecf8e?style=flat-square&logo=supabase&logoColor=white)
-![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-06b6d4?style=flat-square&logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-288%20unit%20%2B%20420%20e2e-success?style=flat-square)
+![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-06b6d4?style=flat-square)
+![Recorded tests](https://img.shields.io/badge/recorded_tests-288%20unit%20%2B%20420%20e2e-success?style=flat-square)
 ![License MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
-A full-stack short-term rental marketplace. Guests search stays by destination, dates,
-group size, price, property type and amenities, then book instantly. Any signed-in user can
-become a host: create listings, upload photos, set pricing and availability, and manage
-incoming reservations. Guests and hosts message each other in real time, and guests review
-stays once they finish.
+NextBnb is a full-stack marketplace for short-term stays. Guests can find a place, check available dates and reserve it. Any signed-in user can also host: create a listing, upload photos, set a price and manage availability.
 
-**Live demo → [nextbnb-h4ov.onrender.com](https://nextbnb-h4ov.onrender.com)**
+Bookings are confirmed immediately. This is a portfolio project: no payment is taken.
 
-> Hosted on Render's free tier, which spins the service down when idle. The first request
-> after a quiet period takes about 30 seconds to wake; subsequent requests are immediate.
+[Open the demo](https://nextbnb-h4ov.onrender.com)
+
+The deployment notes describe Render's free service tier and a cold start of about 30 seconds after idle periods; allow the demo time to wake up.
 
 ![NextBnb home and search results](docs/screenshots/01-home.png)
 
----
+## What you can do
 
-## Features
+Search by destination, dates, guest count, price, property type and amenities. Filters stay in the URL, so you can share a search or reload without losing it. Open a listing for its gallery, amenities, house rules, host information and reviews.
 
-**Discovery and booking**
+Choose dates and guests to see the full price before reserving. Trips keeps upcoming and past stays together; eligible cancellations free the dates. Save places to Favorites, message a host, and leave a review after a completed stay.
 
-- Search by destination, check-in/check-out dates, guest count, price range, property type and amenities, in any combination. Filter state lives in the URL, so any search is shareable and survives a reload.
-- Listing pages with a photo gallery, amenities, house rules, check-in times, host details and reviews.
-- Instant Book: pick dates and guests, see a live price breakdown, and get a confirmed reservation. No payment is taken.
-- Favorites, and a Trips view of upcoming and past stays with cancellation that frees the dates.
-- Ratings and reviews, limited to one per completed stay, aggregated into each listing's average.
-
-**Hosting**
-
-- Create, edit, publish, unpublish and delete listings.
-- Signed, direct-to-CDN photo uploads with a per-listing gallery and cover image.
-- Block date ranges to manage availability alongside real bookings.
-- See incoming reservations across every listing you host, with per-stay earnings.
-
-**Communication and administration**
-
-- Guest ↔ host messaging with live message delivery over Postgres change streams.
-- Moderation dashboard over users, listings and bookings, reachable only by flagged admins.
-
----
+Hosts can create drafts, manage photos and their order, publish or unpublish listings, block dates and inspect incoming reservations. A separate admin dashboard provides moderation over users, listings and bookings.
 
 ## Screenshots
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/03-listing-detail.png" alt="Listing detail page with photo gallery"><br><em>Listing detail — gallery, amenities, host card</em></td>
-    <td width="50%"><img src="docs/screenshots/04-booking-widget.png" alt="Booking widget showing a live price breakdown"><br><em>Booking widget — live price breakdown</em></td>
+    <td width="50%"><img src="docs/screenshots/03-listing-detail.png" alt="Listing details with gallery and host information"><br><em>Listing details</em></td>
+    <td width="50%"><img src="docs/screenshots/04-booking-widget.png" alt="Date selection and reservation price breakdown"><br><em>Booking and price breakdown</em></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/screenshots/06-host-listings.png" alt="Host dashboard listing published and draft properties"><br><em>Host dashboard — published and draft listings</em></td>
-    <td width="50%"><img src="docs/screenshots/07-messages.png" alt="Guest and host conversation thread"><br><em>Messaging — realtime guest ↔ host threads</em></td>
+    <td width="50%"><img src="docs/screenshots/06-host-listings.png" alt="Host dashboard with published listings and drafts"><br><em>Host listings</em></td>
+    <td width="50%"><img src="docs/screenshots/07-messages.png" alt="Guest and host conversation"><br><em>Messages</em></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/screenshots/02-search.png" alt="Filtered search results"><br><em>Search — filtered, URL-driven results</em></td>
-    <td width="50%"><img src="docs/screenshots/08-trips.png" alt="Guest trips page with an upcoming reservation"><br><em>Trips — upcoming and past stays</em></td>
+    <td width="50%"><img src="docs/screenshots/02-search.png" alt="Search results with active filters"><br><em>Filtered search</em></td>
+    <td width="50%"><img src="docs/screenshots/08-trips.png" alt="Trips page showing a reservation"><br><em>Trips</em></td>
   </tr>
 </table>
 
-**The booking flow, end to end** — browse, pick dates, reserve, and the stay appears under Trips:
+The booking flow goes from search to date selection, reservation and Trips:
 
-![Booking a stay from search through to Trips](docs/screenshots/demo-booking.gif)
+![Booking a stay from search to Trips](docs/screenshots/demo-booking.gif)
 
 <details>
 <summary>Mobile layout</summary>
 
-Every screen is built mobile-first and verified at four breakpoints — phone (`<744px`),
-tablet (`744–1128px`), laptop (`1128–1440px`) and wide (`>1440px`). Grids drop columns
-rather than reflowing rows.
+The interface has phone, tablet, laptop and wide layouts. Search opens an overlay on phones, while booking uses a bottom bar and sheet.
 
-<img src="docs/screenshots/05-mobile-home.png" alt="NextBnb home page at phone width" width="380">
+<img src="docs/screenshots/05-mobile-home.png" alt="NextBnb home at phone width" width="380">
 
 </details>
 
----
+## How it is built
 
-## Tech stack
+| Area | Tools and purpose |
+| --- | --- |
+| Application | Next.js 16 App Router and React 19 render pages and handle server operations |
+| Types | TypeScript in strict mode; database types are generated from the schema |
+| Styling | Tailwind CSS v4 with shared colors, spacing and breakpoints; Inter for type |
+| Database | Supabase Postgres stores listings, bookings, profiles and conversations |
+| Access | Row Level Security restricts records; column grants restrict sensitive fields |
+| Sign-in | Supabase Auth with Google OAuth and cookie sessions |
+| Messages | Supabase Realtime delivers new messages to an open conversation |
+| Images | Cloudinary handles signed uploads and responsive delivery; seed photos use Unsplash URLs |
+| Forms and validation | Zod 4 and react-hook-form share input rules between forms and server actions |
+| Dates | date-fns supports calendar-date calculations |
+| Tests | Vitest, Playwright and SQL verification scripts |
+| Hosting | Render runs the production Node service |
 
-| Layer | Choice | Why |
-| ----- | ------ | --- |
-| Framework | Next.js 16 (App Router) | Server Components for reads and server actions for writes, so data access stays on the server |
-| Language | TypeScript 5.7, `strict` | No implicit `any`; row types are generated from the database schema rather than hand-written |
-| UI | React 19 | Client components kept small and at the leaves |
-| Styling | Tailwind CSS v4 | Design tokens declared once in a `@theme` block and consumed as utilities |
-| Database | Supabase Postgres | Relational store with constraints doing real work, not just storage |
-| Authorization | Postgres Row Level Security | Per-user ownership enforced in the database, plus column-level grants |
-| Auth | Supabase Auth, Google OAuth (PKCE) | Cookie-based sessions via `@supabase/ssr`, refreshed in the proxy |
-| Realtime | Supabase Realtime | Postgres change streams for live message delivery |
-| Images | Cloudinary via `next-cloudinary` | Server-signed uploads; `f_auto`/`q_auto` responsive delivery |
-| Validation | Zod 4 | One schema validates the form and the server action it posts to |
-| Forms | react-hook-form | Bound to the same Zod schemas through `@hookform/resolvers` |
-| Dates | date-fns | Calendar-day arithmetic that matches the database's date ranges |
-| Testing | Vitest, Playwright | Unit tests for pure logic; end-to-end tests for every core flow |
-| Hosting | Render (Web Service) | `npm run build` → `npm start` |
-
----
-
-## Architecture
-
-Reads and writes take deliberately different paths. Reads render on the server; writes go
-through a server action that validates, authorizes, mutates and revalidates — in that order.
+A page reads through a server-only query. A form writes through a server action, which validates the input, checks the user, applies the change and refreshes affected pages. Database access rules apply underneath both paths.
 
 ```mermaid
 flowchart LR
-    subgraph read["Read path"]
-        direction LR
-        RSC["Server Component<br/>app/**/page.tsx"] --> Q["lib/queries/*<br/>server-only"]
-        Q --> DB1[("Postgres<br/>RLS scopes rows")]
-        DB1 --> HTML["Rendered HTML"]
-    end
-
-    subgraph write["Write path"]
-        direction LR
-        CC["Client component"] --> ACT["Server action<br/>lib/actions/*"]
-        ACT --> V["Zod safeParse"]
-        V --> AU["getUser()"]
-        AU --> MUT["insert / update / delete"]
-        MUT --> DB2[("Postgres<br/>RLS + column grants<br/>re-check ownership")]
-        DB2 --> REV["revalidatePath"]
-    end
+    Page[Server-rendered page] --> Query[Read query]
+    Form[Form or control] --> Action[Validate and authorize]
+    Action --> Write[Write and refresh]
+    Query --> DB[(Postgres with access rules)]
+    Write --> DB
 ```
 
-Module boundaries are enforced rather than conventional:
+The boundaries have specific homes: `src/lib/queries/` holds page reads, `src/lib/actions/` holds writes, and `src/lib/supabase/` constructs clients. Reusable UI lives in `src/components/ui/`. The [Architecture guide](context/architecture.md) explains the contracts and their exceptions.
 
-- **`src/lib/supabase/`** is the only place a Supabase client is constructed — one factory per runtime, server and browser.
-- **`src/lib/queries/`** holds every read. Each module starts with `import 'server-only'`, so a client import fails at build time.
-- **`src/lib/actions/`** holds every write. Components never touch the database directly.
-- **`src/components/ui/`** contains presentational primitives only: no data fetching, no business rules.
-- **`src/lib/cloudinary.ts`** is the only module holding the Cloudinary secret, and is likewise `server-only`.
+Several rules need more than a disabled button. The database rejects overlapping confirmed bookings. Prices are stored as whole cents and saved with each reservation, so a host changing tomorrow's rate cannot change an existing booking. The checkout day is available for another arrival; host-blocked ranges include both endpoints.
 
-The App Router serves 13 pages and 2 route handlers (the OAuth callback and the Cloudinary
-signing endpoint). Request-level session refresh and route guarding live in `src/proxy.ts` —
-Next.js 16's replacement for the `middleware` convention.
+Public profiles contain names and avatars, not email addresses. Row policies and column privileges work together so updating a profile cannot promote an account to admin. Narrow database helpers expose availability without revealing other guests' booking records. The privileged service-role key is confined to standalone setup scripts.
 
-<details>
-<summary>Data model — 9 tables</summary>
+## Run locally
 
-All monetary amounts are integers in cents. Availability is derived from `bookings` and
-`blocked_dates`; it is never a stored flag.
-
-```mermaid
-erDiagram
-    profiles ||--o{ listings : hosts
-    profiles ||--o{ bookings : books
-    profiles ||--o{ favorites : saves
-    profiles ||--o{ reviews : writes
-    profiles ||--o{ message_threads : participates
-    listings ||--o{ listing_photos : has
-    listings ||--o{ blocked_dates : blocks
-    listings ||--o{ bookings : receives
-    listings ||--o{ favorites : saved_as
-    listings ||--o{ reviews : receives
-    listings ||--o| message_threads : concerns
-    bookings ||--o| reviews : enables
-    message_threads ||--o{ messages : contains
-```
-
-`profiles` deliberately has **no email column**: it is publicly readable so host and
-reviewer names can render, and an email column there would expose every user's address.
-Email lives in `auth.users` and is reachable only by the account itself or through a
-narrowly-scoped admin function.
-
-</details>
-
----
-
-## Security model
-
-Authorization is enforced in Postgres, not in application code. Row Level Security is
-enabled on all 9 tables and is the authority for every read and write; the `getUser()` check
-in each server action improves the user experience but is not the guard.
-
-**Row Level Security does not filter columns.** A row-level policy accepts or rejects a
-whole row, so "may update their own profile" would also accept `is_admin = true`. Rules of
-that shape are carried by column-level `GRANT`s alongside the policies:
-
-| Table | Columns `authenticated` may write |
-| ----- | -------------------------------- |
-| `profiles` | `full_name`, `avatar_url` — never `is_admin`, so self-promotion is impossible |
-| `bookings` | `status`, `cancelled_at` — dates and the price snapshot are unwritable |
-| `message_threads` | `last_message_at` |
-| `messages` | `read_at` — message bodies can never be edited |
-
-Where the matrix says "no one", the privilege is revoked outright rather than left to the
-absence of a policy: an `UPDATE` against an RLS-protected table with no matching policy
-affects zero rows **and reports success**, which is indistinguishable from working.
-
-Four `security definer` functions bypass RLS. Each exists for a stated reason, returns the
-narrowest useful shape, and is hardened the same way — `set search_path = ''`, fully
-qualified references, and `EXECUTE` revoked from `PUBLIC`:
-
-| Function | Reaches | Returns |
-| -------- | ------- | ------- |
-| `admin_list_users()` | `auth.users.email`, which `profiles` cannot hold | `(id, email)` only; self-guarded on `is_admin()` |
-| `unavailable_listing_ids(in, out)` | `bookings` rows an anonymous visitor cannot see | Published listing ids only |
-| `listing_occupied_ranges(id)` | The same, per listing, for the date picker | Inclusive date spans, published listings only |
-| `admin_unpublish_listing(id)` | The `listings` UPDATE policy, which has no admin branch | Writes `is_published` and no other column |
-
-That last one is the interesting case. An admin can read and delete a listing but **cannot
-update one** — the update policy names only the host. Widening it would have handed admins
-every listing column including `host_id`, since no column grant restricts listing writes, so
-the capability ships as a function that can change exactly one field.
-
-The privileged service-role key is confined to standalone seed and migration scripts. It
-never appears in a request path — not in a route handler, a server action, or a Server
-Component.
-
----
-
-## Correctness guarantees
-
-Each of these is enforced by a database constraint or policy, not only by application code:
-
-- **Two confirmed bookings can never overlap on the same listing.** A `btree_gist` exclusion constraint forbids overlapping `daterange(check_in, check_out, '[)')` for a listing while `status = 'confirmed'`. The booking action checks availability first and translates the constraint's `23P01` into a plain message, so the constraint is the backstop rather than the error path.
-- **Money is integer cents everywhere.** Fees round half-up to whole cents; no floating-point currency is stored or calculated.
-- **A booking's prices are a snapshot.** `nights`, `price_per_night`, `cleaning_fee`, `service_fee` and `total` are written once at creation and never recomputed from the listing afterwards, so later price changes cannot rewrite history.
-- **Availability is derived, never stored** — confirmed bookings unioned with host-blocked ranges. Bookings are half-open `[check_in, check_out)`, so a guest may check in on another's checkout day; blocked ranges are inclusive at both ends.
-- **Availability is resolved in the database.** RLS hides `bookings` from anonymous visitors, so computing it in application code would conclude that everything is free — silently, and without an error. Every availability check goes through a definer function instead.
-- **A host cannot book their own listing**, enforced in the action and in the `bookings` insert policy.
-- **One review per booking**, by that booking's guest, and only after checkout has passed. A unique constraint on `booking_id` makes duplicates impossible; reviews have no update policy, so they are immutable.
-- **Unpublished listings are invisible** to everyone except their host and admins, enforced in the read policy rather than in the query.
-
----
-
-## Testing
-
-| Suite | Count | Covers |
-| ----- | ----- | ------ |
-| Vitest (unit) | **288** across 6 files | Price breakdown and fee rounding, night counting, availability and overlap helpers, and every Zod schema |
-| Playwright (E2E) | **420** across 30 spec files | Auth gates, search and filters, booking and cancellation, hosting, availability, reviews, messaging, admin, keyboard access, landmark semantics, and responsive layout at every breakpoint |
-| SQL verification | 2 scripts | Schema, RLS policies and grants; seeded data shape, asserted before the E2E suite runs |
-
-Most recent full run: 417 passed, 3 skipped, 0 failed.
-
-Four practices matter more than the totals:
-
-- **Every new test is proven to fail before it is trusted.** A test is run against a deliberately broken build first — the guard deleted, the attribute removed — and only counts once it has failed for the right reason. This caught several assertions that passed against markup that did not work, including an accessibility test matching an attribute rather than the accessible name a screen reader computes.
-- **Two fixture accounts, not one.** Any behaviour that depends on *who is asking* cannot be verified by a single identity: one account is always the owner of what it edits, so it can only ever ask the reassuring half of each RLS question.
-- **The suite is run against a production build periodically**, not only against the dev server. Streaming, prefetching and caching differ between them, and one whole class of defect is invisible to a dev-server-only strategy.
-- **Test-created data cleans up after itself**, with a global teardown as the backstop for runs that die early, so counts stay meaningful between runs.
-
----
-
-## Getting started
-
-### Prerequisites
-
-- **Node.js ≥ 20.9** (LTS) and **TypeScript ≥ 5.1** — both are Next.js 16 minimums. The repo pins Node via `.nvmrc` and `engines`.
-- A **Supabase** project, a **Google OAuth** client, and a **Cloudinary** account. All three have free tiers sufficient to run this.
-
-### Setup
+You need Node.js ≥20.9, npm, a Supabase project, a Google OAuth client and a Cloudinary account. `.nvmrc` selects Node 20. Dependency versions are recorded in the manifest and lockfile.
 
 ```bash
-nvm use                      # Node 20, from .nvmrc
+nvm use
 npm install
-cp .env.example .env.local    # fill in the values below
-npm run dev                   # http://localhost:3000
+cp .env.example .env.local
 ```
 
-The app needs a provisioned database before it will show anything:
+Fill in `.env.local`, apply the nine SQL files in `supabase/migrations/` in filename order, and run `supabase/seed.sql` if you want the sample catalogue. Then start the app:
 
-1. Apply the migrations in `supabase/migrations/` (9 files, in order).
-2. Run `supabase/seed.sql` for 26 sample listings, 130 photos and demo users.
+```bash
+npm run dev
+```
 
-> `seed.sql` starts by deleting its own five sentinel demo users by id, cascading their
-> listings, bookings and reviews. Real accounts are never touched. It will, however, remove
-> rows you created by hand that hang off seeded data — a booking you made against a demo
-> listing goes with it.
+Open `http://localhost:3000`.
 
-### Environment variables
+The seed creates 26 sample listings, 130 photos and demo users. Running it again replaces its five sentinel demo users and their related data. Real accounts are preserved, but a manually created booking on a demo listing can be removed by that cascade. Read the seed's comments before rerunning it against data you want to keep.
 
-Set these in `.env.local` for development and in the Render dashboard for production. The
-full rationale for each is in `context/code-standards.md`.
+### Configuration
 
-| Variable | Secret | Purpose |
-| -------- | ------ | ------- |
-| `NEXT_PUBLIC_SUPABASE_URL` | no | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | no | Anonymous key; every request it makes is RLS-scoped |
-| `SUPABASE_SERVICE_ROLE_KEY` | **yes** | Bypasses RLS. Seed and migration scripts only, never a request path |
-| `NEXT_PUBLIC_SITE_URL` | no | Base for the OAuth `redirectTo` |
-| `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | no | Image delivery |
-| `CLOUDINARY_API_KEY` | no | Public account identifier used by the server SDK |
-| `NEXT_PUBLIC_CLOUDINARY_API_KEY` | no | The same value, needed in the browser by the upload widget |
-| `CLOUDINARY_API_SECRET` | **yes** | Signs uploads server-side |
+| Variable | Purpose |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public key used with database access policies |
+| `SUPABASE_SERVICE_ROLE_KEY` | Secret for standalone seed/migration scripts; never application requests |
+| `NEXT_PUBLIC_SITE_URL` | App origin, such as `http://localhost:3000`, without the callback path |
+| `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Cloudinary account name |
+| `CLOUDINARY_API_KEY` | Public account identifier used by server configuration |
+| `NEXT_PUBLIC_CLOUDINARY_API_KEY` | The same identifier for the browser upload widget |
+| `CLOUDINARY_API_SECRET` | Secret used only by the server to sign uploads |
 
-Cloudinary's `api_key` is a public identifier that accompanies every browser upload, which
-is why it is also exposed as a `NEXT_PUBLIC_` variable. The `api_secret` is what actually
-authorizes an upload, and it never leaves the server: the signing route verifies the
-session, whitelists the signable parameters, and confirms the target folder belongs to a
-listing the caller hosts before signing anything.
+The Cloudinary API key is a public identifier. The API secret authorizes signing and stays on the server. The signing endpoint checks the user and listing ownership before returning a signature. See [Environment variables](context/code-standards.md#environment-variables) for the project rules.
 
-### Scripts
+### Commands
 
 | Command | Purpose |
-| ------- | ------- |
-| `npm run dev` | Development server |
-| `npm run build` / `npm run start` | Production build / serve |
+| --- | --- |
+| `npm run dev` | Local development server |
+| `npm run build` | Production build |
+| `npm run start` | Serve the production build |
+| `npm run typecheck` | TypeScript checks |
 | `npm run lint` | ESLint |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run test` | Vitest unit and component tests |
-| `npm run test:e2e` | Playwright end-to-end tests |
+| `npm run test` | Vitest tests |
+| `npm run test:e2e` | Playwright tests using the configured database |
+| `npm run check:context` | Check documentation links, decision records and reading cost |
+| `npm run test:context` | Test the documentation checker against deliberate failures |
 
----
+## Verification
+
+The last recorded product run, on 2026-07-30, had 288 passing unit tests and 420 E2E tests: 417 passed, three skipped and none failed. The test badge is a static record of those totals, not a live CI result. The older production-mode baseline covered 395 E2E tests. Those suites were not rerun for this documentation rewrite.
+
+The tests cover pricing and date calculations, validation, ownership boundaries and the main user flows. Ownership tests use two identities, and new assertions are checked against deliberately broken behavior before being trusted. Periodic production-mode runs matter: one host-listing refresh defect appeared there while development-mode tests stayed green.
+
+Current baselines, qualifications and remaining work are in the [Progress tracker](context/progress-tracker.md).
 
 ## Deployment
 
-Deployed to Render as a Web Service using the committed `render.yaml` blueprint. The full
-runbook is in **[`docs/deploy-render.md`](docs/deploy-render.md)**. Two things are worth
-knowing before the first deploy:
+The committed `render.yaml` defines a Render Web Service. It builds with `npm run build` and starts with `npm start`. Follow the [Render runbook](docs/deploy-render.md) for environment configuration, redirect registration and deployment checks.
 
-- **Redirect URLs are registered in three separate places** — the Google Cloud OAuth client points at Supabase, Supabase's URL configuration points back at this app, and the app builds its own callback from `NEXT_PUBLIC_SITE_URL`. Missing any one of them breaks sign-in in a different way.
-- **`NEXT_PUBLIC_*` values are inlined at build time**, so setting the site URL requires a second deploy once the service has a hostname, and no runtime check can detect a stale one. The runbook shows how to probe the artifact the value produces instead.
+Google's redirect goes to Supabase; Supabase's allowed return URL goes to this app. `NEXT_PUBLIC_SITE_URL` must be the app origin. Public environment values are compiled into the build, so changing one requires another deployment.
 
----
+## Project documentation
 
-## How this project is documented
+Start with the [Project overview](context/project-overview.md) for behavior and scope, then [Architecture](context/architecture.md) for the implementation. [Code standards](context/code-standards.md) and the [Design system](context/DESIGN.md) explain how to change it consistently. The [Progress tracker](context/progress-tracker.md) holds status and open work.
 
-The `context/` directory, not the source, is this project's reference material, and it is
-maintained as the code changes:
+The [Build record](context/build-plan.md) explains the original 18 features. The journal preserves the dated build history, including failed diagnoses and corrections. Detailed pre-rewrite notes remain in the [Reference index](docs/reference/README.md). `CLAUDE.md` is the repository's single agent entry point.
 
-| File | Holds |
-| ---- | ----- |
-| `project-overview.md` | What the product is, who it serves, what is in and out of scope |
-| `architecture.md` | Stack, module boundaries, data model, and the invariants that must not be violated |
-| `code-standards.md` | The rules every change follows — language, framework, naming, error handling |
-| `library-docs.md` | Project-specific usage patterns for each dependency |
-| `progress-tracker.md` | Live status, current verification baselines, and open work |
-| `build-journal.md` | A dated entry per feature, plus the constraints that still bind |
-| `DESIGN.md` | The visual system: tokens, component specs, breakpoints |
+## Scope and license
 
-Two conventions do the real work. **Verification baselines are recorded, and a deviation is
-treated as a finding rather than a number to overwrite** — every gate has a current value,
-and work that moves one has to explain why. **Wrong turns are corrected in place, never
-deleted**: when a recorded diagnosis turns out to be false, the original stays with a dated
-correction beneath it, because a confidently wrong note costs more than no note — it tells
-every later reader where not to look. Several of the most useful entries in the journal are
-records of hypotheses that failed.
+The project deliberately excludes real payments, maps/geocoding, notifications, host-approved bookings, multiple currencies/languages and native mobile apps. It is licensed under [MIT](LICENSE), © 2026 Siddarth Vaidya.
 
----
-
-## Scope
-
-Deliberately not built, to keep the project focused on the marketplace itself:
-
-- **Real payments.** Bookings are confirmed instantly and no money moves; no card details are collected.
-- **Maps and geocoding.** Location is text only — no coordinates, no map view.
-- **Notifications.** No transactional email, SMS or push.
-- **Request-to-book.** All reservations are Instant Book; there is no host approval step.
-- **Multi-currency and internationalization.** One currency, one locale.
-- **Native mobile apps.** Responsive web only.
-
-Known limitations and remaining open work are tracked in
-[`context/progress-tracker.md`](context/progress-tracker.md).
-
----
-
-## License
-
-[MIT](LICENSE) © 2026 Siddarth Vaidya
-
-Sample listing photography comes from [Unsplash](https://unsplash.com) under the Unsplash
-License. NextBnb is an independent portfolio project, not affiliated with or endorsed by
-Airbnb, Inc.
+Sample photography comes from [Unsplash](https://unsplash.com) under the Unsplash License. NextBnb is an independent portfolio project and is not affiliated with or endorsed by Airbnb, Inc.
