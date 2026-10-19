@@ -4787,3 +4787,13 @@ was never flagged. Renamed to `errorCode`.
 **Bookkeeping:** F14's Key Decision moved to Standing Constraints → RLS & authorization at the
 10-bullet cap. Also corrected in passing: Current Status described PR #5 as **open**; `git log`
 shows `20bbda1 Merge pull request #5` on `main`, so it merged.
+
+### 2026-10-19 — Supabase keep-alive
+
+The user chose a database check every three days for the free portfolio demo, after considering six-hour and daily checks. Created cron-job.org job `8675651` using the existing account. It reads at most one public listing directly with a publishable key and existing RLS, without changing application code, database schema or Render configuration. D-069 owns the decision; [Work notes](work-notes.md#supabase-keep-alive-2026-10-19) retain configuration, checks and recovery steps.
+
+The calendar schedule is 09:00 Asia/Kolkata on days 1, 4, 7 and subsequent three-day dates through the 31st. Month boundaries may shorten the gap. Failure, recovery and automatic-disable notifications use the account email. The direct request returned HTTP 200 and one listing. This reduces inactivity risk but is not a guarantee against Supabase low-activity pausing. Existing product test baselines and the four open maintenance items are unchanged; no commit was requested.
+
+Verified one scheduler execution: HTTP 200, OK, 1,181 ms. Restored the recurring schedule after the temporary test; job readback confirmed enabled, no expiry and next execution on 2026-10-22 at 09:00 Asia/Kolkata.
+
+Documentation checks passed with 69 authoritative decisions; `git diff --check` was clean. Manual review confirmed that credentials were not recorded and prior decision reasons remain reachable.

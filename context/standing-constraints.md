@@ -34,6 +34,8 @@ A separate schema issue affects conversations: deleting a listing sets its threa
 
 ## Authentication and deployment
 
+The free Supabase project's keep-alive runs outside Render in cron-job.org every three calendar days at 09:00 Asia/Kolkata, with shorter gaps possible at month boundaries. It queries one published listing using a publishable key and existing RLS. Keep the scheduler's key current after key rotation, and inspect its failure emails. This reduces inactivity risk but does not guarantee exemption from pausing; paid Supabase plans remove inactivity pausing. See D-069 and the [Setup record](work-notes.md#supabase-keep-alive-2026-10-19).
+
 Google is the only sign-in method offered by the app. The last recorded Supabase configuration also enabled email/password sign-in for test fixtures and permitted email registration through its Auth API. Email confirmation is required, and no admin grant follows from registering. Disabling signup globally would also block new Google users. A separate test project is the recorded intended remedy, still open. See D-025; Phase 1 close-out and F18.
 
 Changing a public environment value requires a new build. Probe the redirect the built application actually produces; a healthy homepage does not prove sign-in works. Three separate redirect settings must agree. See D-014; F18.

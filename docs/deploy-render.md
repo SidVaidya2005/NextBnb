@@ -194,6 +194,14 @@ a later failure caused by an earlier misconfiguration is much harder to read.
 
 ---
 
+## Supabase keep-alive
+
+As of 2026-10-19, cron-job.org job `8675651` checks Supabase directly at 09:00 Asia/Kolkata on the 1st, 4th, 7th and subsequent three-day dates through the 31st. Month boundaries can shorten the interval. It reads at most one published listing through the Data API using a publishable key and existing anonymous access policies. It does not contact Render or perform a write.
+
+The job emails the cron-job.org account after one failure, on recovery and on automatic disablement. Its timeout is 30 seconds; response bodies are not saved. Manage it in the [cron-job.org console](https://console.cron-job.org/), then inspect execution history for HTTP 200. If the public key is rotated or revoked, replace the job's `apikey` header and test again. Never use a service-role key for this check.
+
+This is a free-tier mitigation. Supabase's [pausing policy](https://supabase.com/docs/guides/platform/free-project-pausing) evaluates low database activity, so one query every three days does not guarantee the project will remain active. Resume a paused project in the Supabase dashboard; upgrading to Pro removes inactivity pausing. The job does not prevent Render cold starts. See [Setup and verification](../context/work-notes.md#supabase-keep-alive-2026-10-19).
+
 ## Known gaps at deploy time
 
 Recorded here rather than discovered later. Both are tracked in

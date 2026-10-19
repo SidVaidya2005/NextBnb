@@ -8,6 +8,30 @@ Give each real work item a descriptive heading, intended behavior, decisions and
 
 Future completed work still receives its usual dated journal entry. This rewrite alone uses these notes instead because the user explicitly excluded the journal. Historical, superseded and retired records can live with their work item; governing active rules remain in essential reading. Move growing detail to an indexed reference before this file becomes burdensome.
 
+## Supabase keep-alive (2026-10-19)
+
+### Intended result and choice
+
+Reduce inactivity pauses for the portfolio demo with a small database read every three days. The user chose this interval after rejecting the proposed six-hour and daily schedules as more frequent than needed. Reuse the existing cron-job.org account; no deployment or schema change is needed. D-069 records the choice and accepted limits.
+
+### Configuration
+
+Job `8675651`, titled `NextBnb — Supabase keep-alive (every 3 days)`, reads `/rest/v1/listings?select=id&is_published=eq.true&limit=1` on the NextBnb Supabase project. It uses an enabled publishable key in the `apikey` header, requests no caching and keeps the existing anonymous RLS policies. It has no service-role key, performs no writes and saves no response bodies. The query succeeds with an empty array if the catalogue has no published listings.
+
+The calendar schedule runs at 09:00 Asia/Kolkata on days 1, 4, 7, 10, 13, 16, 19, 22, 25, 28 and 31 of each month. Missing dates are skipped. The longest scheduled gap is three days; gaps at month boundaries can be shorter. This is not a rolling 72-hour timer. Notifications go to the account email after one failure, on recovery and on automatic disablement. The timeout is 30 seconds.
+
+This job contacts Supabase directly and does not keep Render awake. Supabase evaluates low database activity over a week, so this schedule is a mitigation rather than a promise against pausing. If the project pauses, resume it in the dashboard. Consider Pro if availability becomes a production requirement. After rotating or revoking the publishable key, replace the scheduler header and test it again.
+
+### Verification and limits
+
+The direct HTTP probe returned 200 and one listing using the same URL and headers as the scheduled job. Earlier live checks in this session found Supabase ACTIVE_HEALTHY, confirmed 24 published listings through SQL and received HTTP 200 with the listings from the Render demo in about 40 seconds. The delay is consistent with a Render cold start, whose cause was not inspected independently.
+
+An execution through cron-job.org also succeeded: status OK, HTTP 200, duration 1,181 ms. A temporary test schedule was removed after that run. A fresh job readback confirmed the enabled recurring schedule above, no expiry and the next execution on 2026-10-22 at 09:00 Asia/Kolkata. An earlier test slot elapsed while network approval was pending; the runtime-scheduled test supplied the successful execution evidence.
+
+Service tools supplied the project's enabled public keys. Context7 was unavailable; the scheduler configuration was checked against the [official REST API reference](https://docs.cron-job.org/rest-api.html) on 2026-10-19. No copyable SDK guidance was added. Supabase's [pausing policy](https://supabase.com/docs/guides/platform/free-project-pausing) describes low-activity pausing and the paid-plan exemption.
+
+Documentation checks passed with 69 authoritative decisions, and `git diff --check` was clean. Manual review confirmed that the public key was not recorded in the repository and that the displaced recent-decision reference still has its authoritative record. Product test baselines are unchanged because no application code, dependencies or SQL changed. The four existing maintenance items remain open. No commit was requested.
+
 ## Documentation rewrite (2026-10-19)
 
 ### Intended result

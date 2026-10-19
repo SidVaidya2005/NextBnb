@@ -12,6 +12,8 @@ Older entries are classified by purpose, not age. Key Decisions in the tracker c
 
 ## Product and system decisions
 
+- **D-069 — Check Supabase from cron-job.org every three calendar days.** Reason: The user chose fewer requests than the proposed six-hour or daily checks for this free portfolio demo. Reuse the existing scheduler and read at most one published listing with a publishable key, so the check reaches the database without waking Render or adding privileges, application routes or schema. Calendar scheduling can shorten the gap at month boundaries; activity does not guarantee exemption from Supabase's low-activity pausing policy. Source: User agreement and keep-alive setup, 2026-10-19. Classification: ongoing.
+
 - **D-001 — Keep the marketplace scope focused.** Reason: Payments, maps, notifications, approvals, multiple currencies/languages and native apps were excluded so the build concentrates on discovery, reservations and hosting. Source: Product scope; original overview and F18. Classification: ongoing.
 
 - **D-002 — Use Next.js 16 with a Node server.** Reason: Server-rendered reads and server actions share one application; Node ≥20.9 and async request APIs follow the chosen framework generation. Source: F01 and F04. Classification: ongoing.

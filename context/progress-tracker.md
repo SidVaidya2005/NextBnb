@@ -18,7 +18,9 @@ Last completed product change: M1, sanitizing provider error text in the OAuth c
 
 Last completed documentation change (2026-10-19): rewrote the README and active guides in plain language, retained `CLAUDE.md` as the sole agent entry point, added 68 decision records and documentation checks, and preserved the journal unchanged. The checker and its 17 failure-detection/acceptance tests passed locally. Completion evidence is in [Documentation rewrite](work-notes.md#documentation-rewrite-2026-10-19). No product behavior, schema, dependency range or deployment is changed.
 
-No new product feature is queued. The four existing maintenance items remain open below. The recorded deployment is [nextbnb-h4ov.onrender.com](https://nextbnb-h4ov.onrender.com); it was not contacted during this rewrite.
+Latest operations change (2026-10-19): enabled a Supabase keep-alive job in cron-job.org at 09:00 Asia/Kolkata on the 1st, 4th, 7th and subsequent three-day dates through the 31st. It reads at most one published listing directly with a publishable key and emails the account on failure, recovery or automatic disablement. Month boundaries can shorten the interval. Setup and verification are in [Supabase keep-alive](work-notes.md#supabase-keep-alive-2026-10-19).
+
+No new product feature is queued. The four existing maintenance items remain open below. A live check on 2026-10-19 confirmed that [nextbnb-h4ov.onrender.com](https://nextbnb-h4ov.onrender.com) returned HTTP 200 with 24 listings; Supabase reported ACTIVE_HEALTHY and a database count confirmed 24 published listings. This does not replace the historical application test baselines.
 
 ## Progress
 
@@ -104,6 +106,7 @@ No unanswered product or layout choice was introduced by this rewrite. These ver
 
 Newest first; these are references to authoritative records in [Decision records](decisions.md), with fuller source explanations preserved. New decisions displace references here without deleting knowledge.
 
+- D-069: query Supabase directly every three calendar days using the existing external scheduler.
 - D-068: link to local implementations and keep missing current library evidence explicit.
 - D-067: preserve the existing change, verification and commit workflow during the rewrite.
 - D-066: preserve detailed pre-rewrite notes as indexed references with byte checks.
@@ -113,4 +116,3 @@ Newest first; these are references to authoritative records in [Decision records
 - D-062: leave the journal unchanged for this rewrite.
 - D-061: write plain explanations for all audiences and apply humanizer.
 - D-060: retain `CLAUDE.md` as the only agent entry point.
-- D-037: sanitize untrusted provider errors before logging; M1's real fix is separate from the scanner's label.
